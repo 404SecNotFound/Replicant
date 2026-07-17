@@ -109,6 +109,34 @@ def test_run_stream_reports_lines_and_done(client: TestClient) -> None:
     assert status["event_count"] > 0
 
 
+def test_connect_test_passes_tls_options(client: TestClient) -> None:
+    from unittest.mock import patch
+
+    captured: dict[str, object] = {}
+
+    def fake_send_test(self: object, collector: object) -> bool:
+        captured["collector"] = collector
+        return True
+
+    with patch("replicant.web.server.Orchestrator.send_test", fake_send_test):
+        resp = client.post(
+            "/api/connect/test",
+            headers=HEADERS,
+            json={
+                "host": "127.0.0.1",
+                "port": 6514,
+                "transport": "tls",
+                "tls_verify": False,
+                "tls_cafile": "/tmp/ca.pem",
+            },
+        )
+    assert resp.status_code == 200
+    collector = captured["collector"]
+    assert collector.transport == "tls"  # type: ignore[attr-defined]
+    assert collector.tls_verify is False  # type: ignore[attr-defined]
+    assert collector.tls_cafile == "/tmp/ca.pem"  # type: ignore[attr-defined]
+
+
 def test_run_notimplemented_maps_to_400(client: TestClient) -> None:
     # All catalog techniques are implemented, so force the engine's not-implemented
     # path and assert the endpoint still maps it to a 400 (the error contract).

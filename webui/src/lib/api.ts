@@ -71,6 +71,8 @@ export interface Collector {
   host: string;
   port: number;
   transport: string;
+  tls_verify?: boolean;
+  tls_cafile?: string | null;
 }
 
 export const testConnection = (collector: Collector) =>
