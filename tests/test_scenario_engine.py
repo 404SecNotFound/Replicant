@@ -348,3 +348,45 @@ def test_rep009_deterministic_same_seed() -> None:
     a = _plan("REP-009", "low", 1337)
     b = _plan("REP-009", "low", 1337)
     assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep008_baseline_then_novel_destinations() -> None:
+    plan = _plan("REP-008", "medium", 1337)
+    novel_dst = CATALOG.by_id("REP-008").params["medium"]["novel_dst"]
+    events = plan.events
+    assert len({e.src for e in events}) == 1  # one host, held
+    assert all(e.action == "accept" for e in events)
+    baseline, anomaly = events[:-novel_dst], events[-novel_dst:]
+    baseline_dsts = {e.dst for e in baseline}
+    novel_dsts = {e.dst for e in anomaly}
+    assert len(novel_dsts) == novel_dst  # each anomaly event a distinct destination
+    assert novel_dsts.isdisjoint(baseline_dsts)  # first-seen: never in the baseline
+    assert min(e.eventtime for e in anomaly) >= max(e.eventtime for e in baseline)  # after warm-up
+
+
+def test_rep008_baseline_is_a_stable_repeated_set() -> None:
+    plan = _plan("REP-008", "medium", 1337)
+    novel_dst = CATALOG.by_id("REP-008").params["medium"]["novel_dst"]
+    baseline = plan.events[:-novel_dst]
+    # The host talks to a small stable set, so destinations repeat across the baseline.
+    assert len({e.dst for e in baseline}) < len(baseline)
+
+
+def test_rep008_returns_warmup_note() -> None:
+    plan = _plan("REP-008", "medium", 1337)
+    assert plan.warmup_note is not None
+    assert "baseline" in plan.warmup_note.lower()
+
+
+def test_rep008_destinations_are_synthetic() -> None:
+    plan = _plan("REP-008", "medium", 1337)
+    for event in plan.events:
+        assert event.dst is not None
+        ip = ipaddress.ip_address(event.dst)
+        assert any(ip in net for net in _SYNTHETIC_RANGES)
+
+
+def test_rep008_deterministic_same_seed() -> None:
+    a = _plan("REP-008", "medium", 1337)
+    b = _plan("REP-008", "medium", 1337)
+    assert _serialize(a.events) == _serialize(b.events)

@@ -262,6 +262,7 @@ class ScenarioEngine:
             "REP-005": self._plan_exfil_volume,
             "REP-006": self._plan_destination_fanout,
             "REP-007": self._plan_brute_spray,
+            "REP-008": self._plan_newly_observed_dst,
             "REP-009": self._plan_ips_spike,
             "REP-010": self._plan_denied_burst,
         }
@@ -831,6 +832,108 @@ class ScenarioEngine:
             )
             session += 1
         return events, None, truncated
+
+    # -- REP-008 newly observed external destination per host -----------------
+
+    def _forward_accept(
+        self,
+        technique: Technique,
+        rng: Any,
+        src: str,
+        dst: str,
+        dpt: int,
+        eventtime: int,
+        session: int,
+    ) -> EventRecord:
+        """One benign-looking traffic:forward accept record (shared by baseline+novel)."""
+
+        service, app = port_service(dpt)
+        out_b = int(rng.integers(200, 20_000))
+        in_b = int(rng.integers(500, 200_000))
+        duration = int(rng.integers(1, 600))
+        spt = int(rng.integers(1024, 65535))
+        return EventRecord(
+            log_type=technique.fortigate.log_type,
+            subtype=technique.fortigate.subtype,
+            action="accept",
+            level="notice",
+            eventtime=eventtime,
+            src=src,
+            spt=spt,
+            dst=dst,
+            dpt=dpt,
+            proto=6,
+            session_id=session,
+            out_bytes=out_b,
+            in_bytes=in_b,
+            extra={
+                "policyid": "7",
+                "service": service,
+                "app": app,
+                "trandisp": "snat",
+                "duration": str(duration),
+                "sentpkt": str(max(1, out_b // 1400)),
+                "rcvdpkt": str(max(1, in_b // 1400)),
+            },
+        )
+
+    def _plan_newly_observed_dst(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        baseline_days = int(preset["baseline_days"])
+        novel_dst = int(preset["novel_dst"])
+        known_count = 5
+
+        # One host talking to a small stable set of external peers, then to new ones.
+        src = str(rng.choice(entities.internal_hosts))
+        benign = entities.benign_external
+        known = [
+            benign[i] for i in unique_ints(rng, 0, len(benign) - 1, min(known_count, len(benign)))
+        ]
+        adversary = entities.adversary_external
+        novel = [
+            adversary[i]
+            for i in unique_ints(rng, 0, len(adversary) - 1, min(novel_dst, len(adversary)))
+        ]
+
+        # Compressed history: one hit per known destination per baseline day.
+        baseline_events = len(known) * baseline_days
+        truncated = False
+        if baseline_events + len(novel) > self.max_events:
+            baseline_events = max(self.max_events - len(novel), 0)
+            truncated = True
+
+        dpt_choices = [443, 80, 8080, 8443, 22]
+        baseline_span_s = 3600  # compressed warm-up window
+        anomaly_span_s = 300  # the first-seen destinations follow the warm-up
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        for index in range(baseline_events):
+            dst = known[index % len(known)]
+            dpt = int(rng.choice(dpt_choices))
+            when = anchor + int(index * baseline_span_s / max(baseline_events, 1))
+            events.append(self._forward_accept(technique, rng, src, dst, dpt, when, session))
+            session += 1
+        anomaly_start = anchor + baseline_span_s + 1
+        for offset, dst in enumerate(novel):
+            dpt = int(rng.choice(dpt_choices))
+            when = anomaly_start + int(offset * anomaly_span_s / max(len(novel), 1))
+            events.append(self._forward_accept(technique, rng, src, dst, dpt, when, session))
+            session += 1
+
+        note = (
+            f"Baseline: {len(known)} known destinations over {baseline_days}d "
+            f"({baseline_events} events); anomaly begins at event {baseline_events} "
+            f"with {len(novel)} first-seen external destination(s)."
+        )
+        return events, note, truncated
 
     # -- REP-004 DNS tunneling ------------------------------------------------
 

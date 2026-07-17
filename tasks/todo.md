@@ -7,7 +7,7 @@ Remaining techniques (each: TDD engine planner + tests + mark implemented + CLI 
 - [x] REP-005 Outbound exfil volume anomaly (large out bytes, off-hours) — done. Off-hours placement helper (00:00-06:00 UTC+04:00); large out with >20:1 out/in ratio to few adversary destinations. 81 tests green.
 - [x] REP-006 Destination fan-out burst — done. One source to many unique destinations (mixed internal + external synthetic pools) in a 5-minute window, mostly accept, small bytes. 85 tests green.
 - [x] REP-007 Brute force / password spray (event:vpn ssl-login-fail) — done. spray = one external src vs many synthetic victims (2 attempts each, reason varies); brute = one victim, many attempts, one success (tunnel-up) at the end. Added deterministic synthetic-username generator. 93 tests green.
-- [ ] REP-008 Newly observed external destination (warm-up baseline, manifest note)
+- [x] REP-008 Newly observed external destination (warm-up baseline, manifest note) — done. One host emits a stable known-destination baseline (5 benign peers over N days), then first-seen adversary destinations; returns a warm-up note that flows into the CLI summary and RunManifest.warmup_note. 103 tests green.
 - [x] REP-009 IDS/IPS event-rate spike (utm:ips) — done. Burst of signature resets against one held target; varied src + attack (label-only signature pool) + escalating cnt; header severity high/critical (CEF 6/7). 98 tests green.
 - [x] REP-010 Denied outbound connection burst — done. One source, a burst of denied connections to a few synthetic external destinations in a 60s window, front-loaded (sharp spike then decay). 88 tests green.
 - [ ] REP-011 VPN geovelocity anomaly (event:vpn, synthetic country tags)
