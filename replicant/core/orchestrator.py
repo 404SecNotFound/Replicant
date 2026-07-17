@@ -43,6 +43,7 @@ from replicant.core.models import (
 )
 from replicant.entities.model import EntityModel
 from replicant.profiles.base import VendorProfile
+from replicant.profiles.checkpoint import CheckPointProfile
 from replicant.profiles.fortigate import FortiGateDevice, FortiGateProfile
 from replicant.profiles.paloalto import PaloAltoProfile
 from replicant.scenario.engine import ScenarioEngine, ScenarioPlan
@@ -87,6 +88,8 @@ class Orchestrator:
 
         if settings.vendor == "paloalto":
             return PaloAltoProfile()
+        if settings.vendor == "checkpoint":
+            return CheckPointProfile()
         if settings.vendor == "fortigate":
             return FortiGateProfile(
                 FortiGateDevice(

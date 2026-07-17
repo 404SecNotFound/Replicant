@@ -11,6 +11,7 @@ import { TerminalView } from "@/components/TerminalView";
 import {
   getCatalog,
   getConfig,
+  vendorLabel,
   type CatalogResponse,
   type Collector,
   type ConfigResponse,
@@ -22,6 +23,7 @@ export default function App() {
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [collector, setCollector] = useState<Collector | null>(null);
+  const [vendor, setVendor] = useState("fortigate");
   const [selected, setSelected] = useState<Technique | null>(null);
   const [tab, setTab] = useState("dashboard");
   const [dark, setDark] = useState(true);
@@ -31,6 +33,7 @@ export default function App() {
       .then(([cat, cfg]) => {
         setCatalog(cat);
         setConfig(cfg);
+        setVendor(cfg.vendor);
         setSelected(cat.techniques.find((t) => t.implemented) ?? cat.techniques[0] ?? null);
       })
       .catch((err) => setLoadError((err as Error).message));
@@ -71,7 +74,7 @@ export default function App() {
           <div>
             <div className="text-sm font-semibold leading-tight">Replicant</div>
             <div className="text-[11px] text-muted-foreground">
-              synthetic FortiGate CEF · vendor {catalog.vendor_profile} · loopback
+              synthetic CEF · vendor {vendorLabel(vendor)} · loopback
             </div>
           </div>
         </div>
@@ -100,6 +103,9 @@ export default function App() {
               epsCap={config.eps_cap}
               collector={collector}
               onCollectorChange={setCollector}
+              vendor={vendor}
+              vendors={config.vendors}
+              onVendorChange={setVendor}
             />
             <CatalogTable
               techniques={catalog.techniques}
@@ -107,7 +113,12 @@ export default function App() {
               onSelect={setSelected}
             />
           </div>
-          <RunPanel technique={selected} defaultSeed={config.default_seed} collector={collector} />
+          <RunPanel
+            technique={selected}
+            defaultSeed={config.default_seed}
+            collector={collector}
+            vendor={vendor}
+          />
         </div>
       </TabsContent>
 

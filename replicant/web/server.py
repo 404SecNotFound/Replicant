@@ -45,7 +45,7 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocket
 
 from replicant import __version__
-from replicant.config.settings import Settings
+from replicant.config.settings import VENDORS, Settings
 from replicant.core.models import Catalog, CollectorProfile, RunRequest
 from replicant.core.orchestrator import Orchestrator
 from replicant.web.pty_bridge import bridge_terminal
@@ -61,6 +61,7 @@ class CollectorBody(BaseModel):
     transport: str = "udp"
     tls_verify: bool = True
     tls_cafile: str | None = None
+    vendor: str | None = None  # override the CEF dialect of the rendered test line
 
 
 class RunBody(BaseModel):
@@ -71,6 +72,7 @@ class RunBody(BaseModel):
     to_file: str | None = None
     no_send: bool = True
     collector: CollectorBody | None = None
+    vendor: str | None = None  # override settings.vendor for this run
 
 
 def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
@@ -112,6 +114,23 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
     manager = RunManager(catalog, settings)
     base_orchestrator = Orchestrator(catalog, settings)
 
+    def _resolve_vendor(vendor: str | None) -> str:
+        if vendor is not None and vendor not in VENDORS:
+            raise HTTPException(status_code=400, detail=f"unknown vendor: {vendor}")
+        return vendor or settings.vendor
+
+    def _settings_for(vendor: str | None) -> Settings:
+        resolved = _resolve_vendor(vendor)
+        if resolved == settings.vendor:
+            return settings
+        return settings.model_copy(update={"vendor": resolved})
+
+    def _orchestrator_for(vendor: str | None) -> Orchestrator:
+        resolved = _resolve_vendor(vendor)
+        if resolved == settings.vendor:
+            return base_orchestrator
+        return Orchestrator(catalog, settings.model_copy(update={"vendor": resolved}))
+
     def require_token(
         token_q: str | None = Query(default=None, alias="token"),
         token_h: str | None = Header(default=None, alias="x-replicant-token"),
@@ -147,10 +166,13 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
             "hostname": settings.hostname,
             "anchor_epoch": settings.anchor_epoch,
             "accepted_as": settings.accepted_as,
+            "vendor": settings.vendor,
+            "vendors": list(VENDORS),
         }
 
     @app.post("/api/connect/test", dependencies=[Depends(require_token)])
     def connect_test(body: CollectorBody) -> dict[str, Any]:
+        orch = _orchestrator_for(body.vendor)
         collector = CollectorProfile(
             name="web",
             host=body.host,
@@ -160,13 +182,13 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
             tls_cafile=body.tls_cafile,
         )
         try:
-            ok = base_orchestrator.send_test(collector)
+            ok = orch.send_test(collector)
         except OSError as exc:
             return {"ok": False, "error": str(exc), "endpoint": collector.endpoint()}
         return {
             "ok": ok,
             "endpoint": collector.endpoint(),
-            "line": base_orchestrator.build_test_line(),
+            "line": orch.build_test_line(),
         }
 
     @app.post("/api/runs", dependencies=[Depends(require_token)])
@@ -175,6 +197,7 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
             catalog.by_id(body.technique_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        _resolve_vendor(body.vendor)  # 400 on an unknown vendor before starting
         collector = None
         if body.collector is not None:
             collector = CollectorProfile(
@@ -195,7 +218,7 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
             collector=collector,
         )
         try:
-            handle = manager.start(request)
+            handle = manager.start(request, settings=_settings_for(body.vendor))
         except (RuntimeError, NotImplementedError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"run_id": handle.run_id, "total": handle.total}

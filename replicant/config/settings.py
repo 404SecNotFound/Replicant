@@ -34,6 +34,11 @@ from replicant.scenario.engine import DEFAULT_ANCHOR_EPOCH
 _DURATION_UNITS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
 _DURATION_TOKEN = re.compile(r"(\d+)\s*([smhd]?)")
 
+# Canonical vendor-profile ids. The Orchestrator (_build_profile) is the validator;
+# the CLI --vendor choices, the Rich menu picker, and the web selector all derive
+# their option list from here, so adding a vendor is one entry here plus the profile.
+VENDORS: tuple[str, ...] = ("fortigate", "paloalto", "checkpoint")
+
 
 class Settings(BaseModel):
     """Operator defaults. The default layer of the precedence chain."""
@@ -41,7 +46,7 @@ class Settings(BaseModel):
     default_seed: int = 1337
     eps_cap: int = 2000
     default_intensity: Intensity = "medium"
-    vendor: str = "fortigate"  # fortigate | paloalto (selects the VendorProfile)
+    vendor: str = "fortigate"  # fortigate | paloalto | checkpoint (selects the VendorProfile)
     benign_marker: bool = False
     byte_key_out: str = "out"
     byte_key_in: str = "in"

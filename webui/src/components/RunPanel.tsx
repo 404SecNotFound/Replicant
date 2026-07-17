@@ -26,11 +26,12 @@ interface Props {
   technique: Technique | null;
   defaultSeed: number;
   collector: Collector | null;
+  vendor: string;
 }
 
 const MAX_VISIBLE = 800;
 
-export function RunPanel({ technique, defaultSeed, collector }: Props) {
+export function RunPanel({ technique, defaultSeed, collector, vendor }: Props) {
   const [intensity, setIntensity] = useState("medium");
   const [duration, setDuration] = useState("");
   const [seed, setSeed] = useState(String(defaultSeed));
@@ -88,6 +89,7 @@ export function RunPanel({ technique, defaultSeed, collector }: Props) {
       to_file: toFile ? filePath : null,
       no_send: !(sendToCollector && collector),
       collector: sendToCollector ? collector : null,
+      vendor,
     };
     try {
       const { run_id, total: est } = await startRun(body);

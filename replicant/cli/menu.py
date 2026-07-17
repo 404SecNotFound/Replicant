@@ -27,16 +27,28 @@ from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
 from replicant import __version__
-from replicant.config.settings import Settings, load_profiles, save_profile
+from replicant.config.settings import VENDORS, Settings, load_profiles, save_profile
 from replicant.core.models import Catalog, CollectorProfile, RunRequest
 from replicant.core.orchestrator import Orchestrator
+
+_VENDORS = list(VENDORS)
+_VENDOR_LABELS = {
+    "fortigate": "FortiGate",
+    "paloalto": "Palo Alto (PAN-OS)",
+    "checkpoint": "Check Point",
+}
+
+
+def _vendor_label(vendor: str) -> str:
+    return _VENDOR_LABELS.get(vendor, vendor)
 
 
 def _banner(console: Console, settings: Settings) -> None:
     console.print(
         Panel.fit(
             f"[bold green]Replicant online.[/bold green]  v{__version__}\n"
-            "vendor profile: [bold]FortiGate[/bold]   |   output: synthetic CEF over syslog\n"
+            f"vendor profile: [bold]{_vendor_label(settings.vendor)}[/bold]"
+            "   |   output: synthetic CEF over syslog\n"
             "[dim]For environments you own or are authorized to test. All entities are "
             "synthetic; the only egress is your configured collector.[/dim]",
             title="Replicant",
@@ -61,6 +73,19 @@ def _pick_saved_profile(
     if choice == "n":
         return None
     return saved[names[int(choice) - 1]]
+
+
+def _pick_vendor(console: Console, current: str) -> str:
+    """Offer the vendor profiles; return the chosen vendor id (default keeps current)."""
+
+    console.print("  [bold]Vendor profile[/bold]")
+    for index, vendor in enumerate(_VENDORS, start=1):
+        marker = "  [dim](current)[/dim]" if vendor == current else ""
+        console.print(f"    [{index}] {_vendor_label(vendor)}{marker}")
+    choices = [str(i) for i in range(1, len(_VENDORS) + 1)]
+    default = str(_VENDORS.index(current) + 1) if current in _VENDORS else "1"
+    choice = Prompt.ask("  Select vendor", choices=choices, default=default)
+    return _VENDORS[int(choice) - 1]
 
 
 def _connection_wizard(console: Console) -> CollectorProfile:
@@ -109,9 +134,13 @@ def _connect_flow(orchestrator: Orchestrator, console: Console) -> CollectorProf
     return profile
 
 
-def _main_table(catalog: Catalog, collector: CollectorProfile | None, seed: int) -> Table:
+def _main_table(
+    catalog: Catalog, collector: CollectorProfile | None, seed: int, vendor: str
+) -> Table:
     endpoint = collector.endpoint() if collector else "not connected"
-    table = Table(title=f"Replicant  |  collector {endpoint}  |  seed {seed}")
+    label = _vendor_label(vendor)
+    title = f"Replicant  |  vendor {label}  |  collector {endpoint}  |  seed {seed}"
+    table = Table(title=title)
     table.add_column("Key", justify="right")
     table.add_column("ID")
     table.add_column("Name")
@@ -189,14 +218,23 @@ def run_menu(catalog: Catalog, settings: Settings, console: Console) -> int:
         collector = _connect_flow(orchestrator, console)
 
     while True:
-        console.print(_main_table(catalog, collector, seed))
-        console.print("  [dim][1-11] technique   [c] connection   [s] seed   [q] quit[/dim]")
+        console.print(_main_table(catalog, collector, seed, settings.vendor))
+        console.print(
+            "  [dim][1-11] technique   [c] connection   [v] vendor   [s] seed   [q] quit[/dim]"
+        )
         choice = Prompt.ask("Select").strip().lower()
         if choice == "q":
             console.print("Replicant offline.")
             return 0
         if choice == "c":
             collector = _connect_flow(orchestrator, console)
+            continue
+        if choice == "v":
+            new_vendor = _pick_vendor(console, settings.vendor)
+            if new_vendor != settings.vendor:
+                settings = settings.model_copy(update={"vendor": new_vendor})
+                orchestrator = Orchestrator(catalog, settings)
+                console.print(f"  [green]vendor set[/green] -> {_vendor_label(new_vendor)}")
             continue
         if choice == "s":
             seed = IntPrompt.ask("New seed", default=seed)

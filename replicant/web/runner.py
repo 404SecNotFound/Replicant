@@ -68,8 +68,8 @@ class RunManager:
         handle.orchestrator.stop()
         return True
 
-    def start(self, request: RunRequest) -> RunHandle:
-        orchestrator = Orchestrator(self.catalog, self.settings)
+    def start(self, request: RunRequest, settings: Settings | None = None) -> RunHandle:
+        orchestrator = Orchestrator(self.catalog, settings or self.settings)
         total = len(orchestrator.build_plan(request))
         events: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=QUEUE_MAXSIZE)
         handle = RunHandle(

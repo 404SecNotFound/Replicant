@@ -30,7 +30,17 @@ export interface ConfigResponse {
   hostname: string;
   anchor_epoch: number;
   accepted_as: string;
+  vendor: string;
+  vendors: string[];
 }
+
+export const VENDOR_LABELS: Record<string, string> = {
+  fortigate: "FortiGate",
+  paloalto: "Palo Alto (PAN-OS)",
+  checkpoint: "Check Point",
+};
+
+export const vendorLabel = (id: string): string => VENDOR_LABELS[id] ?? id;
 
 export interface Manifest {
   technique_id: string;
@@ -75,10 +85,10 @@ export interface Collector {
   tls_cafile?: string | null;
 }
 
-export const testConnection = (collector: Collector) =>
+export const testConnection = (collector: Collector, vendor?: string) =>
   api<{ ok: boolean; endpoint: string; line?: string; error?: string }>("/api/connect/test", {
     method: "POST",
-    body: JSON.stringify(collector),
+    body: JSON.stringify({ ...collector, vendor }),
   });
 
 export interface RunBody {
@@ -89,6 +99,7 @@ export interface RunBody {
   to_file?: string | null;
   no_send: boolean;
   collector?: Collector | null;
+  vendor?: string | null;
 }
 
 export const startRun = (body: RunBody) =>
