@@ -23,6 +23,7 @@ Replicant can never fabricate a log that names a real host.
 from __future__ import annotations
 
 import ipaddress
+import itertools
 from dataclasses import dataclass, field
 
 # RFC1918 private space plus IANA documentation ranges (RFC 5737). Every default
@@ -64,14 +65,17 @@ def _assert_synthetic(network: ipaddress.IPv4Network) -> ipaddress.IPv4Network:
 
 def _hosts(cidr: str, limit: int | None = None) -> list[str]:
     network = _assert_synthetic(ipaddress.IPv4Network(cidr))
-    addresses = [str(host) for host in network.hosts()]
-    return addresses[:limit] if limit is not None else addresses
+    hosts = network.hosts()
+    if limit is not None:
+        return [str(host) for host in itertools.islice(hosts, limit)]
+    return [str(host) for host in hosts]
 
 
 @dataclass
 class EntityConfig:
     internal_subnet: str = "10.20.30.0/24"
     target_subnet: str = "10.20.40.0/24"
+    sweep_subnet: str = "10.50.0.0/16"
     adversary_subnet: str = "203.0.113.0/24"
     benign_subnet: str = "198.51.100.0/24"
     resolver: str = "10.20.0.53"
@@ -81,6 +85,7 @@ class EntityConfig:
     users: tuple[str, ...] = _DEFAULT_USERS
     host_limit: int = 254
     external_limit: int = 254
+    sweep_limit: int = 8192
 
 
 @dataclass
@@ -89,6 +94,7 @@ class EntityModel:
 
     internal_hosts: list[str]
     internal_targets: list[str]
+    sweep_hosts: list[str]
     adversary_external: list[str]
     benign_external: list[str]
     resolver: str
@@ -115,6 +121,7 @@ class EntityModel:
         return cls(
             internal_hosts=_hosts(cfg.internal_subnet, cfg.host_limit),
             internal_targets=_hosts(cfg.target_subnet, cfg.host_limit),
+            sweep_hosts=_hosts(cfg.sweep_subnet, cfg.sweep_limit),
             adversary_external=adversary,
             benign_external=benign,
             resolver=cfg.resolver,
@@ -131,6 +138,7 @@ class EntityModel:
         return {
             "internal_hosts": len(self.internal_hosts),
             "internal_targets": len(self.internal_targets),
+            "sweep_hosts": len(self.sweep_hosts),
             "adversary_external": len(self.adversary_external),
             "benign_external": len(self.benign_external),
             "resolver": self.resolver,

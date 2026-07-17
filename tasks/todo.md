@@ -1,3 +1,19 @@
+# Phase 2 - full catalog + hardening (in progress, branch: phase-2)
+
+Remaining techniques (each: TDD engine planner + tests + mark implemented + CLI verify):
+- [x] REP-003 Horizontal sweep (one port, many hosts) — done. Added synthetic sweep pool (10.50.0.0/16) to the entity model; planner holds src+dpt, varies dst, mostly deny. 78 tests green.
+- [ ] REP-005 Outbound exfil volume anomaly (large out bytes, off-hours)
+- [ ] REP-006 Destination fan-out burst
+- [ ] REP-007 Brute force / password spray (event:vpn ssl-login-fail)
+- [ ] REP-008 Newly observed external destination (warm-up baseline, manifest note)
+- [ ] REP-009 IDS/IPS event-rate spike (utm:ips)
+- [ ] REP-010 Denied outbound connection burst
+- [ ] REP-011 VPN geovelocity anomaly (event:vpn, synthetic country tags)
+
+Other Phase 2 items: TLS transport, off-hours/business-hours weighting, saved-profile menu polish, manifest polish.
+
+---
+
 # Phase 1.5 - Web UI + embedded terminal (in progress)
 
 User chose: React + Vite + Tailwind + shadcn frontend, and a FULL embedded TTY terminal (xterm.js + PTY/websocket bridge running the real Rich menu). Web server binds 127.0.0.1 on a random port. Both interfaces call the same Orchestrator.

@@ -67,6 +67,28 @@ def port_service(dpt: int) -> tuple[str, str]:
     return _PORT_SERVICE.get(dpt, (f"tcp/{dpt}", f"tcp/{dpt}"))
 
 
+def _scan_traffic_extra(is_open: bool, service: str, app: str) -> dict[str, str]:
+    """FortiGate traffic:forward extension fields for a scan probe (open vs blocked)."""
+
+    if is_open:
+        return {
+            "policyid": "7",
+            "service": service,
+            "app": app,
+            "trandisp": "noop",
+            "duration": "1",
+            "sentpkt": "1",
+            "rcvdpkt": "1",
+        }
+    return {
+        "policyid": "0",
+        "service": service,
+        "policytype": "policy",
+        "sentpkt": "1",
+        "rcvdpkt": "0",
+    }
+
+
 @dataclass
 class ScenarioPlan:
     technique_id: str
@@ -111,6 +133,7 @@ class ScenarioEngine:
         builders: dict[str, Callable[..., _BuilderResult]] = {
             "REP-001": self._plan_periodic_c2,
             "REP-002": self._plan_vertical_scan,
+            "REP-003": self._plan_horizontal_sweep,
             "REP-004": self._plan_dns_tunnel,
         }
         builder = builders.get(technique.id)
@@ -237,24 +260,7 @@ class ScenarioEngine:
             level = "notice" if is_open else "warning"
             service, app = port_service(dpt)
             spt = int(rng.integers(1024, 65535))
-            if is_open:
-                extra = {
-                    "policyid": "7",
-                    "service": service,
-                    "app": app,
-                    "trandisp": "noop",
-                    "duration": "1",
-                    "sentpkt": "1",
-                    "rcvdpkt": "1",
-                }
-            else:
-                extra = {
-                    "policyid": "0",
-                    "service": service,
-                    "policytype": "policy",
-                    "sentpkt": "1",
-                    "rcvdpkt": "0",
-                }
+            extra = _scan_traffic_extra(is_open, service, app)
             events.append(
                 EventRecord(
                     log_type=technique.fortigate.log_type,
@@ -275,6 +281,68 @@ class ScenarioEngine:
             )
             session += 1
             cumulative_ms += float(rng.uniform(gap_lo, gap_hi))
+        return events, None, truncated
+
+    # -- REP-003 horizontal sweep ---------------------------------------------
+
+    def _plan_horizontal_sweep(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        unique_hosts = int(preset["unique_hosts"])
+        port = int(preset["port"])
+        window_s = (
+            duration_override_s if duration_override_s is not None else int(preset["window_s"])
+        )
+
+        pool = entities.sweep_hosts
+        truncated = False
+        if unique_hosts > len(pool):
+            unique_hosts = len(pool)
+            truncated = True
+        if unique_hosts > self.max_events:
+            unique_hosts = self.max_events
+            truncated = True
+
+        src = str(rng.choice(entities.internal_hosts))
+        dst_indices = unique_ints(rng, 0, len(pool) - 1, unique_hosts)
+        open_count = max(1, unique_hosts // 200)
+        open_indices = set(unique_ints(rng, 0, unique_hosts - 1, min(open_count, unique_hosts)))
+        service, app = port_service(port)
+        gap_s = window_s / max(unique_hosts, 1)
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        for index, dst_index in enumerate(dst_indices):
+            is_open = index in open_indices
+            action = "accept" if is_open else "deny"
+            level = "notice" if is_open else "warning"
+            spt = int(rng.integers(1024, 65535))
+            extra = _scan_traffic_extra(is_open, service, app)
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action=action,
+                    level=level,
+                    eventtime=anchor + int(index * gap_s),
+                    src=src,
+                    spt=spt,
+                    dst=pool[dst_index],
+                    dpt=port,
+                    proto=6,
+                    session_id=session,
+                    out_bytes=0,
+                    in_bytes=0,
+                    extra=extra,
+                )
+            )
+            session += 1
         return events, None, truncated
 
     # -- REP-004 DNS tunneling ------------------------------------------------

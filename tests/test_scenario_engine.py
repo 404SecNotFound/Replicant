@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from collections import Counter
 from pathlib import Path
 
@@ -130,3 +131,30 @@ def test_rep004_qnames_are_synthetic_parents() -> None:
     plan = _plan("REP-004", "medium", 1337, duration_s=10)
     parent = plan.events[0].extra["qname"].split(".", 1)[1]
     assert parent in set(ENTITIES.parents)
+
+
+def test_rep003_one_src_one_port_many_unique_hosts_mostly_deny() -> None:
+    plan = _plan("REP-003", "low", 1337)
+    preset = CATALOG.by_id("REP-003").params["low"]
+    unique_hosts, port = preset["unique_hosts"], preset["port"]
+    assert len(plan.events) == unique_hosts
+    assert len({e.src for e in plan.events}) == 1  # one source, held
+    assert {e.dpt for e in plan.events} == {port}  # one destination port, held
+    assert {e.proto for e in plan.events} == {6}
+    assert len({e.dst for e in plan.events}) == unique_hosts  # every dst unique
+    deny = sum(1 for e in plan.events if e.action == "deny")
+    assert deny / len(plan.events) > 0.9  # mostly deny
+
+
+def test_rep003_deterministic_same_seed() -> None:
+    a = _plan("REP-003", "low", 1337)
+    b = _plan("REP-003", "low", 1337)
+    assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep003_destinations_are_synthetic_internal() -> None:
+    plan = _plan("REP-003", "low", 1337)
+    rfc1918 = ipaddress.ip_network("10.0.0.0/8")
+    for event in plan.events:
+        assert event.dst is not None
+        assert ipaddress.ip_address(event.dst) in rfc1918
