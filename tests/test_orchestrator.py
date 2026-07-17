@@ -142,7 +142,7 @@ def test_unimplemented_technique_raises(tmp_path: Path) -> None:
     with pytest.raises(NotImplementedError):
         orchestrator.run(
             RunRequest(
-                technique_id="REP-005",
+                technique_id="REP-011",
                 intensity="low",
                 seed=1,
                 to_file=str(tmp_path / "y.log"),

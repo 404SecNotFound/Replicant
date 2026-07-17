@@ -158,3 +158,106 @@ def test_rep003_destinations_are_synthetic_internal() -> None:
     for event in plan.events:
         assert event.dst is not None
         assert ipaddress.ip_address(event.dst) in rfc1918
+
+
+def test_rep005_outbound_exfil_volume_shape() -> None:
+    plan = _plan("REP-005", "low", 1337)
+    preset = CATALOG.by_id("REP-005").params["low"]
+    sessions, total_mb, dst_count = preset["sessions"], preset["total_out_mb"], preset["dst_count"]
+    assert len(plan.events) == sessions
+    assert len({e.src for e in plan.events}) == 1  # one source, held
+    assert len({e.dpt for e in plan.events}) == 1  # one port, held
+    assert len({e.dst for e in plan.events}) <= dst_count  # few destinations
+    assert all(e.action == "accept" for e in plan.events)
+    total_out = sum(e.out_bytes or 0 for e in plan.events)
+    total_in = sum(e.in_bytes or 0 for e in plan.events)
+    assert total_out >= total_mb * 1_000_000 * 0.5  # large outbound volume near target
+    assert total_out / max(total_in, 1) > 20  # exfil ratio out:in > 20:1
+
+
+def test_rep005_deterministic_same_seed() -> None:
+    a = _plan("REP-005", "low", 1337)
+    b = _plan("REP-005", "low", 1337)
+    assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep005_events_weighted_off_hours() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    dubai = timezone(timedelta(hours=4))
+    plan = _plan("REP-005", "low", 1337)
+    for event in plan.events:
+        hour = datetime.fromtimestamp(event.eventtime, dubai).hour
+        assert hour < 8 or hour >= 18  # outside business hours
+
+
+_SYNTHETIC_RANGES = [
+    ipaddress.ip_network(c)
+    for c in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "192.0.2.0/24",
+        "198.51.100.0/24",
+        "203.0.113.0/24",
+    )
+]
+
+
+def test_rep006_destination_fanout_shape() -> None:
+    plan = _plan("REP-006", "low", 1337)
+    unique_dst = CATALOG.by_id("REP-006").params["low"]["unique_dst"]
+    assert len(plan.events) == unique_dst
+    assert len({e.src for e in plan.events}) == 1  # one source, held
+    assert len({e.dst for e in plan.events}) == unique_dst  # many unique destinations
+    assert unique_dst >= 50  # far above the benign baseline of < 10 in the window
+    assert all((e.out_bytes or 0) < 100_000 for e in plan.events)  # small byte volume
+
+
+def test_rep006_within_five_minute_window() -> None:
+    plan = _plan("REP-006", "low", 1337)
+    times = [e.eventtime for e in plan.events]
+    assert max(times) - min(times) <= 5 * 60
+
+
+def test_rep006_deterministic_same_seed() -> None:
+    a = _plan("REP-006", "low", 1337)
+    b = _plan("REP-006", "low", 1337)
+    assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep006_destinations_are_synthetic() -> None:
+    plan = _plan("REP-006", "low", 1337)
+    for event in plan.events:
+        assert event.dst is not None
+        ip = ipaddress.ip_address(event.dst)
+        assert any(ip in net for net in _SYNTHETIC_RANGES)
+
+
+def test_rep010_denied_outbound_burst_shape() -> None:
+    plan = _plan("REP-010", "low", 1337)
+    preset = CATALOG.by_id("REP-010").params["low"]
+    denies, window = preset["denies"], preset["window_s"]
+    assert len(plan.events) == denies
+    assert len({e.src for e in plan.events}) == 1  # one source, held
+    assert all(e.action == "deny" for e in plan.events)  # all denied
+    external = ipaddress.ip_network("203.0.113.0/24")
+    for event in plan.events:
+        assert event.dst is not None
+        assert ipaddress.ip_address(event.dst) in external  # synthetic external destinations
+    times = [e.eventtime for e in plan.events]
+    assert max(times) - min(times) <= window  # inside the burst window
+
+
+def test_rep010_rate_spikes_then_decays() -> None:
+    plan = _plan("REP-010", "low", 1337)
+    offsets = sorted(e.eventtime for e in plan.events)
+    span = offsets[-1] - offsets[0]
+    median = offsets[len(offsets) // 2] - offsets[0]
+    assert median < span * 0.5  # more than half the events in the first half of the window
+
+
+def test_rep010_deterministic_same_seed() -> None:
+    a = _plan("REP-010", "low", 1337)
+    b = _plan("REP-010", "low", 1337)
+    assert _serialize(a.events) == _serialize(b.events)

@@ -113,7 +113,7 @@ def test_run_unimplemented_returns_400(client: TestClient) -> None:
     resp = client.post(
         "/api/runs",
         headers=HEADERS,
-        json={"technique_id": "REP-005", "intensity": "low", "no_send": True},
+        json={"technique_id": "REP-011", "intensity": "low", "no_send": True},
     )
     assert resp.status_code == 400
 
