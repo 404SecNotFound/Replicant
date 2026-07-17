@@ -54,9 +54,10 @@ replicant run REP-004 --intensity high --to-file ./out/dns.log --no-send
 
 ## Phase plan
 
-- Phase 1 (current): pipeline plus three techniques (REP-001, REP-002, REP-004) end to end, loopback CI green. Scope is in `docs/phase1-kickoff-prompt.md`.
-- Phase 2: full catalog, entity hardening, TLS, warm-up baseline, manifests.
-- Phase 3: Palo Alto and Check Point profiles.
+- Phase 1 (complete): pipeline plus three techniques (REP-001, REP-002, REP-004) end to end, loopback CI green. Scope is in `docs/phase1-kickoff-prompt.md`.
+- Phase 1.5 (complete): web UI and embedded terminal over the same Orchestrator.
+- Phase 2 (complete): full catalog (all eleven techniques REP-001..011), entity hardening, TLS transport, REP-008 warm-up baseline, manifests.
+- Phase 3 (current): Palo Alto and Check Point profiles.
 - Phase 4: ATT&CK scenario composition (AI advisory only; humans author detection design).
 - Phase 5: React web UI over the same core.
 

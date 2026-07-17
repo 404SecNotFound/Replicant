@@ -17,6 +17,28 @@ Other Phase 2 items:
 - [ ] off-hours/business-hours weighting (deferred; REP-005 already off-hours)
 - [ ] saved-profile menu polish (deferred)
 
+## Phase 2 Review (complete)
+
+All eleven techniques (REP-001..011) implemented; TLS transport added; docs updated. Gate: **111 tests pass**, black/ruff/mypy clean (28 source files), every source file carries the Apache header. Seven CEF golden lines still reproduce byte-for-byte (the conditional FTNTFGTsrccountry addition does not touch them).
+
+This session (branch phase-2b, off main at 86308a7): 5 commits.
+- `cd3f5aa` REP-007 brute/spray — event:vpn ssl-login-fail. spray holds src, varies duser+reason across a synthetic-username pool; brute holds src+duser, many attempts + one tunnel-up success. New `synthetic_usernames` generator (deterministic, seed-independent).
+- `8d96bcf` REP-009 IPS spike — utm:ips reset. Holds dst, varies src + attack/attackid (label-only signature pool) + escalating cnt; header severity 6/7.
+- `5706a17` REP-008 newly-observed dst — traffic:forward accept with a compressed known-destination baseline then first-seen adversary destinations; warm-up note flows to the CLI summary and RunManifest.warmup_note.
+- `daf8f1a` REP-011 geovelocity — event:vpn tunnel-up. Holds duser, N logins from distinct synthetic GeoIP country blocks in a short window; conditional FTNTFGTsrccountry added to the vpn template; the two "unimplemented" guard tests repointed to the engine/error contract (synthetic unregistered technique -> NotImplementedError; web start -> 400).
+- `ada646d` TLS transport — ssl-wrapped TCP behind the same SyslogEmitter; verify/cafile options; CLI flags; loopback + fail-closed tests.
+
+Verification (drove the real CLI, not just tests):
+- REP-007 low: 100 lines (50 users x 2), one held src, reason varies; high: 401 lines (400 fail + 1 tunnel-up success at sig 39947), src+duser held.
+- REP-009 low: 20 lines, one held dst, 19 distinct src, 8 distinct signatures, cnt escalates 1->5, `=` escaped in request.
+- REP-008 medium: 70 baseline events (5 stable benign dst) + 3 first-seen adversary dst; warm-up note in the manifest JSON.
+- REP-011 high: 4 logins, one held user, 4 distinct src across 4 country tags, srccountry emitted after remip; golden test unaffected.
+- TLS: `connect --transport tls --tls-insecure --test` delivered the framed benign line to an in-process loopback TLS collector.
+
+Deferred (not in scope this session): business-hours weighting beyond REP-005, saved-profile menu polish, web UI TLS options (backend defaults verify=on). Signature IDs still flagged [Unverified] in code/catalog: DNS 54803, VPN success/tunnel-up 39947. Confirm on a live FortiOS build before customer use.
+
+Safety re-checked: only egress is the configured collector; all entities synthetic (RFC1918 + documentation ranges, synthetic usernames, label-only attack/signature names, synthetic country tags); no real attacks executed; eps cap and manifest intact.
+
 ---
 
 # Phase 1.5 - Web UI + embedded terminal (in progress)
