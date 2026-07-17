@@ -1,128 +1,208 @@
+<div align="center">
+
 # Replicant
 
-Replicant generates safe, synthetic FortiGate firewall and network security
-telemetry in CEF, streams it over syslog to a SIEM (LogRhythm first), and is
-driven by a MITRE ATT&CK grounded technique catalog. A detection engineer picks a
-technique from a menu and Replicant emits realistic firewall logs that exercise
-the matching detection.
+**Safe, synthetic FortiGate firewall telemetry for detection engineering.**
 
-Replicant writes log strings. It never executes commands, never scans real hosts,
-never resolves or contacts real C2, and never moves real data. Byte counts and
-attack names are fields in a log line, nothing more.
+Replicant fabricates realistic FortiGate CEF logs, streams them over syslog to your SIEM, and lets a detection engineer pick an ATT&CK-grounded technique from a menu to exercise the matching detection. It writes log text only. It never runs commands, scans hosts, resolves domains, or moves data.
 
-## Safety and scope
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](pyproject.toml)
+[![Vendor](https://img.shields.io/badge/vendor-FortiGate%20CEF-EE3124.svg)](docs/fortigate-cef-reference.md)
+[![Safety](https://img.shields.io/badge/entities-synthetic%20only-2ea44f.svg)](#safety-model)
+[![Status](https://img.shields.io/badge/phase-2%20in%20progress-orange.svg)](tasks/todo.md)
+
+</div>
+
+---
+
+## Contents
+
+- [The problem](#the-problem)
+- [What Replicant is, and is not](#what-replicant-is-and-is-not)
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [What the output looks like](#what-the-output-looks-like)
+- [Technique catalog](#technique-catalog)
+- [Three ways to run it](#three-ways-to-run-it)
+- [Safety model](#safety-model)
+- [Determinism and testing](#determinism-and-testing)
+- [Roadmap](#roadmap)
+- [Prior art and positioning](#prior-art-and-positioning)
+- [Attribution and license](#attribution-and-license)
+
+---
+
+## The problem
+
+A detection is only as trustworthy as the last time you saw it fire. Detection engineers who want to validate a firewall rule usually face a choice: replay production captures (slow, sensitive, hard to shape), hand-craft a few log lines (brittle, not statistically realistic), or reach for a generic log generator (rarely accurate to a specific next-generation firewall on the wire).
+
+Replicant takes a narrower, more useful position. It reproduces one vendor's CEF format field-for-field, streams it with realistic timing, and ties every generated behavior to a named detection use case, so the telemetry and the detection ship and get tested together.
+
+## What Replicant is, and is not
+
+**Replicant is:**
+
+- A fabricator of log text. Every output is a synthetic string sent to one operator-configured collector.
+- Vendor-profile driven, with FortiGate (FortiOS) modeled first, field-for-field, against a documented CEF reference.
+- A validation harness whose technique catalog maps one-to-one to detection use cases.
+- Deterministic and seedable, so a run is reproducible for tests and for the analyst reviewing it.
+
+**Replicant is not:**
+
+- An attack tool. It never executes commands, never scans real hosts, never resolves or contacts real infrastructure, and never moves real data. Attack names and byte counts are fields in a log line, nothing more.
+- A packet crafter. It writes application-layer log records, not raw network traffic.
 
 Use Replicant only in environments you own or are authorized to test.
 
-- The only network egress is to the operator-configured collector. With no
-  collector configured, sends fail closed.
-- All entities are synthetic. Default addresses use RFC1918 and IANA
-  documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parent
-  domains are non-resolvable synthetic names. A configuration that reaches outside
-  those ranges is rejected at build time.
-- Every run writes a manifest (seed, technique, params, entities, target, event
-  count, start and end time in UTC+04:00) so telemetry lines up with detections.
-- A configurable events-per-second cap protects the operator's own collector.
+## How it works
 
-## Install
+The presentation layer (a headless CLI, a Rich terminal menu, and a web UI) calls a single Orchestrator. The Orchestrator resolves a request into a deterministic event plan, renders each event through a vendor profile and a vendor-neutral CEF serializer, and sends it to the configured transport. Adding a new firewall vendor means implementing one profile interface plus a reference file; the Scenario Engine and CEF serializer stay vendor-neutral.
 
-Python 3.11+ is required.
+```mermaid
+flowchart TD
+    subgraph P["Presentation (same actions everywhere)"]
+        CLI["Headless CLI<br/>replicant run ..."]
+        MENU["Rich terminal menu"]
+        WEB["Web UI + embedded terminal"]
+    end
+    ORCH["Orchestrator<br/>request to plan to emit, kill switch, manifest"]
+    ENGINE["Scenario Engine<br/>deterministic, no I/O, seeded"]
+    ENT["Entity Model<br/>synthetic hosts, users, ports"]
+    PROFILE["FortiGate Vendor Profile<br/>field dictionary, signature IDs, severity"]
+    CEF["CEF Serializer<br/>header + extension escaping (vendor-neutral)"]
+    TRANS["Transport<br/>UDP / TCP syslog, file sink"]
+    COLL["Operator collector<br/>(the only network egress)"]
 
+    CLI --> ORCH
+    MENU --> ORCH
+    WEB --> ORCH
+    ORCH --> ENGINE
+    ENGINE --> ENT
+    ENGINE --> PROFILE
+    PROFILE --> CEF
+    CEF --> TRANS
+    TRANS --> COLL
 ```
+
+The rule that holds the design together: no behavior lives only in one interface. Anything the menu or the web UI can do, `replicant run ...` can do headless.
+
+## Quick start
+
+Requires Python 3.11 or newer.
+
+```bash
+git clone https://github.com/404SecNotFound/Replicant.git
+cd Replicant
 python3.12 -m venv .venv
 ./.venv/bin/pip install -e ".[dev]"
 ```
 
-## How to run
+List the catalog, send a test log to a collector, then run a technique:
 
-Headless CLI (the menu and CLI share one Orchestrator; anything the menu can do,
-`replicant run ...` can do):
-
-```
+```bash
 replicant list
 replicant connect --host 10.20.0.50 --port 514 --transport udp --test
 replicant run REP-001 --intensity medium --duration 30m --seed 1337
+```
+
+Preview a technique to a file with no network egress:
+
+```bash
 replicant run REP-004 --intensity high --duration 15m --to-file ./out/dns.log --no-send
-replicant menu        # interactive Rich menu
 ```
 
-Phase 1 implements three techniques end to end:
+## What the output looks like
 
-| ID | Technique | FortiGate log | UC |
-|----|-----------|---------------|-----|
-| REP-001 | Periodic C2 callback (low-and-slow) | traffic:forward accept | UC-001 |
-| REP-002 | Vertical port scan | traffic:forward deny | UC-002a |
-| REP-004 | DNS tunneling / DNS exfil | dns:dns-query pass | UC-003 |
-
-The remaining catalog entries appear in `replicant list` and are scheduled for
-Phase 2. Signature IDs marked `[Unverified]` in the catalog and reference must be
-confirmed against a live FortiOS build before customer use.
-
-## Web UI (with embedded terminal)
-
-Replicant also ships a browser UI that drives the same Orchestrator. It runs on a
-random loopback port and opens automatically:
+Replicant emits FortiGate CEF. Vendor `Fortinet`, product `Fortigate` (lower-case g, matching real FortiOS output), signature ID taken from the last five digits of the FortiOS `logid`, severity as the reversed FortiOS level, and native fields with no standard CEF key carried under an `FTNTFGT` prefix. A traffic accept record looks like this (the syslog prefix is added by the transport layer and is not part of the CEF payload):
 
 ```
-pip install -e ".[web]"       # FastAPI + uvicorn
-(cd webui && npm install && npm run build)   # one-time frontend build
-replicant web                 # prints http://127.0.0.1:<port>/?token=...
+CEF:0|Fortinet|Fortigate|v7.4.3|00013|traffic:forward accept|3|deviceExternalId=FGVMSYNTH0000001 FTNTFGTlogid=0000000013 cat=traffic:forward FTNTFGTsubtype=forward FTNTFGTlevel=notice FTNTFGTvd=root FTNTFGTeventtime=1752661924 src=10.20.30.40 spt=51544 deviceInboundInterface=port2 dst=203.0.113.25 dpt=443 deviceOutboundInterface=port1 proto=6 act=accept FTNTFGTpolicyid=7 FTNTFGTservice=HTTPS app=HTTPS FTNTFGTtrandisp=snat externalId=48213 FTNTFGTduration=122 out=8421 in=61325 FTNTFGTsentpkt=64 FTNTFGTrcvdpkt=58
 ```
 
-The page has two modes. The Dashboard configures a collector and sends a test
-log, browses the technique catalog, and runs a technique with a live CEF event
-stream, a progress bar, a Stop control, and the run manifest. The Terminal tab is
-a real embedded TTY (xterm.js over a websocket PTY bridge) running the actual
-`replicant menu`, so you can drop into the full interactive menu from the browser.
+The field order, escaping rules, and signature IDs are pinned to the seven constructed sample lines in [`docs/fortigate-cef-reference.md`](docs/fortigate-cef-reference.md). Those lines are the correctness oracle: a test reproduces each of them byte-for-byte from the profile and serializer.
 
-Safety: the server binds to loopback only, every API and websocket call requires a
-per-session token carried in the URL, and a middleware rejects any request whose
-Host header is not localhost (a DNS-rebinding guard). Web runs use the same
-fail-closed Orchestrator, eps cap, and manifest as the CLI. The embedded terminal
-requires a POSIX host (it uses a pseudo-terminal).
+## Technique catalog
 
-The frontend is React 18 + Vite + TypeScript + Tailwind with shadcn-style
-components; source is in `webui/`.
+The catalog is the single source of truth for the menu, the CLI, and the engine. Each entry names the detection use case it exercises and its MITRE ATT&CK techniques. Signature IDs marked unverified must be confirmed on a live FortiOS build before customer use.
 
-## Architecture
+| ID | Technique | FortiGate log | Use case | ATT&CK | Status |
+|----|-----------|---------------|----------|--------|--------|
+| REP-001 | Periodic C2 callback (low-and-slow) | traffic:forward accept | UC-001 | T1071, T1571 | Implemented |
+| REP-002 | Vertical port scan | traffic:forward deny | UC-002a | T1046 | Implemented |
+| REP-003 | Horizontal sweep | traffic:forward deny | UC-002b | T1046, T1018 | Implemented |
+| REP-004 | DNS tunneling / DNS exfil | dns:dns-query | UC-003 | T1071.004, T1048.003 | Implemented |
+| REP-005 | Outbound exfil volume anomaly | traffic:forward | UC-004 | T1041, T1048 | Planned |
+| REP-006 | Destination fan-out burst | traffic:forward | UC-005 | T1018, T1046 | Planned |
+| REP-007 | Brute force and password spray | event:vpn | UC-006 | T1110 | Planned |
+| REP-008 | Newly observed external destination | traffic:forward | UC-007 | T1071, T1583 | Planned |
+| REP-009 | IDS/IPS event-rate spike | utm:ips | UC-008 | T1595, T1190 | Planned |
+| REP-010 | Denied outbound connection burst | traffic:forward | UC-009 | T1071, T1090 | Planned |
+| REP-011 | VPN geovelocity anomaly | event:vpn | UC-010 | T1078, T1133 | Planned |
 
-Presentation (Rich menu + headless CLI) -> Orchestrator -> Scenario Engine +
-Connection Manager -> Vendor Profile (FortiGate) + Syslog Emitter -> CEF
-Serializer -> Transport. The Scenario Engine and CEF Serializer are
-vendor-neutral. Adding a firewall is implementing the `VendorProfile` interface
-plus a reference file. See `docs/blueprint.md`.
+Each technique produces a statistically shaped stream rather than flat constants. REP-001 holds the source, destination, port, and protocol constant while varying byte sizes and session identifiers on a fixed interval with jitter. REP-003 holds one source and one port while sweeping many unique destination hosts, mostly denied. REP-004 emits high-entropy query names under one synthetic parent domain with query types weighted toward TXT and NULL.
 
-Determinism: the same seed plus technique plus params yields the same event
-stream. Event times are `anchor_epoch + deterministic offset`, so `--to-file`
-output is byte identical across runs with the same seed.
+## Three ways to run it
 
-## Testing
+**Headless CLI.** `replicant list`, `replicant connect`, and `replicant run` cover the full workflow for scripting and CI.
 
+**Rich terminal menu.** `replicant menu` gives an interactive flow: connect to a collector, send a test log, select a technique, set intensity and duration, and watch a live run counter.
+
+**Web UI with an embedded terminal.** `replicant web` serves a browser interface on a random loopback port.
+
+```bash
+pip install -e ".[web]"
+(cd webui && npm install && npm run build)
+replicant web        # prints http://127.0.0.1:<port>/?token=...
 ```
-./.venv/bin/pytest        # unit + golden + loopback tests
+
+The dashboard configures a collector, browses the catalog, and runs a technique with a live CEF event stream, a progress indicator, a stop control, and the run manifest. The Terminal tab is a real embedded pseudo-terminal running the same `replicant menu`, so the full interactive menu is available inside the browser. The frontend is React, Vite, TypeScript, and Tailwind with shadcn-style components.
+
+## Safety model
+
+Safety is a design constraint, not a disclaimer. The guarantees below are enforced in code and covered by tests.
+
+| Guarantee | How it is enforced |
+|-----------|--------------------|
+| Single destination | A run sends only to the collector the operator configures. There is no other socket target, and sends fail closed when no collector is set. |
+| Synthetic entities only | Address pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). A configuration that reaches outside these ranges is rejected at build time. DNS parents are non-resolvable synthetic names. |
+| No real behavior | The engine performs no I/O and issues no attack. It produces log strings; byte counts and attack names are field values. |
+| Rate limits | A configurable events-per-second cap protects the operator's own collector. |
+| Audit trail | Every run writes a manifest recording seed, technique, parameters, entity pools, target, event count, and start and end times in UTC+04:00. |
+
+The web server adds its own controls: it binds to loopback only, requires a per-session token on every API and websocket call, and rejects requests whose Host header is not localhost.
+
+## Determinism and testing
+
+The Scenario Engine does no I/O and is seeded, so the same seed plus technique plus parameters yields the same event stream. Event times are computed from a fixed anchor plus a deterministic offset, so a run written to a file is byte-identical across runs. That property makes both the tool and the detections it exercises reproducible.
+
+The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP and TCP transport, catalog validation, the orchestrator end-to-end, and the web API.
+
+```bash
+./.venv/bin/pytest          # 78 tests
 ./.venv/bin/black --check replicant tests
 ./.venv/bin/ruff check replicant tests
 ./.venv/bin/mypy replicant
 ```
 
-The CEF serializer plus FortiGate profile reproduce the seven constructed golden
-sample lines in `docs/fortigate-cef-reference.md` byte for byte; that file is the
-correctness oracle. A loopback UDP/TCP transport test confirms lines arrive intact
-with no external collector.
+The loopback transport test stands up an in-process UDP and TCP receiver, so continuous integration needs no external collector.
 
-## Prior art
+## Roadmap
 
-Replicant is not the first synthetic log generator. Its design was shaped by, and
-credits, [summved/log-generator](https://github.com/summved/log-generator)
-(GPL-3.0, no code reused) and Cisco Talos EvidenceForge (MIT) as prior art. See
-`docs/prior-art-and-licensing.md` and `NOTICE`.
+- **Phase 1 (complete):** end-to-end pipeline plus three techniques (REP-001, REP-002, REP-004), FortiGate profile, UDP and TCP syslog, headless CLI, and the Rich menu.
+- **Phase 1.5 (complete):** web UI and an embedded terminal over the same Orchestrator.
+- **Phase 2 (in progress):** the rest of the catalog, entity hardening, off-hours weighting, TLS transport, a warm-up baseline for REP-008, and manifest polish. REP-003 is done.
+- **Phase 3:** Palo Alto and Check Point vendor profiles.
+- **Phase 4:** ATT&CK scenario composition, with any AI assistance kept advisory while a human authors the detection design.
 
-## MITRE ATT&CK
+## Prior art and positioning
 
-This project uses MITRE ATT&CK. (c) 2026 The MITRE Corporation. This work is
-reproduced and distributed with the permission of The MITRE Corporation. ATT&CK is
-a registered trademark of The MITRE Corporation. Use does not imply endorsement.
+Replicant is not the first synthetic log generator, and it does not claim to be. Two projects shaped its design: Cisco Talos EvidenceForge (MIT), a strong permissive engine that writes batch dataset files and is host-centric with Cisco ASA as its only firewall output, and summved/log-generator (GPL-3.0), which streams generic firewall CEF over syslog with ATT&CK chains. Neither code base is reused here.
 
-## License
+Replicant's contribution is narrower and specific: next-generation-firewall-accurate CEF modeled on a real vendor schema, alignment with a specific SIEM's parser expectations, live streaming with realistic timing, an explicit safety model, and a technique catalog mapped to a specific detection pack.
 
-Apache-2.0. See `LICENSE` and `NOTICE`.
+## Attribution and license
+
+This project uses MITRE ATT&CK. (c) 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation. ATT&CK is a registered trademark of The MITRE Corporation. Use does not imply endorsement.
+
+Replicant is licensed under the [Apache License 2.0](LICENSE). Design acknowledgements and third-party notices are in [`NOTICE`](NOTICE). The design blueprint, the FortiGate CEF reference, and the prior-art review are in [`docs/`](docs/).
