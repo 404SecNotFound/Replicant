@@ -261,3 +261,51 @@ def test_rep010_deterministic_same_seed() -> None:
     a = _plan("REP-010", "low", 1337)
     b = _plan("REP-010", "low", 1337)
     assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep007_spray_many_users_few_attempts() -> None:
+    plan = _plan("REP-007", "low", 1337)
+    preset = CATALOG.by_id("REP-007").params["low"]
+    users, attempts = preset["users"], preset["attempts_each"]
+    assert preset["mode"] == "spray"
+    assert len(plan.events) == users * attempts  # every user tried a few times
+    assert len({e.src for e in plan.events}) == 1  # one attacking source, held
+    assert len({e.duser for e in plan.events}) == users  # many distinct victims
+    assert all(e.action == "ssl-login-fail" for e in plan.events)  # spray never succeeds
+    counts = Counter(e.duser for e in plan.events)
+    assert set(counts.values()) == {attempts}  # each user tried exactly attempts_each times
+
+
+def test_rep007_brute_one_user_many_attempts_optional_success() -> None:
+    plan = _plan("REP-007", "high", 1337)
+    preset = CATALOG.by_id("REP-007").params["high"]
+    attempts = preset["attempts_each"]
+    assert preset["mode"] == "brute"
+    assert len({e.src for e in plan.events}) == 1  # one source, held
+    assert len({e.duser for e in plan.events}) == 1  # one victim, held (brute)
+    fails = [e for e in plan.events if e.action == "ssl-login-fail"]
+    successes = [e for e in plan.events if e.action == "tunnel-up"]
+    assert len(fails) == attempts  # many attempts
+    assert len(successes) == 1  # optional success at the end
+    assert max(plan.events, key=lambda e: e.eventtime).action == "tunnel-up"  # success is last
+    # both fail and success templates must serialize cleanly
+    assert len(_serialize(plan.events)) == len(plan.events)
+
+
+def test_rep007_reason_and_duser_vary() -> None:
+    plan = _plan("REP-007", "low", 1337)
+    assert len({e.duser for e in plan.events}) > 1  # duser varies
+    assert len({e.extra["reason"] for e in plan.events}) > 1  # FTNTFGTreason varies
+
+
+def test_rep007_source_is_synthetic() -> None:
+    plan = _plan("REP-007", "low", 1337)
+    src = plan.events[0].src
+    assert src is not None
+    assert any(ipaddress.ip_address(src) in net for net in _SYNTHETIC_RANGES)
+
+
+def test_rep007_deterministic_same_seed() -> None:
+    a = _plan("REP-007", "low", 1337)
+    b = _plan("REP-007", "low", 1337)
+    assert _serialize(a.events) == _serialize(b.events)

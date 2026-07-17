@@ -1,10 +1,12 @@
-# Phase 2 - full catalog + hardening (in progress, branch: phase-2)
+# Phase 2 - full catalog + hardening (in progress, branch: phase-2b)
+
+Session goal: finish the last four techniques (REP-007/009/008/011), then TLS transport + docs. Order: 007 -> 009 -> 008 -> 011 (011 last so the two "unimplemented" guard tests flip exactly once). One commit per technique off main; user merges via PR.
 
 Remaining techniques (each: TDD engine planner + tests + mark implemented + CLI verify):
 - [x] REP-003 Horizontal sweep (one port, many hosts) — done. Added synthetic sweep pool (10.50.0.0/16) to the entity model; planner holds src+dpt, varies dst, mostly deny. 78 tests green.
 - [x] REP-005 Outbound exfil volume anomaly (large out bytes, off-hours) — done. Off-hours placement helper (00:00-06:00 UTC+04:00); large out with >20:1 out/in ratio to few adversary destinations. 81 tests green.
 - [x] REP-006 Destination fan-out burst — done. One source to many unique destinations (mixed internal + external synthetic pools) in a 5-minute window, mostly accept, small bytes. 85 tests green.
-- [ ] REP-007 Brute force / password spray (event:vpn ssl-login-fail)
+- [x] REP-007 Brute force / password spray (event:vpn ssl-login-fail) — done. spray = one external src vs many synthetic victims (2 attempts each, reason varies); brute = one victim, many attempts, one success (tunnel-up) at the end. Added deterministic synthetic-username generator. 93 tests green.
 - [ ] REP-008 Newly observed external destination (warm-up baseline, manifest note)
 - [ ] REP-009 IDS/IPS event-rate spike (utm:ips)
 - [x] REP-010 Denied outbound connection burst — done. One source, a burst of denied connections to a few synthetic external destinations in a 60s window, front-loaded (sharp spike then decay). 88 tests green.
