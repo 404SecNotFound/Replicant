@@ -48,5 +48,10 @@ class VendorProfile(ABC):
         """Build the CEF header and ordered extension for one event."""
 
     @abstractmethod
-    def severity(self, level: str) -> int:
-        """Map a vendor log level (e.g. ``notice``) to a CEF severity integer."""
+    def severity(self, level: str) -> int | str:
+        """Map a vendor log level to a CEF severity.
+
+        FortiGate and PAN-OS return a 0-10 integer; Check Point Log Exporter uses a
+        severity string (``Unknown``/``Low``/``Medium``/``High``/``Very-High``). CEF
+        allows both, so the return type is ``int | str``.
+        """
