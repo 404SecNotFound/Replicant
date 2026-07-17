@@ -119,6 +119,12 @@ replicant connect --host 10.20.0.50 --port 6514 --transport tls --tls-cafile ./c
 replicant run REP-007 --intensity high --duration 8m --host 10.20.0.50 --port 6514 --transport tls
 ```
 
+Emit the same technique as Palo Alto PAN-OS CEF instead of FortiGate (`--vendor` also works on `connect`):
+
+```bash
+replicant run REP-009 --intensity high --vendor paloalto --to-file ./out/panos.log --no-send
+```
+
 ## What the output looks like
 
 Replicant emits FortiGate CEF. Vendor `Fortinet`, product `Fortigate` (lower-case g, matching real FortiOS output), signature ID taken from the last five digits of the FortiOS `logid`, severity as the reversed FortiOS level, and native fields with no standard CEF key carried under an `FTNTFGT` prefix. A traffic accept record looks like this (the syslog prefix is added by the transport layer and is not part of the CEF payload):
@@ -199,7 +205,7 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 - **Phase 1 (complete):** end-to-end pipeline plus three techniques (REP-001, REP-002, REP-004), FortiGate profile, UDP and TCP syslog, headless CLI, and the Rich menu.
 - **Phase 1.5 (complete):** web UI and an embedded terminal over the same Orchestrator.
 - **Phase 2 (complete):** all eleven techniques implemented (REP-001 through REP-011), the off-hours weighting used by REP-005, TLS syslog transport, and a warm-up baseline for REP-008 whose boundary is recorded in the run manifest.
-- **Phase 3:** Palo Alto and Check Point vendor profiles.
+- **Phase 3 (in progress):** multi-vendor. The Palo Alto (PAN-OS) profile is implemented and selectable with `--vendor paloalto`; the same technique catalog and scenario engine drive it, only the serialization differs. Check Point is next.
 - **Phase 4:** ATT&CK scenario composition, with any AI assistance kept advisory while a human authors the detection design.
 
 ## Prior art and positioning

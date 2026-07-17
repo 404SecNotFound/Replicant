@@ -27,7 +27,7 @@ from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
 from replicant import __version__
-from replicant.config.settings import Settings, save_profile
+from replicant.config.settings import Settings, load_profiles, save_profile
 from replicant.core.models import Catalog, CollectorProfile, RunRequest
 from replicant.core.orchestrator import Orchestrator
 
@@ -44,12 +44,48 @@ def _banner(console: Console, settings: Settings) -> None:
     )
 
 
+def _pick_saved_profile(
+    console: Console, saved: dict[str, CollectorProfile]
+) -> CollectorProfile | None:
+    """Offer the saved collectors; return the chosen one, or None to enter a new one."""
+
+    names = sorted(saved)
+    console.print("  [bold]Saved collectors[/bold]")
+    for index, name in enumerate(names, start=1):
+        console.print(f"    [{index}] {name}  ->  {saved[name].endpoint()}")
+    console.print(r"    \[n] new collector")
+    choices = [str(i) for i in range(1, len(names) + 1)] + ["n"]
+    choice = Prompt.ask(
+        r"  Pick a saved collector, or \[n] for a new one", choices=choices, default="n"
+    )
+    if choice == "n":
+        return None
+    return saved[names[int(choice) - 1]]
+
+
 def _connection_wizard(console: Console) -> CollectorProfile:
     console.print("[bold]Connection settings[/bold]")
+    saved = load_profiles()
+    if saved:
+        chosen = _pick_saved_profile(console, saved)
+        if chosen is not None:
+            return chosen
     host = Prompt.ask("  Collector IP or host")
     port = IntPrompt.ask("  Port", default=514)
-    transport = Prompt.ask("  Transport", choices=["udp", "tcp"], default="udp")
-    profile = CollectorProfile(name="menu", host=host, port=port, transport=transport)
+    transport = Prompt.ask("  Transport", choices=["udp", "tcp", "tls"], default="udp")
+    tls_verify, tls_cafile = True, None
+    if transport == "tls":
+        tls_verify = Confirm.ask("  Verify the collector certificate?", default=True)
+        cafile = Prompt.ask("  CA bundle path (blank for system CAs)", default="")
+        tls_cafile = cafile.strip() or None
+    profile = CollectorProfile(
+        name="menu",
+        host=host,
+        port=port,
+        transport=transport,
+        tls_verify=tls_verify,
+        tls_cafile=tls_cafile,
+    )
     if Confirm.ask("  Save as a named profile?", default=False):
         name = Prompt.ask("  Profile name", default="default")
         profile = profile.model_copy(update={"name": name})

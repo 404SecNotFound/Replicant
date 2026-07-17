@@ -1,3 +1,14 @@
+# Phase 3 - multi-vendor (in progress, branch: phase-3-paloalto off phase-2c-polish)
+
+- [x] Palo Alto (PAN-OS) vendor profile — done. `docs/paloalto-cef-reference.md` is the oracle (7 golden lines, all [Unverified]); `replicant/profiles/paloalto.py` implements `VendorProfile.render` dispatching on the same neutral (log_type, subtype) categories -> PAN-OS CEF (TRAFFIC / THREAT / GLOBALPROTECT / SYSTEM), byte-for-byte to the reference. Non-reversed severity map. Vendor selection: `settings.vendor` + orchestrator `_build_profile` factory + `--vendor {fortigate,paloalto}` on run/connect. 133 tests pass; verified end-to-end (REP-009->THREAT, REP-001->TRAFFIC, REP-007->GLOBALPROTECT) via `--vendor paloalto`. The FortiGate catalog signature_id is documentation only, so one catalog + one engine drive both vendors.
+- [ ] Check Point vendor profile (next: reference doc + profile + `--vendor checkpoint`).
+- [ ] Menu + web vendor pickers (deferred; CLI `--vendor` works).
+- [ ] Optional cleanup: rename `technique.fortigate` binding to a neutral name (values already neutral; not blocking).
+
+Design note: adding a vendor = implement `VendorProfile` + a reference file with golden lines (blueprint s10). The `(log_type, subtype)` values the engine emits are neutral log categories; each profile maps them to its own log family and field layout. Palo Alto golden lines reuse the same synthetic entities as the FortiGate ones for direct comparison.
+
+---
+
 # Phase 2 - full catalog + hardening (in progress, branch: phase-2b)
 
 Session goal: finish the last four techniques (REP-007/009/008/011), then TLS transport + docs. Order: 007 -> 009 -> 008 -> 011 (011 last so the two "unimplemented" guard tests flip exactly once). One commit per technique off main; user merges via PR.
@@ -15,7 +26,8 @@ Remaining techniques (each: TDD engine planner + tests + mark implemented + CLI 
 Other Phase 2 items:
 - [x] TLS transport — done. Added `tls` to CollectorProfile.transport (ssl-wrapped TCP), plus tls_verify / tls_cafile fields and `--tls-cafile` / `--tls-insecure` CLI flags. Loopback TLS test (ephemeral self-signed cert via openssl) + fail-closed test; verified end-to-end through `replicant connect --transport tls`. 111 tests green.
 - [ ] off-hours/business-hours weighting (deferred; REP-005 already off-hours)
-- [ ] saved-profile menu polish (deferred)
+- [x] saved-profile menu polish — done (branch phase-2c-polish). Rich menu now offers a saved-collector picker (`_pick_saved_profile`, sorted, or [n]ew) before the manual wizard, and the wizard supports tls with verify/CA-bundle prompts. Unit-tested the selection logic; verified the picker interactively via `replicant menu`.
+- [x] web UI TLS options — done (branch phase-2c-polish). Added tls_verify/tls_cafile to the web CollectorBody, wired both handlers, and added a transport=tls path with a Verify-cert switch + CA-file input in the React ConnectionCard. Backend test asserts the options reach the CollectorProfile; verified end-to-end in the in-app browser (TLS test log received by a loopback collector). 114 tests green.
 
 ## Phase 2 Review (complete)
 

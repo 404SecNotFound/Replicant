@@ -137,6 +137,34 @@ def test_manifest_written_with_utc4_times(tmp_path: Path) -> None:
     assert result.manifest.ended_at.endswith("+04:00")
 
 
+def test_vendor_defaults_to_fortigate(tmp_path: Path) -> None:
+    assert _orchestrator(tmp_path).profile.name == "fortigate"
+
+
+def test_vendor_selection_paloalto(tmp_path: Path) -> None:
+    settings = Settings(manifest_dir=str(tmp_path / "m"), vendor="paloalto")
+    assert Orchestrator(CATALOG, settings).profile.name == "paloalto"
+
+
+def test_run_paloalto_produces_panos_cef(tmp_path: Path) -> None:
+    settings = Settings(manifest_dir=str(tmp_path / "m"), vendor="paloalto")
+    orchestrator = Orchestrator(CATALOG, settings)
+    out = tmp_path / "pa.log"
+    orchestrator.run(
+        RunRequest(
+            technique_id="REP-001",
+            intensity="low",
+            seed=1,
+            duration="2m",
+            to_file=str(out),
+            no_send=True,
+        )
+    )
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert lines
+    assert all(line.startswith("CEF:0|Palo Alto Networks|PAN-OS|") for line in lines)
+
+
 def test_unregistered_technique_raises() -> None:
     # Every catalog technique is now implemented, so exercise the engine guard
     # directly with a synthetic technique that has no registered builder.

@@ -59,6 +59,8 @@ class CollectorBody(BaseModel):
     host: str
     port: int = 514
     transport: str = "udp"
+    tls_verify: bool = True
+    tls_cafile: str | None = None
 
 
 class RunBody(BaseModel):
@@ -150,7 +152,12 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
     @app.post("/api/connect/test", dependencies=[Depends(require_token)])
     def connect_test(body: CollectorBody) -> dict[str, Any]:
         collector = CollectorProfile(
-            name="web", host=body.host, port=body.port, transport=body.transport
+            name="web",
+            host=body.host,
+            port=body.port,
+            transport=body.transport,
+            tls_verify=body.tls_verify,
+            tls_cafile=body.tls_cafile,
         )
         try:
             ok = base_orchestrator.send_test(collector)
@@ -175,6 +182,8 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
                 host=body.collector.host,
                 port=body.collector.port,
                 transport=body.collector.transport,
+                tls_verify=body.collector.tls_verify,
+                tls_cafile=body.collector.tls_cafile,
             )
         request = RunRequest(
             technique_id=body.technique_id,

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -24,6 +25,8 @@ export function ConnectionCard({ epsCap, collector, onCollectorChange }: Props) 
   const [host, setHost] = useState(collector?.host ?? "127.0.0.1");
   const [port, setPort] = useState(String(collector?.port ?? 514));
   const [transport, setTransport] = useState(collector?.transport ?? "udp");
+  const [tlsVerify, setTlsVerify] = useState(collector?.tls_verify ?? true);
+  const [tlsCafile, setTlsCafile] = useState(collector?.tls_cafile ?? "");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -31,6 +34,10 @@ export function ConnectionCard({ epsCap, collector, onCollectorChange }: Props) 
     setBusy(true);
     setResult(null);
     const target: Collector = { host, port: Number(port), transport };
+    if (transport === "tls") {
+      target.tls_verify = tlsVerify;
+      target.tls_cafile = tlsCafile.trim() || null;
+    }
     try {
       const resp = await testConnection(target);
       if (resp.ok) {
@@ -73,10 +80,30 @@ export function ConnectionCard({ epsCap, collector, onCollectorChange }: Props) 
               <SelectContent>
                 <SelectItem value="udp">udp</SelectItem>
                 <SelectItem value="tcp">tcp</SelectItem>
+                <SelectItem value="tls">tls</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
+        {transport === "tls" && (
+          <div className="grid grid-cols-[auto_1fr] items-end gap-3">
+            <div className="flex items-center gap-2 pb-2">
+              <Switch id="tlsverify" checked={tlsVerify} onCheckedChange={setTlsVerify} />
+              <Label htmlFor="tlsverify" className="whitespace-nowrap">
+                Verify cert
+              </Label>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="cafile">CA file (optional)</Label>
+              <Input
+                id="cafile"
+                value={tlsCafile}
+                onChange={(e) => setTlsCafile(e.target.value)}
+                placeholder="/path/to/ca.pem"
+              />
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <Button onClick={handleTest} disabled={busy || !host}>
             {busy ? "Sending..." : "Send test log"}
