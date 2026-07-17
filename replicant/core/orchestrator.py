@@ -44,6 +44,7 @@ from replicant.core.models import (
 from replicant.entities.model import EntityModel
 from replicant.profiles.base import VendorProfile
 from replicant.profiles.fortigate import FortiGateDevice, FortiGateProfile
+from replicant.profiles.paloalto import PaloAltoProfile
 from replicant.scenario.engine import ScenarioEngine, ScenarioPlan
 from replicant.transport.filesink import FileSink
 from replicant.transport.syslog import SyslogEmitter
@@ -77,13 +78,23 @@ class Orchestrator:
         self.settings = settings or Settings()
         self.entities = entities or EntityModel.build()
         self.engine = engine or ScenarioEngine()
-        self.profile = profile or FortiGateProfile(
-            FortiGateDevice(
-                byte_key_out=self.settings.byte_key_out,
-                byte_key_in=self.settings.byte_key_in,
-            )
-        )
+        self.profile = profile or self._build_profile(self.settings)
         self._stop = threading.Event()
+
+    @staticmethod
+    def _build_profile(settings: Settings) -> VendorProfile:
+        """Select the vendor profile from settings.vendor (blueprint s10, Phase 3)."""
+
+        if settings.vendor == "paloalto":
+            return PaloAltoProfile()
+        if settings.vendor == "fortigate":
+            return FortiGateProfile(
+                FortiGateDevice(
+                    byte_key_out=settings.byte_key_out,
+                    byte_key_in=settings.byte_key_in,
+                )
+            )
+        raise ValueError(f"unknown vendor profile: {settings.vendor!r}")
 
     # -- kill switch -----------------------------------------------------------
 

@@ -41,6 +41,7 @@ class Settings(BaseModel):
     default_seed: int = 1337
     eps_cap: int = 2000
     default_intensity: Intensity = "medium"
+    vendor: str = "fortigate"  # fortigate | paloalto (selects the VendorProfile)
     benign_marker: bool = False
     byte_key_out: str = "out"
     byte_key_in: str = "in"

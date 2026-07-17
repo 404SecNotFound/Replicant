@@ -88,6 +88,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     connect.add_argument("--test", action="store_true", help="send one benign test log")
     connect.add_argument("--save", metavar="NAME", help="save this collector as a named profile")
+    connect.add_argument(
+        "--vendor", choices=["fortigate", "paloalto"], help="vendor profile (default from settings)"
+    )
 
     run = sub.add_parser("run", help="run a technique")
     run.add_argument("id", help="technique id, e.g. REP-001")
@@ -107,6 +110,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip TLS certificate verification (lab self-signed collectors only)",
     )
     run.add_argument("--profile", help="use a saved collector profile by name")
+    run.add_argument(
+        "--vendor", choices=["fortigate", "paloalto"], help="vendor profile (default from settings)"
+    )
     return parser
 
 
@@ -226,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     console = Console()
     settings = load_settings()
+    if getattr(args, "vendor", None):
+        settings = settings.model_copy(update={"vendor": args.vendor})
     catalog = _load_catalog(settings, console)
     if catalog is None:
         return 1
