@@ -232,3 +232,32 @@ def test_rep006_destinations_are_synthetic() -> None:
         assert event.dst is not None
         ip = ipaddress.ip_address(event.dst)
         assert any(ip in net for net in _SYNTHETIC_RANGES)
+
+
+def test_rep010_denied_outbound_burst_shape() -> None:
+    plan = _plan("REP-010", "low", 1337)
+    preset = CATALOG.by_id("REP-010").params["low"]
+    denies, window = preset["denies"], preset["window_s"]
+    assert len(plan.events) == denies
+    assert len({e.src for e in plan.events}) == 1  # one source, held
+    assert all(e.action == "deny" for e in plan.events)  # all denied
+    external = ipaddress.ip_network("203.0.113.0/24")
+    for event in plan.events:
+        assert event.dst is not None
+        assert ipaddress.ip_address(event.dst) in external  # synthetic external destinations
+    times = [e.eventtime for e in plan.events]
+    assert max(times) - min(times) <= window  # inside the burst window
+
+
+def test_rep010_rate_spikes_then_decays() -> None:
+    plan = _plan("REP-010", "low", 1337)
+    offsets = sorted(e.eventtime for e in plan.events)
+    span = offsets[-1] - offsets[0]
+    median = offsets[len(offsets) // 2] - offsets[0]
+    assert median < span * 0.5  # more than half the events in the first half of the window
+
+
+def test_rep010_deterministic_same_seed() -> None:
+    a = _plan("REP-010", "low", 1337)
+    b = _plan("REP-010", "low", 1337)
+    assert _serialize(a.events) == _serialize(b.events)

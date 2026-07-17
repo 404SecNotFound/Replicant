@@ -148,6 +148,7 @@ class ScenarioEngine:
             "REP-004": self._plan_dns_tunnel,
             "REP-005": self._plan_exfil_volume,
             "REP-006": self._plan_destination_fanout,
+            "REP-010": self._plan_denied_burst,
         }
         builder = builders.get(technique.id)
         if builder is None:
@@ -493,6 +494,65 @@ class ScenarioEngine:
                     out_bytes=out_b,
                     in_bytes=in_b,
                     extra=_scan_traffic_extra(is_open, service, app),
+                )
+            )
+            session_id += 1
+        return events, None, truncated
+
+    # -- REP-010 denied outbound connection burst -----------------------------
+
+    def _plan_denied_burst(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        denies = int(preset["denies"])
+        window_s = (
+            duration_override_s if duration_override_s is not None else int(preset["window_s"])
+        )
+
+        truncated = False
+        if denies > self.max_events:
+            denies = self.max_events
+            truncated = True
+
+        src = str(rng.choice(entities.internal_hosts))
+        pool = entities.adversary_external
+        dst_count = min(5, len(pool))  # one src hammering a few blocked external destinations
+        dst_indices = unique_ints(rng, 0, len(pool) - 1, dst_count)
+        destinations = [pool[i] for i in dst_indices]
+        dpt_choices = [443, 8443, 8080, 53, 4444]
+
+        events: list[EventRecord] = []
+        session_id = int(rng.integers(10_000, 60_000))
+        count = max(denies, 1)
+        for index in range(denies):
+            # Sharp spike then decay: event density is highest at the start.
+            fraction = (index / count) ** 2
+            dpt = int(rng.choice(dpt_choices))
+            proto = 17 if dpt == 53 else 6
+            service, app = port_service(dpt)
+            spt = int(rng.integers(1024, 65535))
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action="deny",
+                    level="warning",
+                    eventtime=anchor + int(fraction * window_s),
+                    src=src,
+                    spt=spt,
+                    dst=destinations[index % len(destinations)],
+                    dpt=dpt,
+                    proto=proto,
+                    session_id=session_id,
+                    out_bytes=0,
+                    in_bytes=0,
+                    extra=_scan_traffic_extra(False, service, app),
                 )
             )
             session_id += 1

@@ -7,7 +7,7 @@ Remaining techniques (each: TDD engine planner + tests + mark implemented + CLI 
 - [ ] REP-007 Brute force / password spray (event:vpn ssl-login-fail)
 - [ ] REP-008 Newly observed external destination (warm-up baseline, manifest note)
 - [ ] REP-009 IDS/IPS event-rate spike (utm:ips)
-- [ ] REP-010 Denied outbound connection burst
+- [x] REP-010 Denied outbound connection burst — done. One source, a burst of denied connections to a few synthetic external destinations in a 60s window, front-loaded (sharp spike then decay). 88 tests green.
 - [ ] REP-011 VPN geovelocity anomaly (event:vpn, synthetic country tags)
 
 Other Phase 2 items: TLS transport, off-hours/business-hours weighting, saved-profile menu polish, manifest polish.
