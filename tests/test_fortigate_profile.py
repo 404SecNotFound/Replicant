@@ -131,6 +131,42 @@ def test_unsupported_log_type_raises() -> None:
         FortiGateProfile().render(event)
 
 
+def _vpn_tunnel_up(extra_overrides: dict[str, str] | None = None) -> EventRecord:
+    extra = {
+        "logdesc": "SSL VPN tunnel up",
+        "fgt_action": "tunnel-up",
+        "remip": "203.0.113.60",
+        "tunneltype": "ssl-tunnel",
+        "tunnelid": "1846277",
+        "group": "vpn-users",
+        "reason": "login-success",
+        "msg": "SSL tunnel established",
+    }
+    if extra_overrides:
+        extra.update(extra_overrides)
+    return EventRecord(
+        log_type="event",
+        subtype="vpn",
+        action="tunnel-up",
+        level="notice",
+        eventtime=1752662122,
+        duser="jsmith",
+        src="203.0.113.60",
+        extra=extra,
+    )
+
+
+def test_event_vpn_emits_srccountry_when_present() -> None:
+    _, ext = FortiGateProfile().render(_vpn_tunnel_up({"srccountry": "Wadiya"}))
+    assert ext["FTNTFGTsrccountry"] == "Wadiya"
+
+
+def test_event_vpn_omits_srccountry_when_absent() -> None:
+    # The seven golden lines carry no srccountry, so it must stay optional.
+    _, ext = FortiGateProfile().render(_vpn_tunnel_up())
+    assert "FTNTFGTsrccountry" not in ext
+
+
 def test_missing_required_field_raises() -> None:
     event = EventRecord(
         log_type="dns",

@@ -74,9 +74,17 @@ def build_parser() -> argparse.ArgumentParser:
     connect = sub.add_parser("connect", help="configure a collector and optionally send a test log")
     connect.add_argument("--host", required=True, help="collector IP or hostname")
     connect.add_argument("--port", type=int, default=514)
-    connect.add_argument("--transport", choices=["udp", "tcp"], default="udp")
+    connect.add_argument("--transport", choices=["udp", "tcp", "tls"], default="udp")
     connect.add_argument(
         "--facility", type=int, default=23, help="syslog facility (default local7=23)"
+    )
+    connect.add_argument(
+        "--tls-cafile", metavar="PATH", help="CA bundle for a private TLS collector"
+    )
+    connect.add_argument(
+        "--tls-insecure",
+        action="store_true",
+        help="skip TLS certificate verification (lab self-signed collectors only)",
     )
     connect.add_argument("--test", action="store_true", help="send one benign test log")
     connect.add_argument("--save", metavar="NAME", help="save this collector as a named profile")
@@ -91,7 +99,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--rate", type=int, help="events-per-second cap override")
     run.add_argument("--host", help="collector host (ad-hoc, instead of a saved profile)")
     run.add_argument("--port", type=int, default=514)
-    run.add_argument("--transport", choices=["udp", "tcp"], default="udp")
+    run.add_argument("--transport", choices=["udp", "tcp", "tls"], default="udp")
+    run.add_argument("--tls-cafile", metavar="PATH", help="CA bundle for a private TLS collector")
+    run.add_argument(
+        "--tls-insecure",
+        action="store_true",
+        help="skip TLS certificate verification (lab self-signed collectors only)",
+    )
     run.add_argument("--profile", help="use a saved collector profile by name")
     return parser
 
@@ -126,6 +140,8 @@ def cmd_connect(
         port=args.port,
         transport=args.transport,
         facility=args.facility,
+        tls_verify=not args.tls_insecure,
+        tls_cafile=args.tls_cafile,
     )
     if args.save:
         path = save_profile(profile)
@@ -157,7 +173,12 @@ def _resolve_collector(
     if args.host:
         return (
             CollectorProfile(
-                name="adhoc", host=args.host, port=args.port, transport=args.transport
+                name="adhoc",
+                host=args.host,
+                port=args.port,
+                transport=args.transport,
+                tls_verify=not args.tls_insecure,
+                tls_cafile=args.tls_cafile,
             ),
             True,
         )

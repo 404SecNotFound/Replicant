@@ -19,8 +19,8 @@ same (seed, technique, params) yields the same plan (blueprint s12). Event times
 are ``anchor_epoch + deterministic offset`` so ``--to-file`` output is byte
 identical across runs with the same seed.
 
-Phase 1 implements REP-001 (periodic C2 callback), REP-002 (vertical port scan),
-and REP-004 (DNS tunneling). Other techniques raise NotImplementedError.
+All eleven catalog techniques (REP-001 through REP-011) have registered builders.
+A technique id with no builder raises NotImplementedError.
 """
 
 from __future__ import annotations
@@ -100,6 +100,119 @@ def _scan_traffic_extra(is_open: bool, service: str, app: str) -> dict[str, str]
     }
 
 
+# Synthetic SSL-VPN login-fail reason codes (labels only; no real auth occurs).
+_VPN_FAIL_REASONS: tuple[str, ...] = (
+    "sslvpn_login_permission_denied",
+    "sslvpn_login_no_matching_policy",
+    "sslvpn_login_incorrect_password",
+    "sslvpn_login_user_not_found",
+)
+
+# A fixed synthetic surname corpus. Combined with an initial it yields a large
+# pool of plausible-but-fake usernames for password-spray scenarios, so a spray
+# of hundreds of victims never needs a real directory (safety rule 2).
+_SURNAMES: tuple[str, ...] = (
+    "smith",
+    "doe",
+    "khan",
+    "lopez",
+    "wong",
+    "osei",
+    "patel",
+    "singh",
+    "garcia",
+    "chen",
+    "nguyen",
+    "brown",
+    "ali",
+    "kumar",
+    "rossi",
+    "haas",
+    "novak",
+    "kaur",
+    "costa",
+    "ivanov",
+    "muller",
+    "silva",
+    "adams",
+    "flores",
+    "reyes",
+    "walsh",
+    "obrien",
+    "park",
+    "yamada",
+    "petrov",
+    "dubois",
+    "meyer",
+    "santos",
+    "cohen",
+    "murphy",
+    "tanaka",
+    "abbas",
+    "romero",
+    "fischer",
+    "wu",
+)
+
+
+def synthetic_usernames(count: int, base: list[str]) -> list[str]:
+    """Return ``count`` unique synthetic usernames: base pool first, then generated.
+
+    Deterministic and seed-independent: the same ``count`` always yields the same
+    list. Generated names are ``<initial><surname>`` combinations, falling back to
+    a numeric suffix if the corpus is exhausted. Every name is fabricated.
+    """
+
+    names: list[str] = []
+    seen: set[str] = set()
+    for name in base:
+        if name not in seen:
+            seen.add(name)
+            names.append(name)
+            if len(names) >= count:
+                return names[:count]
+    for surname in _SURNAMES:
+        for initial in "abcdefghijklmnopqrstuvwxyz":
+            candidate = f"{initial}{surname}"
+            if candidate not in seen:
+                seen.add(candidate)
+                names.append(candidate)
+                if len(names) >= count:
+                    return names[:count]
+    suffix = 0
+    while len(names) < count:
+        candidate = f"user{suffix:05d}"
+        if candidate not in seen:
+            seen.add(candidate)
+            names.append(candidate)
+        suffix += 1
+    return names[:count]
+
+
+# IDS/IPS signature (name, signature-id) pairs. Labels only; Replicant never
+# generates an exploit, it only writes the signature name a firewall would log
+# (catalog safety_notes). Ids are illustrative FortiGuard-style identifiers.
+_IPS_SIGNATURES: tuple[tuple[str, str], ...] = (
+    ("Apache.Struts.OGNL.Remote.Code.Execution", "40449"),
+    ("HTTP.URI.SQL.Injection", "15621"),
+    ("Backdoor.DoublePulsar", "42304"),
+    ("MS.SMB.Server.SMBv1.Trans.Secondary.Handling.Code.Execution", "40269"),
+    ("Web.Server.Password.Files.Access", "12688"),
+    ("PHPUnit.Eval.Stdin.Remote.Code.Execution", "44035"),
+    ("Apache.Log4j.Error.Log.Remote.Code.Execution", "51006"),
+    ("Joomla.Core.Session.Remote.Code.Execution", "34321"),
+)
+
+_IPS_REQUESTS: tuple[str, ...] = (
+    "/struts2/index.action",
+    "/index.php?option=login",
+    "/api/v1/login",
+    "/cgi-bin/test.cgi",
+    "/wp-login.php",
+    "/solr/admin/cores",
+)
+
+
 @dataclass
 class ScenarioPlan:
     technique_id: str
@@ -148,7 +261,11 @@ class ScenarioEngine:
             "REP-004": self._plan_dns_tunnel,
             "REP-005": self._plan_exfil_volume,
             "REP-006": self._plan_destination_fanout,
+            "REP-007": self._plan_brute_spray,
+            "REP-008": self._plan_newly_observed_dst,
+            "REP-009": self._plan_ips_spike,
             "REP-010": self._plan_denied_burst,
+            "REP-011": self._plan_geovelocity,
         }
         builder = builders.get(technique.id)
         if builder is None:
@@ -557,6 +674,331 @@ class ScenarioEngine:
             )
             session_id += 1
         return events, None, truncated
+
+    # -- REP-007 brute force / password spray ---------------------------------
+
+    def _plan_brute_spray(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        mode = str(preset["mode"])
+        attempts_each = int(preset["attempts_each"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+
+        # One external attacking source hammers the SSL-VPN portal (src is held).
+        src = str(rng.choice(entities.adversary_external))
+
+        if mode == "spray":
+            usernames = synthetic_usernames(int(preset["users"]), entities.users)
+            # (user, attempt) pairs: each victim tried attempts_each times.
+            pairs = [(user, attempt) for user in usernames for attempt in range(attempts_each)]
+        else:  # brute: one victim, many attempts
+            usernames = synthetic_usernames(1, entities.users)
+            pairs = [(usernames[0], attempt) for attempt in range(attempts_each)]
+
+        truncated = False
+        if len(pairs) > self.max_events:
+            pairs = pairs[: self.max_events]
+            truncated = True
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        gap_s = window_s / max(len(pairs), 1)
+        for index, (user, _attempt) in enumerate(pairs):
+            reason = _VPN_FAIL_REASONS[int(rng.integers(0, len(_VPN_FAIL_REASONS)))]
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action="ssl-login-fail",
+                    level="alert",
+                    eventtime=anchor + int(index * gap_s),
+                    duser=user,
+                    src=src,
+                    session_id=session,
+                    extra={
+                        "logdesc": "SSL VPN login fail",
+                        "fgt_action": "ssl-login-fail",
+                        "remip": src,
+                        "tunneltype": "ssl-web",
+                        "reason": reason,
+                        "msg": "SSL user failed to logged in",
+                    },
+                )
+            )
+            session += 1
+        # Brute force optionally ends in one successful login (the guessed password).
+        if mode == "brute" and not truncated:
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action="tunnel-up",
+                    level="notice",
+                    eventtime=anchor + window_s,
+                    duser=usernames[0],
+                    src=src,
+                    session_id=session,
+                    extra={
+                        "logdesc": "SSL VPN tunnel up",
+                        "fgt_action": "tunnel-up",
+                        "remip": src,
+                        "tunneltype": "ssl-tunnel",
+                        "tunnelid": str(int(rng.integers(1_000_000, 9_999_999))),
+                        "group": "vpn-users",
+                        "reason": "login-success",
+                        "msg": "SSL tunnel established",
+                    },
+                )
+            )
+        return events, None, truncated
+
+    # -- REP-009 IDS/IPS event-rate spike -------------------------------------
+
+    def _plan_ips_spike(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        hits = int(preset["hits"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+
+        truncated = False
+        if hits > self.max_events:
+            hits = self.max_events
+            truncated = True
+
+        dst = str(rng.choice(entities.internal_targets))  # the attacked host, held
+        src_pool = entities.adversary_external
+        gap_s = window_s / max(hits, 1)
+        step = max(1, hits // 5)  # cnt escalates across five aggregation steps
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(100, 9999))
+        for index in range(hits):
+            attack, attackid = _IPS_SIGNATURES[int(rng.integers(0, len(_IPS_SIGNATURES)))]
+            request = _IPS_REQUESTS[int(rng.integers(0, len(_IPS_REQUESTS)))]
+            src = str(rng.choice(src_pool))
+            spt = int(rng.integers(1024, 65535))
+            # Alternate high/critical: FortiOS level critical -> CEF 6, alert -> CEF 7.
+            critical = index % 3 == 0
+            level = "critical" if critical else "alert"
+            ips_severity = "critical" if critical else "high"
+            cnt = 1 + index // step
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action="reset",
+                    level=level,
+                    eventtime=anchor + int(index * gap_s),
+                    src=src,
+                    spt=spt,
+                    dst=dst,
+                    dpt=443,
+                    proto=6,
+                    session_id=session,
+                    extra={
+                        "eventtype": "signature",
+                        "ips_severity": ips_severity,
+                        "service": "HTTPS",
+                        "policyid": "7",
+                        "attack": attack,
+                        "attackid": attackid,
+                        "hostname": dst,
+                        "request": request,
+                        "direction": "incoming",
+                        "profile": "default",
+                        "cnt": str(cnt),
+                        "msg": f"applications3A {attack}",
+                    },
+                )
+            )
+            session += 1
+        return events, None, truncated
+
+    # -- REP-008 newly observed external destination per host -----------------
+
+    def _forward_accept(
+        self,
+        technique: Technique,
+        rng: Any,
+        src: str,
+        dst: str,
+        dpt: int,
+        eventtime: int,
+        session: int,
+    ) -> EventRecord:
+        """One benign-looking traffic:forward accept record (shared by baseline+novel)."""
+
+        service, app = port_service(dpt)
+        out_b = int(rng.integers(200, 20_000))
+        in_b = int(rng.integers(500, 200_000))
+        duration = int(rng.integers(1, 600))
+        spt = int(rng.integers(1024, 65535))
+        return EventRecord(
+            log_type=technique.fortigate.log_type,
+            subtype=technique.fortigate.subtype,
+            action="accept",
+            level="notice",
+            eventtime=eventtime,
+            src=src,
+            spt=spt,
+            dst=dst,
+            dpt=dpt,
+            proto=6,
+            session_id=session,
+            out_bytes=out_b,
+            in_bytes=in_b,
+            extra={
+                "policyid": "7",
+                "service": service,
+                "app": app,
+                "trandisp": "snat",
+                "duration": str(duration),
+                "sentpkt": str(max(1, out_b // 1400)),
+                "rcvdpkt": str(max(1, in_b // 1400)),
+            },
+        )
+
+    def _plan_newly_observed_dst(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        baseline_days = int(preset["baseline_days"])
+        novel_dst = int(preset["novel_dst"])
+        known_count = 5
+
+        # One host talking to a small stable set of external peers, then to new ones.
+        src = str(rng.choice(entities.internal_hosts))
+        benign = entities.benign_external
+        known = [
+            benign[i] for i in unique_ints(rng, 0, len(benign) - 1, min(known_count, len(benign)))
+        ]
+        adversary = entities.adversary_external
+        novel = [
+            adversary[i]
+            for i in unique_ints(rng, 0, len(adversary) - 1, min(novel_dst, len(adversary)))
+        ]
+
+        # Compressed history: one hit per known destination per baseline day.
+        baseline_events = len(known) * baseline_days
+        truncated = False
+        if baseline_events + len(novel) > self.max_events:
+            baseline_events = max(self.max_events - len(novel), 0)
+            truncated = True
+
+        dpt_choices = [443, 80, 8080, 8443, 22]
+        baseline_span_s = 3600  # compressed warm-up window
+        anomaly_span_s = 300  # the first-seen destinations follow the warm-up
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        for index in range(baseline_events):
+            dst = known[index % len(known)]
+            dpt = int(rng.choice(dpt_choices))
+            when = anchor + int(index * baseline_span_s / max(baseline_events, 1))
+            events.append(self._forward_accept(technique, rng, src, dst, dpt, when, session))
+            session += 1
+        anomaly_start = anchor + baseline_span_s + 1
+        for offset, dst in enumerate(novel):
+            dpt = int(rng.choice(dpt_choices))
+            when = anomaly_start + int(offset * anomaly_span_s / max(len(novel), 1))
+            events.append(self._forward_accept(technique, rng, src, dst, dpt, when, session))
+            session += 1
+
+        note = (
+            f"Baseline: {len(known)} known destinations over {baseline_days}d "
+            f"({baseline_events} events); anomaly begins at event {baseline_events} "
+            f"with {len(novel)} first-seen external destination(s)."
+        )
+        return events, note, truncated
+
+    # -- REP-011 VPN geovelocity anomaly --------------------------------------
+
+    def _plan_geovelocity(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        logins = int(preset["logins"])
+        countries = int(preset["countries"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+
+        # Group the synthetic external pool by its GeoIP tag, then pick distant blocks.
+        by_country: dict[str, list[str]] = {}
+        for ip, country in entities.countries.items():
+            by_country.setdefault(country, []).append(ip)
+        country_names = sorted(by_country)
+        chosen = [
+            country_names[i]
+            for i in unique_ints(rng, 0, len(country_names) - 1, min(countries, len(country_names)))
+        ]
+
+        user = str(rng.choice(entities.users))  # one user, held (impossible travel)
+        gap_s = window_s / max(logins, 1)
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(1_000_000, 9_999_999))
+        for index in range(logins):
+            country = chosen[index % len(chosen)]
+            pool = by_country[country]
+            src = str(pool[int(rng.integers(0, len(pool)))])
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action="tunnel-up",
+                    level="notice",
+                    eventtime=anchor + int(index * gap_s),
+                    duser=user,
+                    src=src,
+                    session_id=session,
+                    extra={
+                        "logdesc": "SSL VPN tunnel up",
+                        "fgt_action": "tunnel-up",
+                        "remip": src,
+                        "srccountry": country,
+                        "tunneltype": "ssl-tunnel",
+                        "tunnelid": str(int(rng.integers(1_000_000, 9_999_999))),
+                        "group": "vpn-users",
+                        "reason": "login-success",
+                        "msg": "SSL tunnel established",
+                    },
+                )
+            )
+            session += 1
+        return events, None, False
 
     # -- REP-004 DNS tunneling ------------------------------------------------
 

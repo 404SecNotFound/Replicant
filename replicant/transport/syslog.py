@@ -25,6 +25,7 @@ is bound to exactly one :class:`CollectorProfile` and never opens any other targ
 from __future__ import annotations
 
 import socket
+import ssl
 from datetime import datetime
 from types import TracebackType
 
@@ -70,8 +71,23 @@ class SyslogEmitter:
             sock.settimeout(self.connect_timeout)
             sock.connect((self.profile.host, self.profile.port))
             self._sock = sock
+        elif self.profile.transport == "tls":
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self.connect_timeout)
+            self._sock = self._tls_context().wrap_socket(
+                sock, server_hostname=self.profile.host if self.profile.tls_verify else None
+            )
+            self._sock.connect((self.profile.host, self.profile.port))
         else:  # pragma: no cover - Transport literal forbids other values
             raise ValueError(f"unsupported transport: {self.profile.transport}")
+
+    def _tls_context(self) -> ssl.SSLContext:
+        context = ssl.create_default_context(cafile=self.profile.tls_cafile)
+        if not self.profile.tls_verify:
+            # Lab collectors commonly present a self-signed certificate.
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+        return context
 
     def close(self) -> None:
         if self._sock is not None:

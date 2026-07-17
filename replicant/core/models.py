@@ -28,7 +28,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 Intensity = Literal["low", "medium", "high"]
-Transport = Literal["udp", "tcp"]
+Transport = Literal["udp", "tcp", "tls"]
 
 
 class CefHeader(BaseModel):
@@ -143,6 +143,8 @@ class CollectorProfile(BaseModel):
     transport: Transport = "udp"
     facility: int = 23  # local7
     app_name: str | None = None
+    tls_verify: bool = True  # verify the collector certificate (transport="tls")
+    tls_cafile: str | None = None  # path to a CA bundle for a private/lab collector CA
 
     def endpoint(self) -> str:
         return f"{self.host}:{self.port}/{self.transport}"

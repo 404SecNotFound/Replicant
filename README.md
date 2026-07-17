@@ -71,7 +71,7 @@ flowchart TD
     ENT["Entity Model<br/>synthetic hosts, users, ports"]
     PROFILE["FortiGate Vendor Profile<br/>field dictionary, signature IDs, severity"]
     CEF["CEF Serializer<br/>header + extension escaping (vendor-neutral)"]
-    TRANS["Transport<br/>UDP / TCP syslog, file sink"]
+    TRANS["Transport<br/>UDP / TCP / TLS syslog, file sink"]
     COLL["Operator collector<br/>(the only network egress)"]
 
     CLI --> ORCH
@@ -112,6 +112,13 @@ Preview a technique to a file with no network egress:
 replicant run REP-004 --intensity high --duration 15m --to-file ./out/dns.log --no-send
 ```
 
+Stream over TLS to a collector (use `--tls-cafile` for a private CA, or `--tls-insecure` for a lab self-signed certificate):
+
+```bash
+replicant connect --host 10.20.0.50 --port 6514 --transport tls --tls-cafile ./ca.pem --test
+replicant run REP-007 --intensity high --duration 8m --host 10.20.0.50 --port 6514 --transport tls
+```
+
 ## What the output looks like
 
 Replicant emits FortiGate CEF. Vendor `Fortinet`, product `Fortigate` (lower-case g, matching real FortiOS output), signature ID taken from the last five digits of the FortiOS `logid`, severity as the reversed FortiOS level, and native fields with no standard CEF key carried under an `FTNTFGT` prefix. A traffic accept record looks like this (the syslog prefix is added by the transport layer and is not part of the CEF payload):
@@ -132,13 +139,13 @@ The catalog is the single source of truth for the menu, the CLI, and the engine.
 | REP-002 | Vertical port scan | traffic:forward deny | UC-002a | T1046 | Implemented |
 | REP-003 | Horizontal sweep | traffic:forward deny | UC-002b | T1046, T1018 | Implemented |
 | REP-004 | DNS tunneling / DNS exfil | dns:dns-query | UC-003 | T1071.004, T1048.003 | Implemented |
-| REP-005 | Outbound exfil volume anomaly | traffic:forward | UC-004 | T1041, T1048 | Planned |
-| REP-006 | Destination fan-out burst | traffic:forward | UC-005 | T1018, T1046 | Planned |
-| REP-007 | Brute force and password spray | event:vpn | UC-006 | T1110 | Planned |
-| REP-008 | Newly observed external destination | traffic:forward | UC-007 | T1071, T1583 | Planned |
-| REP-009 | IDS/IPS event-rate spike | utm:ips | UC-008 | T1595, T1190 | Planned |
-| REP-010 | Denied outbound connection burst | traffic:forward | UC-009 | T1071, T1090 | Planned |
-| REP-011 | VPN geovelocity anomaly | event:vpn | UC-010 | T1078, T1133 | Planned |
+| REP-005 | Outbound exfil volume anomaly | traffic:forward | UC-004 | T1041, T1048 | Implemented |
+| REP-006 | Destination fan-out burst | traffic:forward | UC-005 | T1018, T1046 | Implemented |
+| REP-007 | Brute force and password spray | event:vpn | UC-006 | T1110 | Implemented |
+| REP-008 | Newly observed external destination | traffic:forward | UC-007 | T1071, T1583 | Implemented |
+| REP-009 | IDS/IPS event-rate spike | utm:ips | UC-008 | T1595, T1190 | Implemented |
+| REP-010 | Denied outbound connection burst | traffic:forward | UC-009 | T1071, T1090 | Implemented |
+| REP-011 | VPN geovelocity anomaly | event:vpn | UC-010 | T1078, T1133 | Implemented |
 
 Each technique produces a statistically shaped stream rather than flat constants. REP-001 holds the source, destination, port, and protocol constant while varying byte sizes and session identifiers on a fixed interval with jitter. REP-003 holds one source and one port while sweeping many unique destination hosts, mostly denied. REP-004 emits high-entropy query names under one synthetic parent domain with query types weighted toward TXT and NULL.
 
@@ -176,7 +183,7 @@ The web server adds its own controls: it binds to loopback only, requires a per-
 
 The Scenario Engine does no I/O and is seeded, so the same seed plus technique plus parameters yields the same event stream. Event times are computed from a fixed anchor plus a deterministic offset, so a run written to a file is byte-identical across runs. That property makes both the tool and the detections it exercises reproducible.
 
-The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP and TCP transport, catalog validation, the orchestrator end-to-end, and the web API.
+The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP, TCP, and TLS transport, catalog validation, the orchestrator end-to-end, and the web API.
 
 ```bash
 ./.venv/bin/pytest          # 78 tests
@@ -185,13 +192,13 @@ The suite covers CEF golden lines, the FortiGate profile, scenario determinism a
 ./.venv/bin/mypy replicant
 ```
 
-The loopback transport test stands up an in-process UDP and TCP receiver, so continuous integration needs no external collector.
+The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, so continuous integration needs no external collector.
 
 ## Roadmap
 
 - **Phase 1 (complete):** end-to-end pipeline plus three techniques (REP-001, REP-002, REP-004), FortiGate profile, UDP and TCP syslog, headless CLI, and the Rich menu.
 - **Phase 1.5 (complete):** web UI and an embedded terminal over the same Orchestrator.
-- **Phase 2 (in progress):** the rest of the catalog, entity hardening, off-hours weighting, TLS transport, a warm-up baseline for REP-008, and manifest polish. REP-003 is done.
+- **Phase 2 (complete):** all eleven techniques implemented (REP-001 through REP-011), the off-hours weighting used by REP-005, TLS syslog transport, and a warm-up baseline for REP-008 whose boundary is recorded in the run manifest.
 - **Phase 3:** Palo Alto and Check Point vendor profiles.
 - **Phase 4:** ATT&CK scenario composition, with any AI assistance kept advisory while a human authors the detection design.
 

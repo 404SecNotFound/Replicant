@@ -257,6 +257,10 @@ class FortiGateProfile(VendorProfile):
         ext["duser"] = require(event.duser, "duser")
         ext["src"] = require(event.src, "src")
         ext["FTNTFGTremip"] = e.get("remip", require(event.src, "src"))
+        # Synthetic GeoIP tag, present only for geovelocity scenarios (REP-011). The
+        # seven golden lines omit it, so it stays optional and never shifts their order.
+        if "srccountry" in e:
+            ext["FTNTFGTsrccountry"] = e["srccountry"]
         ext["FTNTFGTtunneltype"] = e["tunneltype"]
         if not is_fail:
             ext["FTNTFGTtunnelid"] = e["tunnelid"]

@@ -261,3 +261,165 @@ def test_rep010_deterministic_same_seed() -> None:
     a = _plan("REP-010", "low", 1337)
     b = _plan("REP-010", "low", 1337)
     assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep007_spray_many_users_few_attempts() -> None:
+    plan = _plan("REP-007", "low", 1337)
+    preset = CATALOG.by_id("REP-007").params["low"]
+    users, attempts = preset["users"], preset["attempts_each"]
+    assert preset["mode"] == "spray"
+    assert len(plan.events) == users * attempts  # every user tried a few times
+    assert len({e.src for e in plan.events}) == 1  # one attacking source, held
+    assert len({e.duser for e in plan.events}) == users  # many distinct victims
+    assert all(e.action == "ssl-login-fail" for e in plan.events)  # spray never succeeds
+    counts = Counter(e.duser for e in plan.events)
+    assert set(counts.values()) == {attempts}  # each user tried exactly attempts_each times
+
+
+def test_rep007_brute_one_user_many_attempts_optional_success() -> None:
+    plan = _plan("REP-007", "high", 1337)
+    preset = CATALOG.by_id("REP-007").params["high"]
+    attempts = preset["attempts_each"]
+    assert preset["mode"] == "brute"
+    assert len({e.src for e in plan.events}) == 1  # one source, held
+    assert len({e.duser for e in plan.events}) == 1  # one victim, held (brute)
+    fails = [e for e in plan.events if e.action == "ssl-login-fail"]
+    successes = [e for e in plan.events if e.action == "tunnel-up"]
+    assert len(fails) == attempts  # many attempts
+    assert len(successes) == 1  # optional success at the end
+    assert max(plan.events, key=lambda e: e.eventtime).action == "tunnel-up"  # success is last
+    # both fail and success templates must serialize cleanly
+    assert len(_serialize(plan.events)) == len(plan.events)
+
+
+def test_rep007_reason_and_duser_vary() -> None:
+    plan = _plan("REP-007", "low", 1337)
+    assert len({e.duser for e in plan.events}) > 1  # duser varies
+    assert len({e.extra["reason"] for e in plan.events}) > 1  # FTNTFGTreason varies
+
+
+def test_rep007_source_is_synthetic() -> None:
+    plan = _plan("REP-007", "low", 1337)
+    src = plan.events[0].src
+    assert src is not None
+    assert any(ipaddress.ip_address(src) in net for net in _SYNTHETIC_RANGES)
+
+
+def test_rep007_deterministic_same_seed() -> None:
+    a = _plan("REP-007", "low", 1337)
+    b = _plan("REP-007", "low", 1337)
+    assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep009_ips_spike_shape() -> None:
+    plan = _plan("REP-009", "low", 1337)
+    hits = CATALOG.by_id("REP-009").params["low"]["hits"]
+    assert len(plan.events) == hits
+    assert len({e.dst for e in plan.events}) == 1  # one attacked target, held
+    assert len({e.src for e in plan.events}) > 1  # many attacking sources, varied
+    assert len({e.extra["attack"] for e in plan.events}) > 1  # signature name varies
+    assert all(e.action == "reset" for e in plan.events)
+    profile = FortiGateProfile()
+    assert all(profile.render(e)[0].severity in (6, 7) for e in plan.events)  # high/critical
+
+
+def test_rep009_within_window() -> None:
+    plan = _plan("REP-009", "low", 1337)
+    window_s = CATALOG.by_id("REP-009").params["low"]["window_min"] * 60
+    times = [e.eventtime for e in plan.events]
+    assert max(times) - min(times) <= window_s
+
+
+def test_rep009_cnt_varies() -> None:
+    plan = _plan("REP-009", "low", 1337)
+    counts = {int(e.extra["cnt"]) for e in plan.events}
+    assert len(counts) > 1  # aggregation count escalates across the spike
+    assert max(counts) > 1
+
+
+def test_rep009_target_is_synthetic_internal() -> None:
+    plan = _plan("REP-009", "low", 1337)
+    rfc1918 = ipaddress.ip_network("10.0.0.0/8")
+    dst = plan.events[0].dst
+    assert dst is not None and ipaddress.ip_address(dst) in rfc1918
+
+
+def test_rep009_deterministic_same_seed() -> None:
+    a = _plan("REP-009", "low", 1337)
+    b = _plan("REP-009", "low", 1337)
+    assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep008_baseline_then_novel_destinations() -> None:
+    plan = _plan("REP-008", "medium", 1337)
+    novel_dst = CATALOG.by_id("REP-008").params["medium"]["novel_dst"]
+    events = plan.events
+    assert len({e.src for e in events}) == 1  # one host, held
+    assert all(e.action == "accept" for e in events)
+    baseline, anomaly = events[:-novel_dst], events[-novel_dst:]
+    baseline_dsts = {e.dst for e in baseline}
+    novel_dsts = {e.dst for e in anomaly}
+    assert len(novel_dsts) == novel_dst  # each anomaly event a distinct destination
+    assert novel_dsts.isdisjoint(baseline_dsts)  # first-seen: never in the baseline
+    assert min(e.eventtime for e in anomaly) >= max(e.eventtime for e in baseline)  # after warm-up
+
+
+def test_rep008_baseline_is_a_stable_repeated_set() -> None:
+    plan = _plan("REP-008", "medium", 1337)
+    novel_dst = CATALOG.by_id("REP-008").params["medium"]["novel_dst"]
+    baseline = plan.events[:-novel_dst]
+    # The host talks to a small stable set, so destinations repeat across the baseline.
+    assert len({e.dst for e in baseline}) < len(baseline)
+
+
+def test_rep008_returns_warmup_note() -> None:
+    plan = _plan("REP-008", "medium", 1337)
+    assert plan.warmup_note is not None
+    assert "baseline" in plan.warmup_note.lower()
+
+
+def test_rep008_destinations_are_synthetic() -> None:
+    plan = _plan("REP-008", "medium", 1337)
+    for event in plan.events:
+        assert event.dst is not None
+        ip = ipaddress.ip_address(event.dst)
+        assert any(ip in net for net in _SYNTHETIC_RANGES)
+
+
+def test_rep008_deterministic_same_seed() -> None:
+    a = _plan("REP-008", "medium", 1337)
+    b = _plan("REP-008", "medium", 1337)
+    assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep011_geovelocity_distinct_countries() -> None:
+    plan = _plan("REP-011", "high", 1337)
+    preset = CATALOG.by_id("REP-011").params["high"]
+    events = plan.events
+    assert len(events) == preset["logins"]
+    assert len({e.duser for e in events}) == 1  # one user, held
+    assert all(e.action == "tunnel-up" for e in events)  # successful logins
+    assert len({e.extra["srccountry"] for e in events}) == preset["countries"]  # distinct countries
+    assert len({e.src for e in events}) == preset["logins"]  # distinct sources
+
+
+def test_rep011_within_short_window() -> None:
+    plan = _plan("REP-011", "high", 1337)
+    window_s = CATALOG.by_id("REP-011").params["high"]["window_min"] * 60
+    times = [e.eventtime for e in plan.events]
+    assert max(times) - min(times) <= window_s  # impossible-travel: logins close in time
+
+
+def test_rep011_sources_tagged_and_synthetic() -> None:
+    plan = _plan("REP-011", "high", 1337)
+    for event in plan.events:
+        assert event.src is not None
+        assert event.src in ENTITIES.countries  # a GeoIP-tagged source
+        assert ENTITIES.countries[event.src] == event.extra["srccountry"]  # tag matches emitted
+        assert any(ipaddress.ip_address(event.src) in net for net in _SYNTHETIC_RANGES)
+
+
+def test_rep011_deterministic_same_seed() -> None:
+    a = _plan("REP-011", "high", 1337)
+    b = _plan("REP-011", "high", 1337)
+    assert _serialize(a.events) == _serialize(b.events)
