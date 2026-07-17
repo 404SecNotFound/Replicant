@@ -189,3 +189,46 @@ def test_rep005_events_weighted_off_hours() -> None:
     for event in plan.events:
         hour = datetime.fromtimestamp(event.eventtime, dubai).hour
         assert hour < 8 or hour >= 18  # outside business hours
+
+
+_SYNTHETIC_RANGES = [
+    ipaddress.ip_network(c)
+    for c in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "192.0.2.0/24",
+        "198.51.100.0/24",
+        "203.0.113.0/24",
+    )
+]
+
+
+def test_rep006_destination_fanout_shape() -> None:
+    plan = _plan("REP-006", "low", 1337)
+    unique_dst = CATALOG.by_id("REP-006").params["low"]["unique_dst"]
+    assert len(plan.events) == unique_dst
+    assert len({e.src for e in plan.events}) == 1  # one source, held
+    assert len({e.dst for e in plan.events}) == unique_dst  # many unique destinations
+    assert unique_dst >= 50  # far above the benign baseline of < 10 in the window
+    assert all((e.out_bytes or 0) < 100_000 for e in plan.events)  # small byte volume
+
+
+def test_rep006_within_five_minute_window() -> None:
+    plan = _plan("REP-006", "low", 1337)
+    times = [e.eventtime for e in plan.events]
+    assert max(times) - min(times) <= 5 * 60
+
+
+def test_rep006_deterministic_same_seed() -> None:
+    a = _plan("REP-006", "low", 1337)
+    b = _plan("REP-006", "low", 1337)
+    assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep006_destinations_are_synthetic() -> None:
+    plan = _plan("REP-006", "low", 1337)
+    for event in plan.events:
+        assert event.dst is not None
+        ip = ipaddress.ip_address(event.dst)
+        assert any(ip in net for net in _SYNTHETIC_RANGES)

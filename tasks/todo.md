@@ -3,7 +3,7 @@
 Remaining techniques (each: TDD engine planner + tests + mark implemented + CLI verify):
 - [x] REP-003 Horizontal sweep (one port, many hosts) — done. Added synthetic sweep pool (10.50.0.0/16) to the entity model; planner holds src+dpt, varies dst, mostly deny. 78 tests green.
 - [x] REP-005 Outbound exfil volume anomaly (large out bytes, off-hours) — done. Off-hours placement helper (00:00-06:00 UTC+04:00); large out with >20:1 out/in ratio to few adversary destinations. 81 tests green.
-- [ ] REP-006 Destination fan-out burst
+- [x] REP-006 Destination fan-out burst — done. One source to many unique destinations (mixed internal + external synthetic pools) in a 5-minute window, mostly accept, small bytes. 85 tests green.
 - [ ] REP-007 Brute force / password spray (event:vpn ssl-login-fail)
 - [ ] REP-008 Newly observed external destination (warm-up baseline, manifest note)
 - [ ] REP-009 IDS/IPS event-rate spike (utm:ips)

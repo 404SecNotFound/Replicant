@@ -147,6 +147,7 @@ class ScenarioEngine:
             "REP-003": self._plan_horizontal_sweep,
             "REP-004": self._plan_dns_tunnel,
             "REP-005": self._plan_exfil_volume,
+            "REP-006": self._plan_destination_fanout,
         }
         builder = builders.get(technique.id)
         if builder is None:
@@ -421,6 +422,77 @@ class ScenarioEngine:
                         "sentpkt": str(max(1, out_b // 1400)),
                         "rcvdpkt": str(max(1, in_b // 1400)),
                     },
+                )
+            )
+            session_id += 1
+        return events, None, truncated
+
+    # -- REP-006 destination fan-out burst ------------------------------------
+
+    def _plan_destination_fanout(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        unique_dst = int(preset["unique_dst"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+
+        # A mix of synthetic internal and external destinations (blueprint/catalog).
+        mixed = (
+            entities.internal_targets
+            + entities.benign_external
+            + entities.adversary_external
+            + entities.sweep_hosts
+        )
+        truncated = False
+        if unique_dst > len(mixed):
+            unique_dst = len(mixed)
+            truncated = True
+        if unique_dst > self.max_events:
+            unique_dst = self.max_events
+            truncated = True
+
+        src = str(rng.choice(entities.internal_hosts))
+        dst_indices = unique_ints(rng, 0, len(mixed) - 1, unique_dst)
+        dpt_choices = [443, 80, 53, 8080, 22]
+        gap_s = window_s / max(unique_dst, 1)
+
+        events: list[EventRecord] = []
+        session_id = int(rng.integers(10_000, 60_000))
+        for index, dst_index in enumerate(dst_indices):
+            dpt = int(rng.choice(dpt_choices))
+            proto = 17 if dpt == 53 else 6
+            is_open = index % 10 != 0  # mostly accept, occasional deny
+            action = "accept" if is_open else "deny"
+            level = "notice" if is_open else "warning"
+            service, app = port_service(dpt)
+            out_b = int(rng.integers(80, 4000))
+            in_b = int(rng.integers(80, 8000))
+            spt = int(rng.integers(1024, 65535))
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action=action,
+                    level=level,
+                    eventtime=anchor + int(index * gap_s),
+                    src=src,
+                    spt=spt,
+                    dst=mixed[dst_index],
+                    dpt=dpt,
+                    proto=proto,
+                    session_id=session_id,
+                    out_bytes=out_b,
+                    in_bytes=in_b,
+                    extra=_scan_traffic_extra(is_open, service, app),
                 )
             )
             session_id += 1
