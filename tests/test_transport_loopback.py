@@ -19,10 +19,15 @@ no external collector (blueprint s17).
 
 from __future__ import annotations
 
+import shutil
 import socket
+import ssl
+import subprocess
 import threading
 from datetime import datetime
 from pathlib import Path
+
+import pytest
 
 from replicant.core.models import CollectorProfile
 from replicant.transport.filesink import FileSink
@@ -76,6 +81,87 @@ def test_tcp_loopback_line_arrives_intact() -> None:
     line = received[0].decode("utf-8")
     assert PAYLOAD in line
     assert line.endswith("\n")  # TCP newline framing
+
+
+def _selfsigned_cert(tmp_path: Path) -> tuple[Path, Path]:
+    openssl = shutil.which("openssl")
+    if openssl is None:  # pragma: no cover - environment dependent
+        pytest.skip("openssl not available to generate a test certificate")
+    cert = tmp_path / "cert.pem"
+    key = tmp_path / "key.pem"
+    subprocess.run(
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=localhost",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return cert, key
+
+
+def test_tls_loopback_line_arrives_intact(tmp_path: Path) -> None:
+    cert, key = _selfsigned_cert(tmp_path)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    server.settimeout(5.0)  # never block the test process if the client never connects
+    port = server.getsockname()[1]
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(certfile=str(cert), keyfile=str(key))
+    received: list[bytes] = []
+
+    def serve() -> None:
+        try:
+            conn, _ = server.accept()
+        except OSError:
+            return
+        with ctx.wrap_socket(conn, server_side=True) as tls_conn:
+            received.append(tls_conn.recv(65535))
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+
+    # tls_verify=False: the lab collector uses a self-signed certificate.
+    profile = CollectorProfile(
+        name="loopback", host="127.0.0.1", port=port, transport="tls", tls_verify=False
+    )
+    try:
+        with SyslogEmitter(profile) as emitter:
+            assert emitter.send_test(PAYLOAD) is True
+        thread.join(timeout=5.0)
+    finally:
+        server.close()
+
+    assert received, "TLS receiver got no data"
+    line = received[0].decode("utf-8")
+    assert PAYLOAD in line
+    assert line.endswith("\n")  # TLS shares TCP newline framing
+
+
+def test_tls_connection_refused_is_fail_closed() -> None:
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    profile = CollectorProfile(
+        name="dead", host="127.0.0.1", port=port, transport="tls", tls_verify=False
+    )
+    emitter = SyslogEmitter(profile)
+    assert emitter.send_test(PAYLOAD) is False
 
 
 def test_tcp_connection_refused_is_fail_closed() -> None:

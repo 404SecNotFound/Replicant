@@ -12,7 +12,10 @@ Remaining techniques (each: TDD engine planner + tests + mark implemented + CLI 
 - [x] REP-010 Denied outbound connection burst — done. One source, a burst of denied connections to a few synthetic external destinations in a 60s window, front-loaded (sharp spike then decay). 88 tests green.
 - [x] REP-011 VPN geovelocity anomaly (event:vpn, synthetic country tags) — done. One held user, N successful tunnel-up logins from distinct synthetic GeoIP country blocks inside a short window (impossible travel). Added conditional FTNTFGTsrccountry to the vpn template (golden lines unaffected); repointed the two "unimplemented" guard tests to the engine/error contract. All 11 techniques implemented.
 
-Other Phase 2 items: TLS transport, off-hours/business-hours weighting, saved-profile menu polish, manifest polish.
+Other Phase 2 items:
+- [x] TLS transport — done. Added `tls` to CollectorProfile.transport (ssl-wrapped TCP), plus tls_verify / tls_cafile fields and `--tls-cafile` / `--tls-insecure` CLI flags. Loopback TLS test (ephemeral self-signed cert via openssl) + fail-closed test; verified end-to-end through `replicant connect --transport tls`. 111 tests green.
+- [ ] off-hours/business-hours weighting (deferred; REP-005 already off-hours)
+- [ ] saved-profile menu polish (deferred)
 
 ---
 
