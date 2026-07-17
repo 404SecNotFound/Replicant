@@ -137,18 +137,23 @@ def test_manifest_written_with_utc4_times(tmp_path: Path) -> None:
     assert result.manifest.ended_at.endswith("+04:00")
 
 
-def test_unimplemented_technique_raises(tmp_path: Path) -> None:
-    orchestrator = _orchestrator(tmp_path)
+def test_unregistered_technique_raises() -> None:
+    # Every catalog technique is now implemented, so exercise the engine guard
+    # directly with a synthetic technique that has no registered builder.
+    from replicant.core.models import FortigateBinding, Technique
+    from replicant.entities.model import EntityModel
+    from replicant.scenario.engine import ScenarioEngine
+
+    fake = Technique(
+        id="REP-999",
+        name="unregistered technique",
+        ndr_rule="none",
+        ndr_uc="UC-999",
+        fortigate=FortigateBinding(log_type="traffic", subtype="forward", signature_id="00013"),
+        params={"low": {}},
+    )
     with pytest.raises(NotImplementedError):
-        orchestrator.run(
-            RunRequest(
-                technique_id="REP-011",
-                intensity="low",
-                seed=1,
-                to_file=str(tmp_path / "y.log"),
-                no_send=True,
-            )
-        )
+        ScenarioEngine().plan(fake, "low", EntityModel.build(), seed=1)
 
 
 def test_build_test_line_is_benign_accept(tmp_path: Path) -> None:

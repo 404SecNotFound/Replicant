@@ -390,3 +390,36 @@ def test_rep008_deterministic_same_seed() -> None:
     a = _plan("REP-008", "medium", 1337)
     b = _plan("REP-008", "medium", 1337)
     assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep011_geovelocity_distinct_countries() -> None:
+    plan = _plan("REP-011", "high", 1337)
+    preset = CATALOG.by_id("REP-011").params["high"]
+    events = plan.events
+    assert len(events) == preset["logins"]
+    assert len({e.duser for e in events}) == 1  # one user, held
+    assert all(e.action == "tunnel-up" for e in events)  # successful logins
+    assert len({e.extra["srccountry"] for e in events}) == preset["countries"]  # distinct countries
+    assert len({e.src for e in events}) == preset["logins"]  # distinct sources
+
+
+def test_rep011_within_short_window() -> None:
+    plan = _plan("REP-011", "high", 1337)
+    window_s = CATALOG.by_id("REP-011").params["high"]["window_min"] * 60
+    times = [e.eventtime for e in plan.events]
+    assert max(times) - min(times) <= window_s  # impossible-travel: logins close in time
+
+
+def test_rep011_sources_tagged_and_synthetic() -> None:
+    plan = _plan("REP-011", "high", 1337)
+    for event in plan.events:
+        assert event.src is not None
+        assert event.src in ENTITIES.countries  # a GeoIP-tagged source
+        assert ENTITIES.countries[event.src] == event.extra["srccountry"]  # tag matches emitted
+        assert any(ipaddress.ip_address(event.src) in net for net in _SYNTHETIC_RANGES)
+
+
+def test_rep011_deterministic_same_seed() -> None:
+    a = _plan("REP-011", "high", 1337)
+    b = _plan("REP-011", "high", 1337)
+    assert _serialize(a.events) == _serialize(b.events)

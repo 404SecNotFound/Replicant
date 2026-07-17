@@ -10,7 +10,7 @@ Remaining techniques (each: TDD engine planner + tests + mark implemented + CLI 
 - [x] REP-008 Newly observed external destination (warm-up baseline, manifest note) — done. One host emits a stable known-destination baseline (5 benign peers over N days), then first-seen adversary destinations; returns a warm-up note that flows into the CLI summary and RunManifest.warmup_note. 103 tests green.
 - [x] REP-009 IDS/IPS event-rate spike (utm:ips) — done. Burst of signature resets against one held target; varied src + attack (label-only signature pool) + escalating cnt; header severity high/critical (CEF 6/7). 98 tests green.
 - [x] REP-010 Denied outbound connection burst — done. One source, a burst of denied connections to a few synthetic external destinations in a 60s window, front-loaded (sharp spike then decay). 88 tests green.
-- [ ] REP-011 VPN geovelocity anomaly (event:vpn, synthetic country tags)
+- [x] REP-011 VPN geovelocity anomaly (event:vpn, synthetic country tags) — done. One held user, N successful tunnel-up logins from distinct synthetic GeoIP country blocks inside a short window (impossible travel). Added conditional FTNTFGTsrccountry to the vpn template (golden lines unaffected); repointed the two "unimplemented" guard tests to the engine/error contract. All 11 techniques implemented.
 
 Other Phase 2 items: TLS transport, off-hours/business-hours weighting, saved-profile menu polish, manifest polish.
 

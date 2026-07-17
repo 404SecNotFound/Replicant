@@ -97,6 +97,7 @@ def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
                     "REP-008",
                     "REP-009",
                     "REP-010",
+                    "REP-011",
                 },
                 "safety_notes": technique.safety_notes,
             }

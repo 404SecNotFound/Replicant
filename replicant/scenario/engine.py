@@ -19,8 +19,8 @@ same (seed, technique, params) yields the same plan (blueprint s12). Event times
 are ``anchor_epoch + deterministic offset`` so ``--to-file`` output is byte
 identical across runs with the same seed.
 
-Phase 1 implements REP-001 (periodic C2 callback), REP-002 (vertical port scan),
-and REP-004 (DNS tunneling). Other techniques raise NotImplementedError.
+All eleven catalog techniques (REP-001 through REP-011) have registered builders.
+A technique id with no builder raises NotImplementedError.
 """
 
 from __future__ import annotations
@@ -265,6 +265,7 @@ class ScenarioEngine:
             "REP-008": self._plan_newly_observed_dst,
             "REP-009": self._plan_ips_spike,
             "REP-010": self._plan_denied_burst,
+            "REP-011": self._plan_geovelocity,
         }
         builder = builders.get(technique.id)
         if builder is None:
@@ -934,6 +935,70 @@ class ScenarioEngine:
             f"with {len(novel)} first-seen external destination(s)."
         )
         return events, note, truncated
+
+    # -- REP-011 VPN geovelocity anomaly --------------------------------------
+
+    def _plan_geovelocity(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        logins = int(preset["logins"])
+        countries = int(preset["countries"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+
+        # Group the synthetic external pool by its GeoIP tag, then pick distant blocks.
+        by_country: dict[str, list[str]] = {}
+        for ip, country in entities.countries.items():
+            by_country.setdefault(country, []).append(ip)
+        country_names = sorted(by_country)
+        chosen = [
+            country_names[i]
+            for i in unique_ints(rng, 0, len(country_names) - 1, min(countries, len(country_names)))
+        ]
+
+        user = str(rng.choice(entities.users))  # one user, held (impossible travel)
+        gap_s = window_s / max(logins, 1)
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(1_000_000, 9_999_999))
+        for index in range(logins):
+            country = chosen[index % len(chosen)]
+            pool = by_country[country]
+            src = str(pool[int(rng.integers(0, len(pool)))])
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action="tunnel-up",
+                    level="notice",
+                    eventtime=anchor + int(index * gap_s),
+                    duser=user,
+                    src=src,
+                    session_id=session,
+                    extra={
+                        "logdesc": "SSL VPN tunnel up",
+                        "fgt_action": "tunnel-up",
+                        "remip": src,
+                        "srccountry": country,
+                        "tunneltype": "ssl-tunnel",
+                        "tunnelid": str(int(rng.integers(1_000_000, 9_999_999))),
+                        "group": "vpn-users",
+                        "reason": "login-success",
+                        "msg": "SSL tunnel established",
+                    },
+                )
+            )
+            session += 1
+        return events, None, False
 
     # -- REP-004 DNS tunneling ------------------------------------------------
 

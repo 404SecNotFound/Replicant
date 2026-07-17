@@ -109,12 +109,20 @@ def test_run_stream_reports_lines_and_done(client: TestClient) -> None:
     assert status["event_count"] > 0
 
 
-def test_run_unimplemented_returns_400(client: TestClient) -> None:
-    resp = client.post(
-        "/api/runs",
-        headers=HEADERS,
-        json={"technique_id": "REP-011", "intensity": "low", "no_send": True},
-    )
+def test_run_notimplemented_maps_to_400(client: TestClient) -> None:
+    # All catalog techniques are implemented, so force the engine's not-implemented
+    # path and assert the endpoint still maps it to a 400 (the error contract).
+    from unittest.mock import patch
+
+    with patch(
+        "replicant.web.server.RunManager.start",
+        side_effect=NotImplementedError("no builder"),
+    ):
+        resp = client.post(
+            "/api/runs",
+            headers=HEADERS,
+            json={"technique_id": "REP-001", "intensity": "low", "no_send": True},
+        )
     assert resp.status_code == 400
 
 
