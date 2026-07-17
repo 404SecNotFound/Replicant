@@ -85,7 +85,8 @@ def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
                 "attack": technique.attack.techniques,
                 "tactics": technique.attack.tactics,
                 "intensities": sorted(technique.params.keys()),
-                "implemented": technique.id in {"REP-001", "REP-002", "REP-003", "REP-004"},
+                "implemented": technique.id
+                in {"REP-001", "REP-002", "REP-003", "REP-004", "REP-005"},
                 "safety_notes": technique.safety_notes,
             }
         )
