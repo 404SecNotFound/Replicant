@@ -309,3 +309,42 @@ def test_rep007_deterministic_same_seed() -> None:
     a = _plan("REP-007", "low", 1337)
     b = _plan("REP-007", "low", 1337)
     assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_rep009_ips_spike_shape() -> None:
+    plan = _plan("REP-009", "low", 1337)
+    hits = CATALOG.by_id("REP-009").params["low"]["hits"]
+    assert len(plan.events) == hits
+    assert len({e.dst for e in plan.events}) == 1  # one attacked target, held
+    assert len({e.src for e in plan.events}) > 1  # many attacking sources, varied
+    assert len({e.extra["attack"] for e in plan.events}) > 1  # signature name varies
+    assert all(e.action == "reset" for e in plan.events)
+    profile = FortiGateProfile()
+    assert all(profile.render(e)[0].severity in (6, 7) for e in plan.events)  # high/critical
+
+
+def test_rep009_within_window() -> None:
+    plan = _plan("REP-009", "low", 1337)
+    window_s = CATALOG.by_id("REP-009").params["low"]["window_min"] * 60
+    times = [e.eventtime for e in plan.events]
+    assert max(times) - min(times) <= window_s
+
+
+def test_rep009_cnt_varies() -> None:
+    plan = _plan("REP-009", "low", 1337)
+    counts = {int(e.extra["cnt"]) for e in plan.events}
+    assert len(counts) > 1  # aggregation count escalates across the spike
+    assert max(counts) > 1
+
+
+def test_rep009_target_is_synthetic_internal() -> None:
+    plan = _plan("REP-009", "low", 1337)
+    rfc1918 = ipaddress.ip_network("10.0.0.0/8")
+    dst = plan.events[0].dst
+    assert dst is not None and ipaddress.ip_address(dst) in rfc1918
+
+
+def test_rep009_deterministic_same_seed() -> None:
+    a = _plan("REP-009", "low", 1337)
+    b = _plan("REP-009", "low", 1337)
+    assert _serialize(a.events) == _serialize(b.events)

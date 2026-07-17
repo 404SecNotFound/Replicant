@@ -189,6 +189,30 @@ def synthetic_usernames(count: int, base: list[str]) -> list[str]:
     return names[:count]
 
 
+# IDS/IPS signature (name, signature-id) pairs. Labels only; Replicant never
+# generates an exploit, it only writes the signature name a firewall would log
+# (catalog safety_notes). Ids are illustrative FortiGuard-style identifiers.
+_IPS_SIGNATURES: tuple[tuple[str, str], ...] = (
+    ("Apache.Struts.OGNL.Remote.Code.Execution", "40449"),
+    ("HTTP.URI.SQL.Injection", "15621"),
+    ("Backdoor.DoublePulsar", "42304"),
+    ("MS.SMB.Server.SMBv1.Trans.Secondary.Handling.Code.Execution", "40269"),
+    ("Web.Server.Password.Files.Access", "12688"),
+    ("PHPUnit.Eval.Stdin.Remote.Code.Execution", "44035"),
+    ("Apache.Log4j.Error.Log.Remote.Code.Execution", "51006"),
+    ("Joomla.Core.Session.Remote.Code.Execution", "34321"),
+)
+
+_IPS_REQUESTS: tuple[str, ...] = (
+    "/struts2/index.action",
+    "/index.php?option=login",
+    "/api/v1/login",
+    "/cgi-bin/test.cgi",
+    "/wp-login.php",
+    "/solr/admin/cores",
+)
+
+
 @dataclass
 class ScenarioPlan:
     technique_id: str
@@ -238,6 +262,7 @@ class ScenarioEngine:
             "REP-005": self._plan_exfil_volume,
             "REP-006": self._plan_destination_fanout,
             "REP-007": self._plan_brute_spray,
+            "REP-009": self._plan_ips_spike,
             "REP-010": self._plan_denied_burst,
         }
         builder = builders.get(technique.id)
@@ -733,6 +758,78 @@ class ScenarioEngine:
                     },
                 )
             )
+        return events, None, truncated
+
+    # -- REP-009 IDS/IPS event-rate spike -------------------------------------
+
+    def _plan_ips_spike(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        hits = int(preset["hits"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+
+        truncated = False
+        if hits > self.max_events:
+            hits = self.max_events
+            truncated = True
+
+        dst = str(rng.choice(entities.internal_targets))  # the attacked host, held
+        src_pool = entities.adversary_external
+        gap_s = window_s / max(hits, 1)
+        step = max(1, hits // 5)  # cnt escalates across five aggregation steps
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(100, 9999))
+        for index in range(hits):
+            attack, attackid = _IPS_SIGNATURES[int(rng.integers(0, len(_IPS_SIGNATURES)))]
+            request = _IPS_REQUESTS[int(rng.integers(0, len(_IPS_REQUESTS)))]
+            src = str(rng.choice(src_pool))
+            spt = int(rng.integers(1024, 65535))
+            # Alternate high/critical: FortiOS level critical -> CEF 6, alert -> CEF 7.
+            critical = index % 3 == 0
+            level = "critical" if critical else "alert"
+            ips_severity = "critical" if critical else "high"
+            cnt = 1 + index // step
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action="reset",
+                    level=level,
+                    eventtime=anchor + int(index * gap_s),
+                    src=src,
+                    spt=spt,
+                    dst=dst,
+                    dpt=443,
+                    proto=6,
+                    session_id=session,
+                    extra={
+                        "eventtype": "signature",
+                        "ips_severity": ips_severity,
+                        "service": "HTTPS",
+                        "policyid": "7",
+                        "attack": attack,
+                        "attackid": attackid,
+                        "hostname": dst,
+                        "request": request,
+                        "direction": "incoming",
+                        "profile": "default",
+                        "cnt": str(cnt),
+                        "msg": f"applications3A {attack}",
+                    },
+                )
+            )
+            session += 1
         return events, None, truncated
 
     # -- REP-004 DNS tunneling ------------------------------------------------
