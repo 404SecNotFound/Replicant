@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "replicant"
+version = "0.1.0"
+description = "Safe, synthetic FortiGate CEF firewall telemetry generator for detection engineering."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Imran Hafeez (RZA)" }]
+keywords = ["cef", "syslog", "fortigate", "detection-engineering", "mitre-attack", "logrhythm"]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+dependencies = [
+    "rich>=13",
+    "pydantic>=2",
+    "PyYAML>=6",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+dev = [
+    "pytest>=8",
+    "black>=24",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-PyYAML",
+    "httpx>=0.27",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.scripts]
+replicant = "replicant.cli.app:main"
+
+[tool.setuptools.packages.find]
+include = ["replicant*"]
+
+[tool.setuptools.package-data]
+replicant = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# numpy 2.x ships PEP 695 stubs that don't parse under the 3.11 target; treat the
+# package as untyped (the engine casts all numpy returns to plain Python types).
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

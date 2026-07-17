@@ -1,0 +1,31 @@
+Replicant
+Copyright 2026 Imran Hafeez (RZA)
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full terms.
+
+-------------------------------------------------------------------------------
+MITRE ATT&CK
+-------------------------------------------------------------------------------
+This project uses MITRE ATT&CK.
+(c) 2026 The MITRE Corporation. This work is reproduced and distributed with
+the permission of The MITRE Corporation. ATT&CK is a registered trademark of
+The MITRE Corporation. Use of ATT&CK does not imply endorsement by
+The MITRE Corporation.
+https://attack.mitre.org/
+
+-------------------------------------------------------------------------------
+Design acknowledgements
+-------------------------------------------------------------------------------
+Replicant's design was informed by the open-source projects below. No code from
+these projects is bundled in this repository at this time. If permissively
+licensed code is incorporated later, its required attribution notice will be
+added to this section.
+
+  - Atomic Red Team (Red Canary), MIT: technique-catalog structure.
+  - Splunk Eventgen, Apache-2.0: token and distribution templating patterns.
+  - Cisco Talos EvidenceForge, MIT: canonical-event model and emitter pattern.
+  - flowsynth (OISF), Apache-2.0: plan-to-emitter pipeline pattern.
+
+Prior art that shaped the design and is credited without code reuse:
+  - summved/log-generator (GPL-3.0): CEF-over-syslog streaming with ATT&CK chains.

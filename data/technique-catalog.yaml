@@ -1,0 +1,340 @@
+# Replicant Technique Catalog (seed)
+# Project: Replicant (github.com/404SecNotFound/Replicant)
+# Author: RZA
+# Timezone for all timestamps produced at runtime: UTC+04:00 (Dubai)
+# Status: seed catalog for Phase 1 and Phase 2.
+#
+# PURPOSE
+# This file is the single source of truth for the interactive TTP menu and the
+# headless CLI. The menu is generated from this catalog at runtime. Each entry
+# describes one adversary behavior, the FortiGate log type that carries it, the
+# CEF fields the scenario engine must vary, realistic value distributions, and
+# the class of network detection the behavior is meant to exercise.
+#
+# SAFETY
+# Every value here produces fabricated log text only. No entry causes a real
+# connection to any host other than the syslog collector the user configures.
+# Default entity pools use RFC1918 and IANA documentation ranges
+# (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). No real malware, no real
+# C2 domains, no scanning of real infrastructure.
+#
+# SCHEMA (per entry)
+#   id:               stable Replicant id (REP-###)
+#   name:             human label shown in the menu
+#   ndr_rule:         generic Replicant label for the class of network
+#                     detection this technique exercises. Not tied to any
+#                     vendor's or product's rule pack. Map it to whatever
+#                     your own detection content calls the equivalent rule.
+#   ndr_uc:           stable Replicant use-case id, unique per technique
+#   attack:           { tactics: [], techniques: [] }  MITRE ATT&CK
+#   fortigate:        { log_type, subtype, signature_id }  CEF header inputs
+#   cef_fields_held:  fields kept constant to form the pattern
+#   cef_fields_varied: fields the scenario engine iterates
+#   params:           default_intensity + low/medium/high presets
+#   distributions:    guidance the scenario engine uses to look realistic
+#   benign_baseline:  what normal looks like, so the signal stands out
+#   references:       research anchors (see replicant-fortigate-cef-reference.md)
+#   safety_notes:     anything an operator must know
+#
+# INTENSITY MODEL
+# Each technique exposes low/medium/high. Intensity scales volume and rate, not
+# safety. "high" is still synthetic text to one collector. Duration and rate are
+# always operator-overridable from the menu or CLI flags.
+
+version: 0.1.0
+vendor_profile: fortigate
+timezone: "UTC+04:00"
+default_entities_ref: entities.default   # defined in the entity model, not here
+
+techniques:
+
+  - id: REP-001
+    name: "Periodic C2 callback (low-and-slow)"
+    ndr_rule: "NDR-C2-001"
+    ndr_uc: "UC-001"
+    attack:
+      tactics: ["TA0011 Command and Control"]
+      techniques: ["T1071", "T1571"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["src", "dst", "dpt", "proto"]
+    cef_fields_varied: ["rt", "out", "in", "externalId"]   # externalId = session id
+    params:
+      low:    { interval_s: 300, jitter_pct: 20, duration_min: 240, out_bytes: [150, 800] }
+      medium: { interval_s: 60,  jitter_pct: 15, duration_min: 240, out_bytes: [200, 1500] }
+      high:   { interval_s: 30,  jitter_pct: 10, duration_min: 120, out_bytes: [400, 2000] }
+    distributions:
+      out_bytes: "log-normal, low variance; each callback small"
+      in_bytes:  "usually >= out, still small (tasking)"
+      interval:  "fixed base +/- jitter_pct, no business-hours weighting"
+      dpt_choices: [443, 8443, 8080, 53]
+    benign_baseline: "browsing to same dst shows fewer records, far higher out/in and duration"
+    references: ["UC-001 Detection Logic", "fortigate-cef-reference: traffic:forward accept"]
+    safety_notes: "dst drawn from synthetic-adversary external pool (203.0.113.0/24)"
+
+  - id: REP-002
+    name: "Vertical port scan (one host, many ports)"
+    ndr_rule: "NDR-RECON-002"
+    ndr_uc: "UC-002a"
+    attack:
+      tactics: ["TA0007 Discovery"]
+      techniques: ["T1046"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "deny"
+    cef_fields_held: ["src", "dst"]
+    cef_fields_varied: ["dpt", "act", "rt", "externalId"]
+    params:
+      low:    { unique_ports: 200,  window_s: 120, gap_ms: [10, 50] }
+      medium: { unique_ports: 1000, window_s: 60,  gap_ms: [2, 20] }
+      high:   { unique_ports: 4000, window_s: 30,  gap_ms: [1, 5] }
+    distributions:
+      dpt: "sweep ascending or randomized across 1-65535"
+      out_bytes: "~0"
+      action_mix: "mostly deny, occasional accept on open ports"
+    benign_baseline: "normal hosts touch a handful of ports on a given dst"
+    references: ["UC-002a", "fortigate-cef-reference: T1046 vertical"]
+    safety_notes: "dst is a single synthetic internal or DMZ target"
+
+  - id: REP-003
+    name: "Horizontal sweep (one port, many hosts)"
+    ndr_rule: "NDR-RECON-002"
+    ndr_uc: "UC-002b"
+    attack:
+      tactics: ["TA0007 Discovery"]
+      techniques: ["T1046", "T1018"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "deny"
+    cef_fields_held: ["src", "dpt"]
+    cef_fields_varied: ["dst", "act", "rt", "externalId"]
+    params:
+      low:    { unique_hosts: 256,  window_s: 300, port: 445 }
+      medium: { unique_hosts: 1024, window_s: 120, port: 3389 }
+      high:   { unique_hosts: 4096, window_s: 60,  port: 22 }
+    distributions:
+      dst: "iterate a /24 to /16 synthetic internal range"
+      port_choices: [445, 3389, 22, 23, 80]
+    benign_baseline: "normal east-west touches few unique hosts per source per window"
+    references: ["UC-002b", "fortigate-cef-reference: T1046 horizontal"]
+    safety_notes: "dst pool is synthetic internal space only"
+
+  - id: REP-004
+    name: "DNS tunneling / DNS exfil"
+    ndr_rule: "NDR-C2-003"
+    ndr_uc: "UC-003"
+    attack:
+      tactics: ["TA0011 Command and Control", "TA0010 Exfiltration"]
+      techniques: ["T1071.004", "T1048.003"]
+    fortigate:
+      log_type: "dns"
+      subtype: "dns-query"
+      signature_id: "54803"    # [Unverified] confirm against live FortiOS build
+      action: "pass"
+    cef_fields_held: ["src", "dst", "dpt", "proto"]   # dst = resolver, dpt=53
+    cef_fields_varied: ["FTNTFGTqname", "FTNTFGTqtype", "rt", "FTNTFGTxid"]
+    params:
+      low:    { qps: 20,  duration_min: 30, label_len: [30, 45], unique_labels: 300 }
+      medium: { qps: 60,  duration_min: 30, label_len: [40, 55], unique_labels: 1200 }
+      high:   { qps: 200, duration_min: 15, label_len: [50, 63], unique_labels: 5000 }
+    distributions:
+      qname: "high-entropy labels (>3.5 bits/char) under one or few parent domains"
+      qtype: "weighted toward TXT, NULL, CNAME"
+      parent_domain: "synthetic, from docs range (example.net) or a *.invalid parent"
+    benign_baseline: "normal resolvers show low unique-label cardinality per parent per hour"
+    references: ["UC-003 MPE prereqs", "fortigate-cef-reference: dns:dns-query"]
+    safety_notes: "qname parents must be non-resolvable synthetic domains; never real C2"
+
+  - id: REP-005
+    name: "Outbound exfil volume anomaly"
+    ndr_rule: "NDR-EXFIL-004"
+    ndr_uc: "UC-004"
+    attack:
+      tactics: ["TA0010 Exfiltration"]
+      techniques: ["T1041", "T1048"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["src", "dst", "dpt"]
+    cef_fields_varied: ["out", "in", "rt", "externalId", "FTNTFGTduration"]
+    params:
+      low:    { total_out_mb: 500,   sessions: 20,  dst_count: 1, hours: "off" }
+      medium: { total_out_mb: 2000,  sessions: 40,  dst_count: 2, hours: "off" }
+      high:   { total_out_mb: 5000,  sessions: 60,  dst_count: 3, hours: "off" }
+    distributions:
+      out_bytes: "large; out:in ratio > 20:1"
+      dpt_choices: [443, 22, 21]
+      timing: "weighted to off-hours to raise anomaly score"
+    benign_baseline: "per-host normal out is 1-500 KB in business hours"
+    references: ["UC-004 Outliers Nth Percentile", "fortigate-cef-reference: T1041/T1048"]
+    safety_notes: "byte counts are integers in the log only; no real data moves"
+
+  - id: REP-006
+    name: "Destination fan-out burst"
+    ndr_rule: "NDR-RECON-005"
+    ndr_uc: "UC-005"
+    attack:
+      tactics: ["TA0007 Discovery"]
+      techniques: ["T1018", "T1046"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["src"]
+    cef_fields_varied: ["dst", "dpt", "rt", "externalId"]
+    params:
+      low:    { unique_dst: 50,  window_min: 5 }
+      medium: { unique_dst: 150, window_min: 5 }
+      high:   { unique_dst: 500, window_min: 5 }
+    distributions:
+      dst: "mix of synthetic internal and external destinations"
+      out_bytes: "small"
+    benign_baseline: "normal host contacts < 10 unique dst in a 5 minute window"
+    references: ["UC-005", "fortigate-cef-reference: T1018 fan-out"]
+    safety_notes: "destination pools are synthetic"
+
+  - id: REP-007
+    name: "Brute force and password spray"
+    ndr_rule: "NDR-ATO-006"
+    ndr_uc: "UC-006"
+    attack:
+      tactics: ["TA0006 Credential Access"]
+      techniques: ["T1110", "T1110.003", "T1110.004"]
+    fortigate:
+      log_type: "event"
+      subtype: "vpn"
+      signature_id: "39426"   # ssl-login-fail
+      action: "ssl-login-fail"
+    cef_fields_held: ["src"]              # brute: also hold duser
+    cef_fields_varied: ["duser", "rt", "FTNTFGTreason"]
+    params:
+      low:    { mode: "spray", users: 50,   attempts_each: 2, window_min: 30 }
+      medium: { mode: "spray", users: 500,  attempts_each: 2, window_min: 30 }
+      high:   { mode: "brute", users: 1,    attempts_each: 400, window_min: 8 }
+    distributions:
+      spray: "many unique duser, few attempts each"
+      brute: "one duser, many attempts, optional success at end"
+      source_type: "event:vpn ssl-login-fail or event:system login failed (selectable)"
+    benign_baseline: "normal auth failures are sparse and self-correct"
+    references: ["UC-006 User normalisation prereq", "fortigate-cef-reference: T1110"]
+    safety_notes: "usernames drawn from a synthetic directory pool"
+
+  - id: REP-008
+    name: "Newly observed external destination per host"
+    ndr_rule: "NDR-C2-007"
+    ndr_uc: "UC-007"
+    attack:
+      tactics: ["TA0011 Command and Control", "TA0042 Resource Development"]
+      techniques: ["T1071", "T1583"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["src"]
+    cef_fields_varied: ["dst", "dpt", "rt"]
+    params:
+      low:    { baseline_days: 7,  novel_dst: 1 }
+      medium: { baseline_days: 14, novel_dst: 3 }
+      high:   { baseline_days: 30, novel_dst: 5 }
+    distributions:
+      approach: "engine first emits a baseline of known dst per host, then introduces first-seen external dst"
+    benign_baseline: "host talks to a stable set of external destinations"
+    references: ["UC-007 Whitelist Profile", "fortigate-cef-reference: T1583"]
+    safety_notes: "requires a baseline phase; document the warm-up in the run summary"
+
+  - id: REP-009
+    name: "IDS/IPS event-rate spike"
+    ndr_rule: "NDR-RECON-008"
+    ndr_uc: "UC-008"
+    attack:
+      tactics: ["TA0043 Reconnaissance"]
+      techniques: ["T1595", "T1190"]
+    fortigate:
+      log_type: "utm"
+      subtype: "ips"
+      signature_id: "16384"
+      action: "reset"
+    cef_fields_held: ["dst"]
+    cef_fields_varied: ["src", "FTNTFGTattack", "FTNTFGTattackid", "rt", "cnt"]
+    params:
+      low:    { hits: 20,   window_min: 5 }
+      medium: { hits: 200,  window_min: 3 }
+      high:   { hits: 1000, window_min: 1 }
+    distributions:
+      attackid: "one repeated signature (targeted) or many distinct (broad recon), selectable"
+      severity: "high or critical (CEF 6-7)"
+    benign_baseline: "IPS hit rate is low and steady per segment"
+    references: ["UC-008 Signature ID prereq", "fortigate-cef-reference: utm:ips"]
+    safety_notes: "attack names are labels only; no exploit is generated"
+
+  - id: REP-010
+    name: "Denied outbound connection burst"
+    ndr_rule: "NDR-C2-009"
+    ndr_uc: "UC-009"
+    attack:
+      tactics: ["TA0011 Command and Control"]
+      techniques: ["T1071", "T1090"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "deny"
+    cef_fields_held: ["src"]
+    cef_fields_varied: ["dst", "dpt", "rt", "cnt"]
+    params:
+      low:    { denies: 50,   window_s: 60 }
+      medium: { denies: 300,  window_s: 60 }
+      high:   { denies: 1000, window_s: 60 }
+    distributions:
+      dst: "one or many synthetic external destinations"
+      pattern: "sharp rate spike, then decay"
+    benign_baseline: "occasional denies from policy, not bursts"
+    references: ["UC-009", "fortigate-cef-reference: T1090 denied burst"]
+    safety_notes: "synthetic destinations only"
+
+  - id: REP-011
+    name: "VPN geovelocity anomaly"
+    ndr_rule: "NDR-ATO-010"
+    ndr_uc: "UC-010"
+    attack:
+      tactics: ["TA0001 Initial Access"]
+      techniques: ["T1078", "T1133"]
+    fortigate:
+      log_type: "event"
+      subtype: "vpn"
+      signature_id: "39947"   # ssl-login success  [Unverified] confirm on live build
+      action: "tunnel-up"
+    cef_fields_held: ["duser"]
+    cef_fields_varied: ["src", "FTNTFGTsrccountry", "rt"]
+    params:
+      low:    { logins: 2, countries: 2, window_min: 60 }
+      medium: { logins: 3, countries: 3, window_min: 30 }
+      high:   { logins: 4, countries: 4, window_min: 15 }
+    distributions:
+      geo: "successful logins from geographically distant source blocks implying > 900 km/h"
+      country_source: "synthetic GeoIP tags on the external source pool"
+    benign_baseline: "a user logs in from a consistent country or approved travel set"
+    references: ["UC-010 GeoIP + user normalisation prereq", "fortigate-cef-reference: T1078/T1133"]
+    safety_notes: "source IPs and countries are synthetic tags"
+
+# NOTES
+# 1. Signature IDs marked [Unverified] must be confirmed against a live FortiOS
+#    build before the pack is customer-facing. The CEF reference file records
+#    which are verified (traffic 00013, IPS 16384, DNS response 54802,
+#    SSL-VPN login fail 39426, admin login failed 32002, user auth 43008).
+# 2. Byte-field key is configurable per profile. Default out/in. Some FortiOS
+#    builds emit FTNTFGTsentbyte/FTNTFGTrcvdbyte. Keep this switchable.
+# 3. Device Product string is "Fortigate" (lower-case g) to match real output.
+# 4. Techniques that need a warm-up baseline (REP-008) must state the warm-up in
+#    the run summary so the analyst knows when the anomaly begins.
