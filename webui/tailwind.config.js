@@ -34,6 +34,13 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        signal: {
+          DEFAULT: "hsl(var(--signal))",
+          foreground: "hsl(var(--signal-foreground))",
+        },
+        elev: "hsl(var(--elev))",
+        "text-3": "hsl(var(--text-3))",
+        "text-4": "hsl(var(--text-4))",
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -41,7 +48,17 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        sans: ['"IBM Plex Sans"', "system-ui", "-apple-system", "sans-serif"],
+        mono: ['"IBM Plex Mono"', "ui-monospace", "Menlo", "monospace"],
+      },
+      keyframes: {
+        rise: {
+          from: { opacity: "0", transform: "translateY(7px)" },
+          to: { opacity: "1", transform: "none" },
+        },
+      },
+      animation: {
+        rise: "rise 0.34s cubic-bezier(0.2, 0.7, 0.3, 1) both",
       },
     },
   },

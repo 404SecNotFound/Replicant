@@ -1,22 +1,31 @@
 import { useEffect, useState } from "react";
-import { Activity, Moon, Sun, Terminal as TerminalIcon, LayoutDashboard } from "lucide-react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Moon, Sun } from "lucide-react";
 import { ConnectionCard } from "@/components/ConnectionCard";
 import { CatalogTable } from "@/components/CatalogTable";
 import { RunPanel } from "@/components/RunPanel";
 import { TerminalView } from "@/components/TerminalView";
+import { cn } from "@/lib/utils";
 import {
   getCatalog,
   getConfig,
-  vendorLabel,
   type CatalogResponse,
   type Collector,
   type ConfigResponse,
   type Technique,
 } from "@/lib/api";
+
+const MARK = (
+  <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+    <rect x="1.2" y="1.2" width="19.6" height="19.6" rx="5.4" className="stroke-muted-foreground" strokeWidth="1.3" opacity="0.5" />
+    <path
+      d="M4 12.5 L7.6 12.5 L9 7 L11.4 15.5 L13 11 L15 11 L16.4 13 L18 13"
+      className="stroke-signal"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
 export default function App() {
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
@@ -25,7 +34,7 @@ export default function App() {
   const [collector, setCollector] = useState<Collector | null>(null);
   const [vendor, setVendor] = useState("fortigate");
   const [selected, setSelected] = useState<Technique | null>(null);
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState<"emitter" | "terminal">("emitter");
   const [dark, setDark] = useState(true);
 
   useEffect(() => {
@@ -60,45 +69,68 @@ export default function App() {
 
   if (!catalog || !config) {
     return (
-      <div className="flex h-screen items-center justify-center text-muted-foreground">
-        Loading Replicant...
+      <div className="flex h-screen items-center justify-center font-mono text-sm text-muted-foreground">
+        Loading Replicant…
       </div>
     );
   }
 
+  const navItem = (id: "emitter" | "terminal", label: string) => (
+    <button
+      onClick={() => setTab(id)}
+      className={cn(
+        "py-[17px] text-[13px] font-medium transition-colors",
+        tab === id
+          ? "text-foreground shadow-[inset_0_-2px_0_hsl(var(--foreground))]"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <Tabs value={tab} onValueChange={setTab} className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex items-center gap-3">
-          <Activity className="h-5 w-5 text-primary" />
-          <div>
-            <div className="text-sm font-semibold leading-tight">Replicant</div>
-            <div className="text-[11px] text-muted-foreground">
-              synthetic CEF · vendor {vendorLabel(vendor)} · loopback
-            </div>
-          </div>
+    <div className="app-surface flex h-screen flex-col overflow-hidden">
+      {/* top bar */}
+      <header className="flex h-[54px] flex-none items-center justify-between border-b px-5">
+        <div className="flex items-center gap-2.5">
+          {MARK}
+          <span className="text-sm font-semibold tracking-tight">Replicant</span>
+          <span className="ml-1 border-l pl-2.5 font-mono text-[11px] text-text-3">
+            lab · 10.20.0.0/16
+          </span>
         </div>
-        <div className="flex items-center gap-3">
-          <TabsList>
-            <TabsTrigger value="dashboard">
-              <LayoutDashboard className="h-4 w-4" /> Dashboard
-            </TabsTrigger>
-            <TabsTrigger value="terminal">
-              <TerminalIcon className="h-4 w-4" /> Terminal
-            </TabsTrigger>
-          </TabsList>
-          <Badge variant={collector ? "default" : "muted"}>
-            {collector ? `connected ${collector.host}:${collector.port}` : "no collector"}
-          </Badge>
-          <Button variant="ghost" size="icon" onClick={() => setDark((d) => !d)}>
-            {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </Button>
+        <nav className="flex gap-6">
+          {navItem("emitter", "Emitter")}
+          {navItem("terminal", "Terminal")}
+        </nav>
+        <div className="flex items-center gap-4">
+          <span className="flex items-center gap-2 font-mono text-[11.5px] text-text-3">
+            {collector ? (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-signal" />
+                {collector.host}:{collector.port} · {collector.transport}
+              </>
+            ) : (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-text-4" />
+                no collector
+              </>
+            )}
+          </span>
+          <button
+            onClick={() => setDark((d) => !d)}
+            className="flex h-[26px] w-[26px] items-center justify-center rounded-md border text-muted-foreground transition-colors hover:text-foreground"
+            aria-label="Toggle theme"
+          >
+            {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+          </button>
         </div>
       </header>
 
-      <TabsContent value="dashboard" className="min-h-0 flex-1 p-4">
-        <div className="grid h-full min-h-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-          <div className="flex min-h-0 flex-col gap-4">
+      {tab === "emitter" ? (
+        <div className="grid min-h-0 flex-1 grid-cols-[336px_minmax(0,1fr)]">
+          <aside className="flex min-h-0 animate-rise flex-col gap-6 overflow-y-auto scroll-thin border-r p-5">
             <ConnectionCard
               epsCap={config.eps_cap}
               collector={collector}
@@ -112,21 +144,23 @@ export default function App() {
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
             />
-          </div>
-          <RunPanel
-            technique={selected}
-            defaultSeed={config.default_seed}
-            collector={collector}
-            vendor={vendor}
-          />
+          </aside>
+          <main className="min-h-0 animate-rise overflow-y-auto scroll-thin px-7 py-6 [animation-delay:0.1s]">
+            <RunPanel
+              technique={selected}
+              defaultSeed={config.default_seed}
+              collector={collector}
+              vendor={vendor}
+            />
+          </main>
         </div>
-      </TabsContent>
-
-      <TabsContent value="terminal" className="min-h-0 flex-1 p-4">
-        <Card className="h-full overflow-hidden p-2">
-          <TerminalView />
-        </Card>
-      </TabsContent>
-    </Tabs>
+      ) : (
+        <div className="min-h-0 flex-1 p-4">
+          <div className="h-full overflow-hidden rounded-lg border bg-card p-2">
+            <TerminalView />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
