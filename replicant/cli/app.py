@@ -27,7 +27,13 @@ from rich.console import Console
 from rich.table import Table
 
 from replicant import __version__
-from replicant.config.settings import Settings, load_profiles, load_settings, save_profile
+from replicant.config.settings import (
+    VENDORS,
+    Settings,
+    load_profiles,
+    load_settings,
+    save_profile,
+)
 from replicant.core.models import Catalog, CollectorProfile, RunRequest, load_catalog
 from replicant.core.orchestrator import Orchestrator
 
@@ -89,7 +95,9 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--test", action="store_true", help="send one benign test log")
     connect.add_argument("--save", metavar="NAME", help="save this collector as a named profile")
     connect.add_argument(
-        "--vendor", choices=["fortigate", "paloalto"], help="vendor profile (default from settings)"
+        "--vendor",
+        choices=list(VENDORS),
+        help="vendor profile (default from settings)",
     )
 
     run = sub.add_parser("run", help="run a technique")
@@ -111,7 +119,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--profile", help="use a saved collector profile by name")
     run.add_argument(
-        "--vendor", choices=["fortigate", "paloalto"], help="vendor profile (default from settings)"
+        "--vendor",
+        choices=list(VENDORS),
+        help="vendor profile (default from settings)",
     )
     return parser
 

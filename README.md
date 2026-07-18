@@ -119,11 +119,14 @@ replicant connect --host 10.20.0.50 --port 6514 --transport tls --tls-cafile ./c
 replicant run REP-007 --intensity high --duration 8m --host 10.20.0.50 --port 6514 --transport tls
 ```
 
-Emit the same technique as Palo Alto PAN-OS CEF instead of FortiGate (`--vendor` also works on `connect`):
+Emit the same technique as another vendor's CEF instead of FortiGate. `--vendor` also works on `connect`, and the vendor is selectable in the Rich menu (`[v]`) and the web UI:
 
 ```bash
-replicant run REP-009 --intensity high --vendor paloalto --to-file ./out/panos.log --no-send
+replicant run REP-009 --intensity high --vendor paloalto   --to-file ./out/panos.log      --no-send
+replicant run REP-009 --intensity high --vendor checkpoint --to-file ./out/checkpoint.log --no-send
 ```
+
+Palo Alto renders to PAN-OS CEF ([`docs/paloalto-cef-reference.md`](docs/paloalto-cef-reference.md)) and Check Point to Log Exporter CEF ([`docs/checkpoint-cef-reference.md`](docs/checkpoint-cef-reference.md)). Both reference docs are `[Unverified]` against a live build and each carries seven golden sample lines that reuse the same synthetic entities as the FortiGate oracle for direct comparison.
 
 ## What the output looks like
 
@@ -205,7 +208,7 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 - **Phase 1 (complete):** end-to-end pipeline plus three techniques (REP-001, REP-002, REP-004), FortiGate profile, UDP and TCP syslog, headless CLI, and the Rich menu.
 - **Phase 1.5 (complete):** web UI and an embedded terminal over the same Orchestrator.
 - **Phase 2 (complete):** all eleven techniques implemented (REP-001 through REP-011), the off-hours weighting used by REP-005, TLS syslog transport, and a warm-up baseline for REP-008 whose boundary is recorded in the run manifest.
-- **Phase 3 (in progress):** multi-vendor. The Palo Alto (PAN-OS) profile is implemented and selectable with `--vendor paloalto`; the same technique catalog and scenario engine drive it, only the serialization differs. Check Point is next.
+- **Phase 3 (complete):** multi-vendor. Palo Alto (PAN-OS) and Check Point (Log Exporter) profiles join FortiGate, each with an `[Unverified]` reference doc and byte-for-byte golden lines. Select the vendor with `--vendor {fortigate,paloalto,checkpoint}`, in the Rich menu (`[v]`), or in the web UI; one technique catalog and one scenario engine drive every vendor, only the serialization differs.
 - **Phase 4:** ATT&CK scenario composition, with any AI assistance kept advisory while a human authors the detection design.
 
 ## Prior art and positioning

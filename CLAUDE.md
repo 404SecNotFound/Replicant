@@ -57,7 +57,7 @@ replicant run REP-004 --intensity high --to-file ./out/dns.log --no-send
 - Phase 1 (complete): pipeline plus three techniques (REP-001, REP-002, REP-004) end to end, loopback CI green. Scope is in `docs/phase1-kickoff-prompt.md`.
 - Phase 1.5 (complete): web UI and embedded terminal over the same Orchestrator.
 - Phase 2 (complete): full catalog (all eleven techniques REP-001..011), entity hardening, TLS transport, REP-008 warm-up baseline, manifests.
-- Phase 3 (current): Palo Alto and Check Point profiles. Palo Alto (PAN-OS) profile done: `replicant/profiles/paloalto.py` + `docs/paloalto-cef-reference.md` (seven golden lines, all [Unverified]), selectable with `--vendor paloalto`. Check Point next.
+- Phase 3 (complete): Palo Alto and Check Point profiles both done. `replicant/profiles/paloalto.py` + `docs/paloalto-cef-reference.md` and `replicant/profiles/checkpoint.py` + `docs/checkpoint-cef-reference.md` (seven golden lines each, all [Unverified]). Vendor selectable with `--vendor {fortigate,paloalto,checkpoint}`, the Rich menu `[v]` picker, and the web UI selector (canonical id list in `settings.VENDORS`). Check Point emits string CEF severity (Unknown/Low/Medium/High/Very-High), so `CefHeader.severity` is `int | str`.
 - Phase 4: ATT&CK scenario composition (AI advisory only; humans author detection design).
 - Phase 5: React web UI over the same core.
 

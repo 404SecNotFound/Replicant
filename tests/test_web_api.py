@@ -66,6 +66,64 @@ def test_config_endpoint(client: TestClient) -> None:
     assert resp.json()["eps_cap"] == 2000
 
 
+def test_config_reports_vendor_options(client: TestClient) -> None:
+    data = client.get("/api/config", headers=HEADERS).json()
+    assert data["vendor"] == "fortigate"
+    assert data["vendors"] == ["fortigate", "paloalto", "checkpoint"]
+
+
+def test_connect_test_line_reflects_vendor(client: TestClient) -> None:
+    from unittest.mock import patch
+
+    def fake_send_test(self: object, collector: object) -> bool:
+        return True
+
+    with patch("replicant.web.server.Orchestrator.send_test", fake_send_test):
+        resp = client.post(
+            "/api/connect/test",
+            headers=HEADERS,
+            json={"host": "127.0.0.1", "port": 514, "transport": "udp", "vendor": "checkpoint"},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["line"].startswith("CEF:0|Check Point|")
+
+
+def test_run_with_vendor_writes_checkpoint_cef(client: TestClient, tmp_path: Path) -> None:
+    out = tmp_path / "cp_web.log"
+    start = client.post(
+        "/api/runs",
+        headers=HEADERS,
+        json={
+            "technique_id": "REP-001",
+            "intensity": "low",
+            "duration": "2m",
+            "no_send": True,
+            "to_file": str(out),
+            "vendor": "checkpoint",
+        },
+    )
+    assert start.status_code == 200
+    run_id = start.json()["run_id"]
+    body = ""
+    with client.stream("GET", f"/api/runs/{run_id}/events?token={TOKEN}") as resp:
+        for chunk in resp.iter_text():
+            body += chunk
+            if '"type": "done"' in body:
+                break
+    lines = out.read_text().splitlines()
+    assert lines
+    assert all(line.startswith("CEF:0|Check Point|") for line in lines)
+
+
+def test_run_unknown_vendor_returns_400(client: TestClient) -> None:
+    resp = client.post(
+        "/api/runs",
+        headers=HEADERS,
+        json={"technique_id": "REP-001", "no_send": True, "vendor": "bogus"},
+    )
+    assert resp.status_code == 400
+
+
 def test_connect_test_reaches_loopback(client: TestClient) -> None:
     receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     receiver.bind(("127.0.0.1", 0))

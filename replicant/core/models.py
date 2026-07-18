@@ -40,7 +40,9 @@ class CefHeader(BaseModel):
     device_version: str
     signature_id: str
     name: str
-    severity: int
+    # CEF permits either a 0-10 integer (FortiGate, PAN-OS) or a severity string
+    # such as Unknown/Low/Medium/High/Very-High (Check Point Log Exporter).
+    severity: int | str
 
 
 class EventRecord(BaseModel):

@@ -13,15 +13,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { testConnection, type Collector } from "@/lib/api";
+import { testConnection, vendorLabel, type Collector } from "@/lib/api";
 
 interface Props {
   epsCap: number;
   collector: Collector | null;
   onCollectorChange: (c: Collector | null) => void;
+  vendor: string;
+  vendors: string[];
+  onVendorChange: (v: string) => void;
 }
 
-export function ConnectionCard({ epsCap, collector, onCollectorChange }: Props) {
+export function ConnectionCard({
+  epsCap,
+  collector,
+  onCollectorChange,
+  vendor,
+  vendors,
+  onVendorChange,
+}: Props) {
   const [host, setHost] = useState(collector?.host ?? "127.0.0.1");
   const [port, setPort] = useState(String(collector?.port ?? 514));
   const [transport, setTransport] = useState(collector?.transport ?? "udp");
@@ -39,7 +49,7 @@ export function ConnectionCard({ epsCap, collector, onCollectorChange }: Props) 
       target.tls_cafile = tlsCafile.trim() || null;
     }
     try {
-      const resp = await testConnection(target);
+      const resp = await testConnection(target, vendor);
       if (resp.ok) {
         onCollectorChange(target);
         setResult({ ok: true, message: `Test log sent to ${resp.endpoint}. Confirm on collector.` });
@@ -62,6 +72,21 @@ export function ConnectionCard({ epsCap, collector, onCollectorChange }: Props) 
         <Badge variant="muted">eps cap {epsCap}</Badge>
       </CardHeader>
       <CardContent className="space-y-3">
+        <div className="space-y-1">
+          <Label>Vendor profile</Label>
+          <Select value={vendor} onValueChange={onVendorChange}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {vendors.map((v) => (
+                <SelectItem key={v} value={v}>
+                  {vendorLabel(v)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <div className="grid grid-cols-[1fr_90px_110px] gap-2">
           <div className="space-y-1">
             <Label htmlFor="host">Host</Label>

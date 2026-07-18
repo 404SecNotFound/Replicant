@@ -1,11 +1,23 @@
-# Phase 3 - multi-vendor (in progress, branch: phase-3-paloalto off phase-2c-polish)
+# Phase 3 - multi-vendor (complete, branch: phase-3-paloalto off phase-2c-polish)
 
-- [x] Palo Alto (PAN-OS) vendor profile — done. `docs/paloalto-cef-reference.md` is the oracle (7 golden lines, all [Unverified]); `replicant/profiles/paloalto.py` implements `VendorProfile.render` dispatching on the same neutral (log_type, subtype) categories -> PAN-OS CEF (TRAFFIC / THREAT / GLOBALPROTECT / SYSTEM), byte-for-byte to the reference. Non-reversed severity map. Vendor selection: `settings.vendor` + orchestrator `_build_profile` factory + `--vendor {fortigate,paloalto}` on run/connect. 133 tests pass; verified end-to-end (REP-009->THREAT, REP-001->TRAFFIC, REP-007->GLOBALPROTECT) via `--vendor paloalto`. The FortiGate catalog signature_id is documentation only, so one catalog + one engine drive both vendors.
-- [ ] Check Point vendor profile (next: reference doc + profile + `--vendor checkpoint`).
-- [ ] Menu + web vendor pickers (deferred; CLI `--vendor` works).
-- [ ] Optional cleanup: rename `technique.fortigate` binding to a neutral name (values already neutral; not blocking).
+- [x] Palo Alto (PAN-OS) vendor profile — done. `docs/paloalto-cef-reference.md` oracle (7 golden lines, all [Unverified]); `replicant/profiles/paloalto.py` renders the neutral (log_type, subtype) categories -> PAN-OS CEF (TRAFFIC / THREAT / GLOBALPROTECT / SYSTEM), non-reversed integer severity.
+- [x] Check Point (Log Exporter) vendor profile — done. `docs/checkpoint-cef-reference.md` oracle (7 golden lines, all [Unverified], grounded in Check Point's R80.20 `CefFieldsMapping.xml`, SK122323, and Sekoia samples); `replicant/profiles/checkpoint.py` renders the same categories -> Check Point CEF. Faithful specifics: string CEF severity (Unknown/Low/Medium/High/Very-High, so `CefHeader.severity` widened to `int | str`), `rt` in epoch milliseconds, numeric `proto`, capitalized `act`, blade-driven Device Product (VPN-1 & FireWall-1 / SmartDefense / Mobile Access / Check Point), `cp_severity` mirror, `deviceDirection`.
+- [x] Menu + web vendor pickers — done. Rich menu `[v]` picker (`_pick_vendor`); web `/api/config` exposes vendor + vendors and a ConnectionCard `<Select>` sets the per-run/per-test vendor. Canonical id list centralized in `settings.VENDORS` (`fortigate` | `paloalto` | `checkpoint`).
+- [ ] Optional cleanup: rename `technique.fortigate` binding to a neutral name (values already neutral; not blocking; deferred).
 
-Design note: adding a vendor = implement `VendorProfile` + a reference file with golden lines (blueprint s10). The `(log_type, subtype)` values the engine emits are neutral log categories; each profile maps them to its own log family and field layout. Palo Alto golden lines reuse the same synthetic entities as the FortiGate ones for direct comparison.
+Design note: adding a vendor = implement `VendorProfile` + a reference file with golden lines (blueprint s10). The `(log_type, subtype)` values the engine emits are neutral log categories; each profile maps them to its own log family and field layout. All three vendors' golden lines reuse the same synthetic entities for direct comparison.
+
+## Phase 3 Review (complete)
+
+Multi-vendor done across three vendors: FortiGate + Palo Alto (PAN-OS) + Check Point (Log Exporter). Vendor selectable via `--vendor {fortigate,paloalto,checkpoint}` (run + connect), the Rich menu `[v]` picker, and the web UI selector; all resolve to `settings.vendor` -> `Orchestrator._build_profile`. One technique catalog and one scenario engine drive every vendor; only serialization differs.
+
+Gate: **179 Python tests pass**, black/ruff/mypy clean (30 source files), frontend `tsc -b` + vite build clean. Every new source file carries the Apache header. All three vendors' golden lines reproduce byte-for-byte from their reference docs.
+
+Check Point specifics (all [Unverified] against a live build; grounded in Check Point's R80.20 `CefFieldsMapping.xml`, SK122323, and Sekoia Log Exporter samples): string severity (widened `CefHeader.severity` to `int | str`, non-breaking since the serializer already stringified it), ms epoch `rt`, numeric `proto`, blade-driven Device Product, `Check Point` literal Device Version, and the `cp_severity` / `auth_status` / `administrator` / `operation` keys.
+
+Verified end-to-end: `replicant run REP-001 --vendor checkpoint` emits `CEF:0|Check Point|VPN-1 & FireWall-1|...`; web `POST /api/runs` with `vendor=checkpoint` writes Check Point CEF; the connect-test line reflects the selected vendor. The web selector renders and binds the header to vendor state (the Radix dropdown not opening under browser automation is a harness limitation, not a defect; it is the same `Select` as the working Transport/Intensity controls).
+
+Safety re-checked: only egress is the configured collector; all entities synthetic (RFC1918 + documentation ranges, incl. gateway origin 192.0.2.1); no real attacks executed; eps cap and manifest intact.
 
 ---
 
