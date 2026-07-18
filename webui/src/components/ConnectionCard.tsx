@@ -1,10 +1,6 @@
 import { useState } from "react";
-import { Plug, CheckCircle2, XCircle } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Check, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -13,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { testConnection, vendorLabel, type Collector } from "@/lib/api";
 
 interface Props {
@@ -32,7 +29,7 @@ export function ConnectionCard({
   vendors,
   onVendorChange,
 }: Props) {
-  const [host, setHost] = useState(collector?.host ?? "127.0.0.1");
+  const [host, setHost] = useState(collector?.host ?? "10.20.0.50");
   const [port, setPort] = useState(String(collector?.port ?? 514));
   const [transport, setTransport] = useState(collector?.transport ?? "udp");
   const [tlsVerify, setTlsVerify] = useState(collector?.tls_verify ?? true);
@@ -64,96 +61,127 @@ export function ConnectionCard({
   }
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Plug className="h-4 w-4 text-primary" /> Collector
-        </CardTitle>
-        <Badge variant="muted">eps cap {epsCap}</Badge>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="space-y-1">
-          <Label>Vendor profile</Label>
-          <Select value={vendor} onValueChange={onVendorChange}>
-            <SelectTrigger>
+    <section className="rounded-lg border bg-card p-4">
+      <div className="mb-3.5 flex items-baseline justify-between">
+        <span className="text-[13px] font-semibold">Collector</span>
+        <span className="font-mono text-[10.5px] text-text-3">
+          {collector ? "verified" : "not connected"}
+        </span>
+      </div>
+
+      <div className="u-label mb-1.5">Vendor profile</div>
+      <div
+        role="radiogroup"
+        aria-label="Vendor profile"
+        className="flex gap-0.5 rounded-md border bg-background p-0.5"
+      >
+        {vendors.map((v) => (
+          <button
+            key={v}
+            role="radio"
+            aria-checked={v === vendor}
+            onClick={() => onVendorChange(v)}
+            className={cn(
+              "h-7 flex-1 rounded-[5px] text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              v === vendor
+                ? "bg-elev text-foreground shadow-sm"
+                : "text-text-3 hover:text-foreground",
+            )}
+          >
+            {vendorLabel(v)}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3.5 grid grid-cols-[1fr_66px_78px] gap-2">
+        <div>
+          <label className="u-label mb-1.5 block" htmlFor="host">
+            Host
+          </label>
+          <Input
+            id="host"
+            className="h-9 font-mono text-[13px]"
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="u-label mb-1.5 block" htmlFor="port">
+            Port
+          </label>
+          <Input
+            id="port"
+            className="h-9 font-mono text-[13px]"
+            value={port}
+            onChange={(e) => setPort(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="u-label mb-1.5 block">Trans</label>
+          <Select value={transport} onValueChange={setTransport}>
+            <SelectTrigger className="h-9 font-mono text-[13px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {vendors.map((v) => (
-                <SelectItem key={v} value={v}>
-                  {vendorLabel(v)}
-                </SelectItem>
-              ))}
+              <SelectItem value="udp">udp</SelectItem>
+              <SelectItem value="tcp">tcp</SelectItem>
+              <SelectItem value="tls">tls</SelectItem>
             </SelectContent>
           </Select>
         </div>
-        <div className="grid grid-cols-[1fr_90px_110px] gap-2">
-          <div className="space-y-1">
-            <Label htmlFor="host">Host</Label>
-            <Input id="host" value={host} onChange={(e) => setHost(e.target.value)} />
+      </div>
+
+      {transport === "tls" && (
+        <div className="mt-3 grid grid-cols-[auto_1fr] items-end gap-3">
+          <div className="flex items-center gap-2 pb-2">
+            <Switch id="tlsverify" checked={tlsVerify} onCheckedChange={setTlsVerify} />
+            <label htmlFor="tlsverify" className="whitespace-nowrap text-[12.5px] text-muted-foreground">
+              Verify cert
+            </label>
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="port">Port</Label>
-            <Input id="port" value={port} onChange={(e) => setPort(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label>Transport</Label>
-            <Select value={transport} onValueChange={setTransport}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="udp">udp</SelectItem>
-                <SelectItem value="tcp">tcp</SelectItem>
-                <SelectItem value="tls">tls</SelectItem>
-              </SelectContent>
-            </Select>
+          <div>
+            <label className="u-label mb-1.5 block" htmlFor="cafile">
+              CA file (optional)
+            </label>
+            <Input
+              id="cafile"
+              className="h-9 font-mono text-[12px]"
+              value={tlsCafile}
+              onChange={(e) => setTlsCafile(e.target.value)}
+              placeholder="/path/to/ca.pem"
+            />
           </div>
         </div>
-        {transport === "tls" && (
-          <div className="grid grid-cols-[auto_1fr] items-end gap-3">
-            <div className="flex items-center gap-2 pb-2">
-              <Switch id="tlsverify" checked={tlsVerify} onCheckedChange={setTlsVerify} />
-              <Label htmlFor="tlsverify" className="whitespace-nowrap">
-                Verify cert
-              </Label>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="cafile">CA file (optional)</Label>
-              <Input
-                id="cafile"
-                value={tlsCafile}
-                onChange={(e) => setTlsCafile(e.target.value)}
-                placeholder="/path/to/ca.pem"
-              />
-            </div>
-          </div>
-        )}
-        <div className="flex items-center gap-3">
-          <Button onClick={handleTest} disabled={busy || !host}>
-            {busy ? "Sending..." : "Send test log"}
-          </Button>
-          {collector && (
-            <span className="text-xs text-muted-foreground">
-              active: {collector.host}:{collector.port}/{collector.transport}
-            </span>
+      )}
+
+      <div className="mt-3.5 flex items-center justify-between">
+        <button
+          onClick={handleTest}
+          disabled={busy || !host}
+          className="h-8 rounded-md border px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {busy ? "Sending…" : "Send test log"}
+        </button>
+        <span className="font-mono text-[11px] text-text-3">cap {epsCap} eps</span>
+      </div>
+
+      {result && (
+        <div
+          className={cn(
+            "mt-3 flex items-start gap-2 rounded-md border p-2.5 text-[11.5px] leading-relaxed",
+            result.ok
+              ? "border-border text-foreground"
+              : "border-destructive/40 bg-destructive/10 text-destructive",
           )}
+        >
+          {result.ok ? (
+            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
+          ) : (
+            <X className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          )}
+          <span>{result.message}</span>
         </div>
-        {result && (
-          <div
-            className={`flex items-start gap-2 rounded-md border p-2 text-xs ${
-              result.ok ? "text-primary" : "text-destructive"
-            }`}
-          >
-            {result.ok ? (
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-            ) : (
-              <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            )}
-            <span>{result.message}</span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      )}
+    </section>
   );
 }

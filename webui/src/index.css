@@ -4,46 +4,72 @@
 @tailwind components;
 @tailwind utilities;
 
+/* IBM Plex, self-hosted (OFL). Design system: docs/webui-reskin-design.md */
+@font-face{font-family:"IBM Plex Sans";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/plex-sans-400.woff2") format("woff2")}
+@font-face{font-family:"IBM Plex Sans";font-weight:500;font-style:normal;font-display:swap;src:url("/fonts/plex-sans-500.woff2") format("woff2")}
+@font-face{font-family:"IBM Plex Sans";font-weight:600;font-style:normal;font-display:swap;src:url("/fonts/plex-sans-600.woff2") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/plex-mono-400.woff2") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/fonts/plex-mono-500.woff2") format("woff2")}
+
 @layer base {
+  /* Light theme retained (Replicant is dark-first; light is a follow-up). */
   :root {
     --background: 0 0% 100%;
     --foreground: 222 47% 11%;
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
-    --primary: 158 64% 40%;
+    --primary: 222 47% 11%;
     --primary-foreground: 0 0% 100%;
     --secondary: 210 40% 96%;
     --secondary-foreground: 222 47% 11%;
     --muted: 210 40% 96%;
     --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
+    --accent: 210 40% 94%;
     --accent-foreground: 222 47% 11%;
-    --destructive: 0 72% 51%;
+    --destructive: 4 74% 52%;
     --destructive-foreground: 0 0% 100%;
     --border: 214 32% 91%;
     --input: 214 32% 91%;
-    --ring: 158 64% 40%;
-    --radius: 0.6rem;
+    --ring: 220 9% 46%;
+    --radius: 0.625rem;
+    --signal: 38 92% 50%;
+    --signal-foreground: 42 40% 8%;
+    --elev: 210 40% 97%;
+    --text-3: 220 9% 46%;
+    --text-4: 220 9% 60%;
+    --signal-dim: rgba(214, 140, 20, 0.14);
+    --signal-line: rgba(214, 140, 20, 0.42);
+    --grid-line: rgba(20, 20, 30, 0.04);
   }
 
+  /* Dark: warm graphite instrument panel with a single amber signal accent. */
   .dark {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 96%;
-    --card: 222 44% 10%;
-    --card-foreground: 210 40% 96%;
-    --primary: 158 64% 45%;
-    --primary-foreground: 222 47% 8%;
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 217 33% 15%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 18%;
-    --accent-foreground: 210 40% 96%;
-    --destructive: 0 63% 45%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 33% 20%;
-    --input: 217 33% 20%;
-    --ring: 158 64% 45%;
+    --background: 240 10% 6%;
+    --foreground: 48 15% 94%;
+    --card: 240 6% 9%;
+    --card-foreground: 48 15% 94%;
+    --primary: 48 14% 91%;
+    --primary-foreground: 42 28% 7%;
+    --secondary: 240 8% 12%;
+    --secondary-foreground: 45 5% 62%;
+    --muted: 240 8% 12%;
+    --muted-foreground: 45 6% 54%;
+    --accent: 240 9% 15%;
+    --accent-foreground: 48 15% 94%;
+    --destructive: 4 74% 62%;
+    --destructive-foreground: 48 15% 94%;
+    --border: 240 6% 16%;
+    --input: 240 6% 16%;
+    --ring: 44 7% 62%;
+    /* signal system (custom, not part of the shadcn set) */
+    --signal: 38 89% 60%;
+    --signal-foreground: 42 28% 7%;
+    --elev: 240 9% 15%;
+    --text-3: 45 6% 54%;
+    --text-4: 45 4% 36%;
+    --signal-dim: rgba(244, 178, 62, 0.14);
+    --signal-line: rgba(244, 178, 62, 0.42);
+    --grid-line: rgba(255, 255, 255, 0.014);
   }
 
   * {
@@ -53,8 +79,28 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-feature-settings: "calt" 1;
+    letter-spacing: -0.006em;
   }
+}
+
+/* Instrument-panel texture: a faint grid plus a top vignette. */
+.app-surface {
+  background-image:
+    radial-gradient(1100px 380px at 68% -60px, hsl(var(--foreground) / 0.03), transparent 70%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 100% 100%, 34px 34px, 34px 34px;
+}
+
+/* Uppercase micro-label used across the instrument UI. */
+.u-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  font-weight: 600;
+  color: hsl(var(--text-3));
 }
 
 /* Thin scrollbars for the log and terminal panes. */
@@ -65,4 +111,13 @@
 .scroll-thin::-webkit-scrollbar-thumb {
   background-color: hsl(var(--border));
   border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }
