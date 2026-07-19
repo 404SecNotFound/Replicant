@@ -18,6 +18,7 @@ interface Props {
   defaultSeed: number;
   collector: Collector | null;
   vendor: string;
+  epsCap: number;
 }
 
 const MAX_VISIBLE = 800;
@@ -29,7 +30,7 @@ function fmtDur(sec: number): string {
   return m > 0 ? `${m}m ${String(s % 60).padStart(2, "0")}s` : `${s}s`;
 }
 
-export function RunPanel({ technique, defaultSeed, collector, vendor }: Props) {
+export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: Props) {
   const [intensity, setIntensity] = useState("medium");
   const [duration, setDuration] = useState("");
   const [seed, setSeed] = useState(String(defaultSeed));
@@ -174,27 +175,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor }: Props) {
 
   return (
     <div className="mx-auto max-w-[900px]">
-      {/* run header */}
-      <div className="font-mono text-[11.5px] font-medium tracking-wide text-muted-foreground">
-        {technique.id} · {technique.ndr_uc}
-      </div>
-      <h1 className="mt-1 text-[23px] font-semibold tracking-[-0.028em]">{technique.name}</h1>
-      <p className="mt-1.5 max-w-[580px] text-[13px] leading-relaxed text-muted-foreground">
-        Exercises the detection <span className="text-foreground">{technique.ndr_rule}</span> over{" "}
-        {technique.log_type}:{technique.subtype} telemetry.
-      </p>
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {technique.attack.map((a) => (
-          <span key={a} className="rounded border px-1.5 py-0.5 font-mono text-[10.5px] text-text-3">
-            {a}
-          </span>
-        ))}
-        {!technique.implemented && (
-          <span className="rounded border border-signal/40 px-1.5 py-0.5 font-mono text-[10.5px] text-signal">
-            not runnable yet
-          </span>
-        )}
-      </div>
+      <div className="u-label mb-3">Arm run</div>
 
       {/* controls */}
       <div className="mt-[18px] grid grid-cols-[148px_104px_104px_1fr] items-end gap-3 border-y py-[18px]">
@@ -292,7 +273,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor }: Props) {
 
       <SignalReadout
         eps={eps}
-        cap={2000}
+        cap={epsCap}
         samples={samples}
         pct={pct}
         running={running}

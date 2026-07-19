@@ -195,7 +195,7 @@ The Scenario Engine does no I/O and is seeded, so the same seed plus technique p
 The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP, TCP, and TLS transport, catalog validation, the orchestrator end-to-end, and the web API.
 
 ```bash
-./.venv/bin/pytest          # 78 tests
+./.venv/bin/pytest          # 185 tests
 ./.venv/bin/black --check replicant tests
 ./.venv/bin/ruff check replicant tests
 ./.venv/bin/mypy replicant

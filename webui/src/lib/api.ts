@@ -15,6 +15,14 @@ export interface Technique {
   intensities: string[];
   implemented: boolean;
   safety_notes: string | null;
+  signature_id: string;
+  action: string | null;
+  cef_fields_held: string[];
+  cef_fields_varied: string[];
+  params: Record<string, Record<string, unknown>>;
+  distributions: Record<string, unknown>;
+  benign_baseline: string | null;
+  references: string[];
 }
 
 export interface CatalogResponse {
@@ -76,6 +84,25 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const getCatalog = () => api<CatalogResponse>("/api/catalog");
 export const getConfig = () => api<ConfigResponse>("/api/config");
+
+export interface TechniqueSample {
+  technique_id: string;
+  vendor: string;
+  intensity: string;
+  log_type: string;
+  subtype: string;
+  signature_id: string;
+  cef_fields_held: string[];
+  cef_fields_varied: string[];
+  lines: string[];
+}
+
+export const getSample = (id: string, vendor?: string) =>
+  api<TechniqueSample>(
+    `/api/catalog/${encodeURIComponent(id)}/sample${
+      vendor ? `?vendor=${encodeURIComponent(vendor)}` : ""
+    }`,
+  );
 
 export interface Collector {
   host: string;

@@ -141,6 +141,11 @@ class Orchestrator:
         header, extension = self.profile.render(self.build_test_event())
         return to_cef(header, extension)
 
+    def render_line(self, event: EventRecord) -> str:
+        """Serialize one planned event to a CEF line via the active vendor profile."""
+        header, extension = self.profile.render(event)
+        return to_cef(header, extension)
+
     def send_test(self, collector: CollectorProfile) -> bool:
         """Send one benign test line to the collector; return transport success."""
 
