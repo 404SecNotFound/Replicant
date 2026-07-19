@@ -10,7 +10,7 @@ Replicant fabricates realistic FortiGate CEF logs, streams them over syslog to y
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](pyproject.toml)
 [![Vendor](https://img.shields.io/badge/vendor-FortiGate%20CEF-EE3124.svg)](docs/fortigate-cef-reference.md)
 [![Safety](https://img.shields.io/badge/entities-synthetic%20only-2ea44f.svg)](#safety-model)
-[![Status](https://img.shields.io/badge/phase-2%20in%20progress-orange.svg)](tasks/todo.md)
+[![Status](https://img.shields.io/badge/phase-4%20complete-2ea44f.svg)](tasks/todo.md)
 
 </div>
 
@@ -128,6 +128,16 @@ replicant run REP-009 --intensity high --vendor checkpoint --to-file ./out/check
 
 Palo Alto renders to PAN-OS CEF ([`docs/paloalto-cef-reference.md`](docs/paloalto-cef-reference.md)) and Check Point to Log Exporter CEF ([`docs/checkpoint-cef-reference.md`](docs/checkpoint-cef-reference.md)). Both reference docs are `[Unverified]` against a live build and each carries seven golden sample lines that reuse the same synthetic entities as the FortiGate oracle for direct comparison.
 
+Compose several techniques into one ordered, multi-stage attack chain that shares a synthetic through-line (one victim host, one adversary IP), then preview its coverage or emit the merged CEF timeline:
+
+```bash
+replicant scenario list
+replicant scenario show SCEN-001
+replicant scenario run SCEN-001 --seed 1337 --to-file ./out/s1.log --no-send
+```
+
+Every scenario run writes an advisory coverage document beside its manifest: it maps the chain to ATT&CK tactics, names the cross-stage correlation key, and flags uncovered tactics. The advisory is context only; you author the detection design.
+
 ## What the output looks like
 
 Replicant emits FortiGate CEF. Vendor `Fortinet`, product `Fortigate` (lower-case g, matching real FortiOS output), signature ID taken from the last five digits of the FortiOS `logid`, severity as the reversed FortiOS level, and native fields with no standard CEF key carried under an `FTNTFGT` prefix. A traffic accept record looks like this (the syslog prefix is added by the transport layer and is not part of the CEF payload):
@@ -195,7 +205,7 @@ The Scenario Engine does no I/O and is seeded, so the same seed plus technique p
 The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP, TCP, and TLS transport, catalog validation, the orchestrator end-to-end, and the web API.
 
 ```bash
-./.venv/bin/pytest          # 185 tests
+./.venv/bin/pytest          # 209 tests
 ./.venv/bin/black --check replicant tests
 ./.venv/bin/ruff check replicant tests
 ./.venv/bin/mypy replicant
@@ -209,7 +219,7 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 - **Phase 1.5 (complete):** web UI and an embedded terminal over the same Orchestrator.
 - **Phase 2 (complete):** all eleven techniques implemented (REP-001 through REP-011), the off-hours weighting used by REP-005, TLS syslog transport, and a warm-up baseline for REP-008 whose boundary is recorded in the run manifest.
 - **Phase 3 (complete):** multi-vendor. Palo Alto (PAN-OS) and Check Point (Log Exporter) profiles join FortiGate, each with an `[Unverified]` reference doc and byte-for-byte golden lines. Select the vendor with `--vendor {fortigate,paloalto,checkpoint}`, in the Rich menu (`[v]`), or in the web UI; one technique catalog and one scenario engine drive every vendor, only the serialization differs.
-- **Phase 4:** ATT&CK scenario composition, with any AI assistance kept advisory while a human authors the detection design.
+- **Phase 4 (complete):** ATT&CK scenario composition. Curated scenarios compose the existing techniques into one deterministic, multi-stage CEF timeline with a shared synthetic through-line, plus an advisory coverage document that maps the chain to ATT&CK tactics and flags gaps. Any AI assistance stays advisory while a human authors the detection design. Driven from `replicant scenario` (list/show/run) and the Rich menu `[a]`.
 
 ## Prior art and positioning
 
