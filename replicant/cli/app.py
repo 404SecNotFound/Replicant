@@ -34,8 +34,18 @@ from replicant.config.settings import (
     load_settings,
     save_profile,
 )
-from replicant.core.models import Catalog, CollectorProfile, RunRequest, load_catalog
+from replicant.core.models import (
+    SCENARIO_CATALOG_PATH,
+    Catalog,
+    CollectorProfile,
+    RunRequest,
+    ScenarioRunRequest,
+    load_catalog,
+    load_scenario_catalog,
+)
 from replicant.core.orchestrator import Orchestrator
+from replicant.scenario.advisory import build_advisory
+from replicant.scenario.composer import compose
 
 
 def _find_catalog(settings: Settings) -> Path | None:
@@ -123,6 +133,28 @@ def build_parser() -> argparse.ArgumentParser:
         choices=list(VENDORS),
         help="vendor profile (default from settings)",
     )
+
+    scenario = sub.add_parser("scenario", help="compose and run a multi-stage scenario")
+    scen_actions = scenario.add_subparsers(dest="action")
+    scen_actions.add_parser("list", help="list scenarios")
+    scen_show = scen_actions.add_parser("show", help="show a scenario's stages + coverage, no emit")
+    scen_show.add_argument("id", help="scenario id, e.g. SCEN-001")
+    scen_run = scen_actions.add_parser("run", help="run a scenario")
+    scen_run.add_argument("id", help="scenario id, e.g. SCEN-001")
+    scen_run.add_argument("--seed", type=int)
+    scen_run.add_argument(
+        "--intensity", choices=["low", "medium", "high"], help="override all stages"
+    )
+    scen_run.add_argument("--to-file", dest="to_file")
+    scen_run.add_argument("--no-send", dest="no_send", action="store_true")
+    scen_run.add_argument("--rate", type=int)
+    scen_run.add_argument("--host")
+    scen_run.add_argument("--port", type=int, default=514)
+    scen_run.add_argument("--transport", choices=["udp", "tcp", "tls"], default="udp")
+    scen_run.add_argument("--tls-cafile", dest="tls_cafile")
+    scen_run.add_argument("--tls-insecure", dest="tls_insecure", action="store_true")
+    scen_run.add_argument("--profile", help="saved collector profile name")
+    scen_run.add_argument("--vendor", choices=list(VENDORS))
     return parser
 
 
@@ -237,6 +269,79 @@ def cmd_run(
     return 0
 
 
+def cmd_scenario(
+    args: argparse.Namespace, catalog: Catalog, settings: Settings, console: Console
+) -> int:
+    scenarios = load_scenario_catalog(SCENARIO_CATALOG_PATH, catalog)
+    action = args.action or "list"
+
+    if action == "list":
+        for scenario in scenarios.scenarios:
+            tactics = sorted(
+                {
+                    t
+                    for stage in scenario.stages
+                    for t in catalog.by_id(stage.technique_id).attack.tactics
+                }
+            )
+            console.print(
+                f"[bold]{scenario.id}[/bold]  {scenario.name}  "
+                f"[dim]{len(scenario.stages)} stages · {', '.join(tactics)}[/dim]"
+            )
+        return 0
+
+    try:
+        scenario = scenarios.by_id(args.id)
+    except KeyError:
+        console.print(f"[red]unknown scenario[/red]: {args.id}. Try 'replicant scenario list'.")
+        return 1
+
+    if action == "show":
+        from replicant.entities.model import EntityModel
+        from replicant.scenario.engine import ScenarioEngine
+
+        composed = compose(
+            scenario,
+            catalog.by_id,
+            ScenarioEngine(),
+            settings.default_seed,
+            settings.anchor_epoch,
+            EntityModel.build(),
+        )
+        text, _ = build_advisory(scenario, composed, catalog)
+        console.print(text)
+        return 0
+
+    # action == "run"
+    collector, ok = _resolve_collector(args, console)
+    if not ok:
+        return 1
+    request = ScenarioRunRequest(
+        scenario_id=args.id,
+        seed=args.seed if args.seed is not None else settings.default_seed,
+        intensity_override=args.intensity,
+        to_file=args.to_file,
+        no_send=args.no_send,
+        rate_override=args.rate,
+        collector=collector,
+    )
+    orchestrator = Orchestrator(catalog, settings)
+    try:
+        result = orchestrator.run_scenario(request, scenarios)
+    except (RuntimeError, NotImplementedError) as exc:
+        console.print(f"[red]run refused[/red]: {exc}")
+        return 1
+    console.print(
+        f"scenario {result.manifest.scenario_id}: {result.event_count} events across "
+        f"{len(result.manifest.stages)} stages"
+    )
+    console.print(f"manifest: {result.manifest_path}")
+    console.print(f"advisory: {result.advisory_path}")
+    if result.stopped:
+        console.print("[yellow]run stopped early (kill switch)[/yellow]")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -255,6 +360,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_connect(args, catalog, settings, console)
     if command == "run":
         return cmd_run(args, catalog, settings, console)
+    if command == "scenario":
+        return cmd_scenario(args, catalog, settings, console)
     if command == "menu":
         from replicant.cli.menu import run_menu
 
