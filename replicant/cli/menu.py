@@ -28,8 +28,21 @@ from rich.table import Table
 
 from replicant import __version__
 from replicant.config.settings import VENDORS, Settings, load_profiles, save_profile
-from replicant.core.models import Catalog, CollectorProfile, RunRequest
+from replicant.core.models import (
+    SCENARIO_CATALOG_PATH,
+    Catalog,
+    CollectorProfile,
+    RunRequest,
+    Scenario,
+    ScenarioCatalog,
+    ScenarioRunRequest,
+    load_scenario_catalog,
+)
 from replicant.core.orchestrator import Orchestrator
+from replicant.entities.model import EntityModel
+from replicant.scenario.advisory import build_advisory
+from replicant.scenario.composer import compose
+from replicant.scenario.engine import ScenarioEngine
 
 _VENDORS = list(VENDORS)
 _VENDOR_LABELS = {
@@ -86,6 +99,61 @@ def _pick_vendor(console: Console, current: str) -> str:
     default = str(_VENDORS.index(current) + 1) if current in _VENDORS else "1"
     choice = Prompt.ask("  Select vendor", choices=choices, default=default)
     return _VENDORS[int(choice) - 1]
+
+
+def _pick_scenario(console: Console, scenarios: ScenarioCatalog) -> Scenario:
+    """Offer the scenario catalog; return the chosen scenario."""
+
+    console.print("  [bold]Attack scenario[/bold]")
+    for index, scenario in enumerate(scenarios.scenarios, start=1):
+        console.print(
+            f"    [{index}] {scenario.id}  {scenario.name} "
+            f"[dim]({len(scenario.stages)} stages)[/dim]"
+        )
+    choices = [str(i) for i in range(1, len(scenarios.scenarios) + 1)]
+    choice = Prompt.ask("  Select scenario", choices=choices, default="1")
+    return scenarios.scenarios[int(choice) - 1]
+
+
+def _run_scenario(
+    orchestrator: Orchestrator,
+    scenario: Scenario,
+    scenarios: ScenarioCatalog,
+    seed: int,
+    collector: CollectorProfile | None,
+    console: Console,
+) -> None:
+    request = ScenarioRunRequest(
+        scenario_id=scenario.id,
+        seed=seed,
+        collector=collector,
+        no_send=collector is None,
+        to_file=None,
+    )
+    # show the coverage/advisory preview first, whether or not a collector is set.
+    composed = compose(
+        scenario,
+        orchestrator.catalog.by_id,
+        ScenarioEngine(),
+        seed,
+        orchestrator.settings.anchor_epoch,
+        EntityModel.build(),
+    )
+    text, _ = build_advisory(scenario, composed, orchestrator.catalog)
+    console.print(text)
+    if collector is None:
+        console.print(
+            r"  [yellow]no collector set; use \[c] to connect, or run headless with "
+            "'replicant scenario run --to-file'[/yellow]"
+        )
+        return
+    with Progress(console=console) as progress:
+        task = progress.add_task(f"emitting {scenario.id}", total=composed.total_count)
+        result = orchestrator.run_scenario(
+            request, scenarios, on_progress=lambda c, t: progress.update(task, completed=c)
+        )
+    console.print(f"  {result.event_count} events · manifest {result.manifest_path}")
+    console.print(f"  advisory {result.advisory_path}")
 
 
 def _connection_wizard(console: Console) -> CollectorProfile:
@@ -211,6 +279,7 @@ def _run_technique(orchestrator: Orchestrator, request: RunRequest, console: Con
 def run_menu(catalog: Catalog, settings: Settings, console: Console) -> int:
     _banner(console, settings)
     orchestrator = Orchestrator(catalog, settings)
+    scenarios = load_scenario_catalog(SCENARIO_CATALOG_PATH, catalog)
     collector: CollectorProfile | None = None
     seed = settings.default_seed
 
@@ -220,7 +289,8 @@ def run_menu(catalog: Catalog, settings: Settings, console: Console) -> int:
     while True:
         console.print(_main_table(catalog, collector, seed, settings.vendor))
         console.print(
-            "  [dim][1-11] technique   [c] connection   [v] vendor   [s] seed   [q] quit[/dim]"
+            r"  [dim][1-11] technique   \[a] scenario   \[c] connection   "
+            r"\[v] vendor   \[s] seed   \[q] quit[/dim]"
         )
         choice = Prompt.ask("Select").strip().lower()
         if choice == "q":
@@ -238,6 +308,10 @@ def run_menu(catalog: Catalog, settings: Settings, console: Console) -> int:
             continue
         if choice == "s":
             seed = IntPrompt.ask("New seed", default=seed)
+            continue
+        if choice == "a":
+            scenario = _pick_scenario(console, scenarios)
+            _run_scenario(orchestrator, scenario, scenarios, seed, collector, console)
             continue
         if not choice.isdigit() or not (1 <= int(choice) <= len(catalog.techniques)):
             console.print("  [yellow]invalid selection[/yellow]")
