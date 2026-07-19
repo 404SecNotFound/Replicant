@@ -258,3 +258,47 @@ def load_scenario_catalog(path: str | Path, technique_catalog: Catalog) -> Scena
                     f"scenario {scenario.id} references unknown technique {stage.technique_id}"
                 )
     return catalog
+
+
+class ScenarioRunRequest(BaseModel):
+    scenario_id: str
+    seed: int = 1337
+    intensity_override: Intensity | None = None
+    to_file: str | None = None
+    no_send: bool = False
+    rate_override: int | None = None
+    collector: CollectorProfile | None = None
+    anchor_epoch: int | None = None
+
+
+class ScenarioStageRecord(BaseModel):
+    index: int
+    technique_id: str
+    label: str | None
+    ndr_uc: str
+    intensity: str
+    start_offset: str
+    event_count: int
+    tactics: list[str]
+    techniques: list[str]
+
+
+class ScenarioManifest(BaseModel):
+    """Audit record for a scenario run (safety rule 5)."""
+
+    replicant_version: str
+    scenario_id: str
+    scenario_name: str
+    seed: int
+    entities: dict[str, Any]
+    target: str
+    transport: str
+    vendor: str
+    accepted_as: str | None = None
+    total_event_count: int
+    stages: list[ScenarioStageRecord]
+    started_at: str
+    ended_at: str
+    anchor_epoch: int
+    warmup_note: str | None = None
+    coverage: dict[str, Any] = Field(default_factory=dict)

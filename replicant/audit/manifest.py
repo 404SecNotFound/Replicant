@@ -24,7 +24,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from replicant.core.models import RunManifest
+from replicant.core.models import RunManifest, ScenarioManifest
 
 DUBAI_TZ = timezone(timedelta(hours=4))  # UTC+04:00 (Dubai)
 
@@ -65,3 +65,20 @@ def human_summary(manifest: RunManifest, manifest_path: Path) -> str:
     if manifest.warmup_note:
         lines.append(f"  warm-up     : {manifest.warmup_note}")
     return "\n".join(lines)
+
+
+def write_scenario_manifest(manifest: ScenarioManifest, out_dir: str | Path) -> Path:
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{manifest.scenario_id}-seed{manifest.seed}-{_stamp_for_filename()}.json"
+    path.write_text(
+        json.dumps(manifest.model_dump(), indent=2, sort_keys=False) + "\n", encoding="utf-8"
+    )
+    return path
+
+
+def write_advisory(text: str, manifest_path: Path) -> Path:
+    """Write the advisory next to its manifest with the paired name."""
+    path = manifest_path.parent / f"{manifest_path.stem}.advisory.md"
+    path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
+    return path
