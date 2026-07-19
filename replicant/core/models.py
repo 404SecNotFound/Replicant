@@ -199,3 +199,62 @@ def load_catalog(path: str | Path) -> Catalog:
 
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     return Catalog.model_validate(raw)
+
+
+SCENARIO_CATALOG_PATH = Path(__file__).resolve().parents[2] / "data" / "scenario-catalog.yaml"
+
+
+class ScenarioStage(BaseModel):
+    """One stage of a scenario: a reference to an existing technique + timing."""
+
+    technique_id: str
+    label: str | None = None
+    intensity: Intensity = "medium"
+    start_offset: str = "0s"  # start time relative to the scenario anchor (parse_duration)
+    param_overrides: dict[str, Any] = Field(default_factory=dict)
+
+
+class Scenario(BaseModel):
+    id: str
+    name: str
+    description: str
+    stages: list[ScenarioStage]
+    kill_chain: list[str] = Field(default_factory=list)
+    references: list[str] = Field(default_factory=list)
+    safety_notes: str | None = None
+
+
+class ScenarioCatalog(BaseModel):
+    version: str
+    scenarios: list[Scenario]
+
+    @field_validator("scenarios")
+    @classmethod
+    def _unique_ids(cls, scenarios: list[Scenario]) -> list[Scenario]:
+        seen: set[str] = set()
+        for scenario in scenarios:
+            if scenario.id in seen:
+                raise ValueError(f"duplicate scenario id: {scenario.id}")
+            seen.add(scenario.id)
+        return scenarios
+
+    def by_id(self, scenario_id: str) -> Scenario:
+        for scenario in self.scenarios:
+            if scenario.id == scenario_id:
+                return scenario
+        raise KeyError(f"unknown scenario id: {scenario_id}")
+
+
+def load_scenario_catalog(path: str | Path, technique_catalog: Catalog) -> ScenarioCatalog:
+    """Load the scenario catalog and validate every stage reference against the techniques."""
+
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    catalog = ScenarioCatalog.model_validate(raw)
+    known = {technique.id for technique in technique_catalog.techniques}
+    for scenario in catalog.scenarios:
+        for stage in scenario.stages:
+            if stage.technique_id not in known:
+                raise ValueError(
+                    f"scenario {scenario.id} references unknown technique {stage.technique_id}"
+                )
+    return catalog
