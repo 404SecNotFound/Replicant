@@ -104,6 +104,14 @@ def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
                     "REP-011",
                 },
                 "safety_notes": technique.safety_notes,
+                "signature_id": technique.fortigate.signature_id,
+                "action": technique.fortigate.action,
+                "cef_fields_held": technique.cef_fields_held,
+                "cef_fields_varied": technique.cef_fields_varied,
+                "params": technique.params,
+                "distributions": technique.distributions,
+                "benign_baseline": technique.benign_baseline,
+                "references": technique.references,
             }
         )
     return out
@@ -155,6 +163,41 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
             "vendor_profile": catalog.vendor_profile,
             "timezone": catalog.timezone,
             "techniques": _technique_json(catalog),
+        }
+
+    @app.get("/api/catalog/{technique_id}/sample", dependencies=[Depends(require_token)])
+    def technique_sample(
+        technique_id: str,
+        vendor: str | None = Query(default=None),
+        intensity: str = Query(default="low"),
+    ) -> dict[str, Any]:
+        try:
+            technique = catalog.by_id(technique_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        orch = _orchestrator_for(vendor)
+        request = RunRequest(
+            technique_id=technique_id,
+            intensity=intensity if intensity in technique.params else settings.default_intensity,
+            seed=settings.default_seed,
+            no_send=True,
+        )
+        events = list(orch.build_plan(request).events)
+        if events:
+            idxs = sorted({0, len(events) // 2, len(events) - 1})
+            lines = [orch.render_line(events[i]) for i in idxs]
+        else:
+            lines = []
+        return {
+            "technique_id": technique.id,
+            "vendor": _resolve_vendor(vendor),
+            "intensity": request.intensity,
+            "log_type": technique.fortigate.log_type,
+            "subtype": technique.fortigate.subtype,
+            "signature_id": technique.fortigate.signature_id,
+            "cef_fields_held": technique.cef_fields_held,
+            "cef_fields_varied": technique.cef_fields_varied,
+            "lines": lines,
         }
 
     @app.get("/api/config", dependencies=[Depends(require_token)])

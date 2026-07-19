@@ -3,6 +3,7 @@ import { Moon, Sun } from "lucide-react";
 import { ConnectionCard } from "@/components/ConnectionCard";
 import { CatalogTable } from "@/components/CatalogTable";
 import { RunPanel } from "@/components/RunPanel";
+import { TechniqueDetail } from "@/components/TechniqueDetail";
 import { TerminalView } from "@/components/TerminalView";
 import { cn } from "@/lib/utils";
 import {
@@ -146,11 +147,13 @@ export default function App() {
             />
           </aside>
           <main className="min-h-0 animate-rise overflow-y-auto scroll-thin px-7 py-6 [animation-delay:0.1s]">
+            {selected && <TechniqueDetail technique={selected} vendor={vendor} />}
             <RunPanel
               technique={selected}
               defaultSeed={config.default_seed}
               collector={collector}
               vendor={vendor}
+              epsCap={config.eps_cap}
             />
           </main>
         </div>

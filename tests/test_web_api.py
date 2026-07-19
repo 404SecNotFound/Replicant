@@ -55,6 +55,55 @@ def test_catalog_requires_token(client: TestClient) -> None:
     assert len(resp.json()["techniques"]) == 11
 
 
+def test_catalog_exposes_detail_fields(client: TestClient) -> None:
+    techniques = client.get("/api/catalog", headers=HEADERS).json()["techniques"]
+    rep001 = next(t for t in techniques if t["id"] == "REP-001")
+    for key in (
+        "signature_id",
+        "action",
+        "cef_fields_held",
+        "cef_fields_varied",
+        "params",
+        "distributions",
+        "benign_baseline",
+        "references",
+    ):
+        assert key in rep001, f"missing detail field {key}"
+    assert rep001["cef_fields_varied"]  # non-empty: drives the detail panel
+    assert set(rep001["params"]) <= {"low", "medium", "high"}
+
+
+def test_technique_sample_renders_lines(client: TestClient) -> None:
+    resp = client.get("/api/catalog/REP-001/sample", headers=HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["vendor"] == "fortigate"
+    assert data["lines"], "expected at least one rendered sample line"
+    assert all(line.startswith("CEF:") for line in data["lines"])
+    assert data["cef_fields_varied"]
+
+
+def test_technique_sample_honors_vendor(client: TestClient) -> None:
+    data = client.get(
+        "/api/catalog/REP-001/sample", headers=HEADERS, params={"vendor": "paloalto"}
+    ).json()
+    assert data["vendor"] == "paloalto"
+    assert data["lines"][0].startswith("CEF:0|Palo Alto Networks|PAN-OS")
+
+
+def test_technique_sample_requires_token(client: TestClient) -> None:
+    assert client.get("/api/catalog/REP-001/sample").status_code == 401
+
+
+def test_technique_sample_unknown_id_404(client: TestClient) -> None:
+    assert client.get("/api/catalog/REP-999/sample", headers=HEADERS).status_code == 404
+
+
+def test_technique_sample_unknown_vendor_400(client: TestClient) -> None:
+    resp = client.get("/api/catalog/REP-001/sample", headers=HEADERS, params={"vendor": "nope"})
+    assert resp.status_code == 400
+
+
 def test_non_local_host_rejected(client: TestClient) -> None:
     resp = client.get("/api/health", headers={"host": "evil.example.com"})
     assert resp.status_code == 403
