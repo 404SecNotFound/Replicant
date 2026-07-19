@@ -31,7 +31,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from replicant import __version__
-from replicant.audit.manifest import human_summary, now_dubai_iso, write_manifest
+from replicant.audit.manifest import (
+    human_summary,
+    now_dubai_iso,
+    write_advisory,
+    write_manifest,
+    write_scenario_manifest,
+)
 from replicant.cef.serializer import to_cef
 from replicant.config.settings import Settings, parse_duration
 from replicant.core.models import (
@@ -40,12 +46,18 @@ from replicant.core.models import (
     EventRecord,
     RunManifest,
     RunRequest,
+    ScenarioCatalog,
+    ScenarioManifest,
+    ScenarioRunRequest,
+    ScenarioStageRecord,
 )
 from replicant.entities.model import EntityModel
 from replicant.profiles.base import VendorProfile
 from replicant.profiles.checkpoint import CheckPointProfile
 from replicant.profiles.fortigate import FortiGateDevice, FortiGateProfile
 from replicant.profiles.paloalto import PaloAltoProfile
+from replicant.scenario.advisory import build_advisory
+from replicant.scenario.composer import ComposedPlan, compose
 from replicant.scenario.engine import ScenarioEngine, ScenarioPlan
 from replicant.transport.filesink import FileSink
 from replicant.transport.syslog import SyslogEmitter
@@ -64,6 +76,16 @@ class RunResult:
 
     def summary(self) -> str:
         return human_summary(self.manifest, self.manifest_path)
+
+
+@dataclass
+class ScenarioRunResult:
+    manifest: ScenarioManifest
+    manifest_path: Path
+    advisory_path: Path
+    event_count: int
+    plan: ComposedPlan
+    stopped: bool
 
 
 class Orchestrator:
@@ -192,52 +214,15 @@ class Orchestrator:
         eps_cap = request.rate_override or self.settings.eps_cap
 
         started_at = now_dubai_iso()
-        count = 0
-        stopped = False
-        sink = FileSink(file_path) if file_path else None
-        emitter = (
-            SyslogEmitter(request.collector, hostname=self.settings.hostname)
-            if send and request.collector is not None
-            else None
+        count, stopped = self._emit(
+            plan.events,
+            send=send,
+            collector=request.collector,
+            to_file=file_path,
+            eps_cap=eps_cap,
+            on_event=on_event,
+            on_progress=on_progress,
         )
-
-        try:
-            if sink is not None:
-                sink.open()
-            if emitter is not None:
-                emitter.connect()
-            window_start = time.monotonic()
-            in_window = 0
-            for event in plan.events:
-                if self._stop.is_set():
-                    stopped = True
-                    break
-                header, extension = self.profile.render(event)
-                line = to_cef(header, extension)
-                if on_event is not None:
-                    on_event(line, event)
-                if sink is not None:
-                    sink.write(line)
-                if emitter is not None:
-                    emitter.send(line, level=event.level)
-                    in_window += 1
-                    if eps_cap > 0 and in_window >= eps_cap:
-                        elapsed = time.monotonic() - window_start
-                        if elapsed < 1.0:
-                            time.sleep(1.0 - elapsed)
-                        window_start = time.monotonic()
-                        in_window = 0
-                count += 1
-                if on_progress is not None and count % 100 == 0:
-                    on_progress(count, len(plan.events))
-        except KeyboardInterrupt:
-            stopped = True
-        finally:
-            if sink is not None:
-                sink.close()
-            if emitter is not None:
-                emitter.close()
-
         ended_at = now_dubai_iso()
 
         warmup = plan.warmup_note
@@ -266,9 +251,149 @@ class Orchestrator:
         manifest_path = write_manifest(manifest, self.settings.manifest_dir)
         return RunResult(manifest, manifest_path, count, plan, stopped)
 
-    def _describe_target(self, request: RunRequest, send: bool) -> tuple[str, str]:
+    def _emit(
+        self,
+        events: list[EventRecord],
+        *,
+        send: bool,
+        collector: CollectorProfile | None,
+        to_file: str | None,
+        eps_cap: int,
+        on_event: EventCallback | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> tuple[int, bool]:
+        """Render + send/write a list of events. Shared by run() and run_scenario()."""
+        count = 0
+        stopped = False
+        sink = FileSink(to_file) if to_file else None
+        emitter = (
+            SyslogEmitter(collector, hostname=self.settings.hostname)
+            if send and collector is not None
+            else None
+        )
+        total = len(events)
+        try:
+            if sink is not None:
+                sink.open()
+            if emitter is not None:
+                emitter.connect()
+            window_start = time.monotonic()
+            in_window = 0
+            for event in events:
+                if self._stop.is_set():
+                    stopped = True
+                    break
+                header, extension = self.profile.render(event)
+                line = to_cef(header, extension)
+                if on_event is not None:
+                    on_event(line, event)
+                if sink is not None:
+                    sink.write(line)
+                if emitter is not None:
+                    emitter.send(line, level=event.level)
+                    in_window += 1
+                    if eps_cap > 0 and in_window >= eps_cap:
+                        elapsed = time.monotonic() - window_start
+                        if elapsed < 1.0:
+                            time.sleep(1.0 - elapsed)
+                        window_start = time.monotonic()
+                        in_window = 0
+                count += 1
+                if on_progress is not None and count % 100 == 0:
+                    on_progress(count, total)
+        except KeyboardInterrupt:
+            stopped = True
+        finally:
+            if sink is not None:
+                sink.close()
+            if emitter is not None:
+                emitter.close()
+        return count, stopped
+
+    def _describe_target(
+        self, request: RunRequest | ScenarioRunRequest, send: bool
+    ) -> tuple[str, str]:
         if send and request.collector is not None:
             return request.collector.endpoint(), request.collector.transport
         if request.to_file:
             return request.to_file, "file"
         return "dry-run", "none"
+
+    def run_scenario(
+        self,
+        request: ScenarioRunRequest,
+        scenario_catalog: ScenarioCatalog,
+        on_progress: ProgressCallback | None = None,
+        on_event: EventCallback | None = None,
+    ) -> ScenarioRunResult:
+        scenario = scenario_catalog.by_id(request.scenario_id)
+
+        want_send = not request.no_send
+        if want_send and request.collector is None and request.to_file is None:
+            raise RuntimeError(
+                "fail-closed: sending requested but no collector is configured and no "
+                "--to-file was given. Configure a collector or use --to-file/--no-send."
+            )
+        send = want_send and request.collector is not None
+
+        self.reset()
+        composed = compose(
+            scenario,
+            self.catalog.by_id,
+            self.engine,
+            request.seed,
+            request.anchor_epoch or self.settings.anchor_epoch,
+            self.entities,
+            intensity_override=request.intensity_override,
+        )
+        target, transport = self._describe_target(request, send)
+        eps_cap = request.rate_override or self.settings.eps_cap
+
+        started_at = now_dubai_iso()
+        count, stopped = self._emit(
+            composed.events,
+            send=send,
+            collector=request.collector,
+            to_file=request.to_file,
+            eps_cap=eps_cap,
+            on_event=on_event,
+            on_progress=on_progress,
+        )
+        ended_at = now_dubai_iso()
+
+        advisory_text, coverage = build_advisory(scenario, composed, self.catalog)
+        manifest = ScenarioManifest(
+            replicant_version=__version__,
+            scenario_id=scenario.id,
+            scenario_name=scenario.name,
+            seed=request.seed,
+            entities=composed.entities
+            | {"victim": composed.victim, "adversary": composed.adversary},
+            target=target,
+            transport=transport,
+            vendor=self.settings.vendor,
+            accepted_as=self.settings.accepted_as,
+            total_event_count=count,
+            stages=[
+                ScenarioStageRecord(
+                    index=s.index,
+                    technique_id=s.technique_id,
+                    label=s.label,
+                    ndr_uc=s.ndr_uc,
+                    intensity=s.intensity,
+                    start_offset=s.start_offset,
+                    event_count=s.event_count,
+                    tactics=s.tactics,
+                    techniques=s.techniques,
+                )
+                for s in composed.stages
+            ],
+            started_at=started_at,
+            ended_at=ended_at,
+            anchor_epoch=composed.anchor_epoch,
+            warmup_note="; ".join(composed.warmup_notes) or None,
+            coverage=coverage,
+        )
+        manifest_path = write_scenario_manifest(manifest, self.settings.manifest_dir)
+        advisory_path = write_advisory(advisory_text, manifest_path)
+        return ScenarioRunResult(manifest, manifest_path, advisory_path, count, composed, stopped)
