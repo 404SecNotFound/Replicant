@@ -38,6 +38,33 @@ def _orch(tmp_path: Path, vendor: str = "fortigate") -> Orchestrator:
     return Orchestrator(TECH, Settings(manifest_dir=str(tmp_path / "m"), vendor=vendor))
 
 
+def test_scenario_manifest_records_stage_truncation(tmp_path: Path) -> None:
+    """A stage cut short by the engine cap must say so in the manifest, exactly as run()
+    does for a single technique (safety rule 5: the audit trail records what was emitted)."""
+
+    from replicant.config.settings import Settings
+    from replicant.scenario.engine import ScenarioEngine
+
+    orch = Orchestrator(
+        TECH,
+        Settings(manifest_dir=str(tmp_path / "m")),
+        engine=ScenarioEngine(max_events=25),
+    )
+    result = orch.run_scenario(
+        ScenarioRunRequest(
+            scenario_id="SCEN-001",
+            seed=1337,
+            to_file=str(tmp_path / "t.log"),
+            no_send=True,
+        ),
+        SCEN,
+    )
+    truncated = [s for s in result.manifest.stages if s.truncated]
+    assert truncated, "expected at least one stage to hit the 25-event cap"
+    assert "truncated" in (result.manifest.warmup_note or "")
+    assert f"stage {truncated[0].index}" in (result.manifest.warmup_note or "")
+
+
 def test_scenario_to_file_is_byte_identical(tmp_path: Path) -> None:
     orch = _orch(tmp_path)
     a = tmp_path / "a.log"

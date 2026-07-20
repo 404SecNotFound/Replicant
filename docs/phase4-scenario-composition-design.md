@@ -92,6 +92,12 @@ The pin applies to techniques whose `src` is drawn from `internal_hosts` (the ho
 4. Merge all stages' events, stable-sort by `(eventtime, stage_index)`.
 5. Return `ComposedPlan { events (time-ordered), stages: list[StageResult], entities_summary, anchor_epoch, total_count, scenario_id, seed }`.
 
+**Stage alignment (techniques that anchor to an internal window).** Step 3 assumes `engine.plan(anchor_epoch=X)` emits at or after `X`. That assumption does not hold for every technique. REP-005 computes its window as `_off_hours_start(anchor)`, midnight UTC+04:00 of the anchor's **day** (`scenario/engine.py`), then lays sessions across the following six hours. The stage anchor therefore selects only the day, and a sub-day `start_offset` is discarded: composed naively, SCEN-001's `+6h` exfil stage emitted roughly 17 hours *before* the recon that precedes it, and the advisory then reported a ~22.6h span for a chain intended to span ~6h.
+
+The fix is opt-in per stage rather than inferred, because a blanket "shift any stage whose events precede its anchor" rule would corrupt REP-008, whose warm-up baseline legitimately precedes its own anchor. `ScenarioStage.align` takes `"anchor"` (default, unchanged behaviour) or `"next-off-hours"`. For the latter the composer advances the stage anchor by whole days, bounded, until the stage's earliest event lands at or after its intended start, re-planning with the **same** stage seed so only the window moves and every other draw is identical. `StageResult.aligned_days` records the shift, and the advisory's kill-chain table prints it, so the adjustment is never silent.
+
+Each `StageResult` also records what the stage actually produced (`start_epoch`, `end_epoch`, `truncated`, dominant `src`/`dst`/`duser` with counts) so the advisory and manifest report observed values rather than requested ones.
+
 Determinism: same scenario + seed → same pinned actors → same per-stage plans → same merge → byte-identical output. `engine.plan(...)` is used verbatim (it already accepts `entities`, `seed`, `anchor_epoch`, `param_overrides`); there is no change to the technique engine.
 
 ## 6. Orchestrator / emit integration
@@ -203,3 +209,4 @@ Changed: `replicant/core/models.py` (scenario models + loader), `replicant/core/
 - **Optional LLM advisor**: a clean seam is left (the advisory generator is a single deterministic module); adding an opt-in, gated LLM advisor is a separate scope with its own egress carve-out.
 - **User-pinning across credential-spray stages**: a refinement for tighter SCEN-003 correlation; v1 pins host + adversary IP.
 - **Ad-hoc chains from CLI args**: the composer supports it trivially (an ordered list of technique ids), but v1 ships the curated catalog only.
+- **Engine-level off-hours anchoring**: `_off_hours_start` snaps backward to midnight of the anchor's day. Making it snap forward from the anchor would let `start_offset` work directly and retire `align: next-off-hours`, but it changes shipped Phase 2 behaviour for a single-technique REP-005 run (its events would move from the previous night to the coming one), so it is deferred rather than folded into this phase. The composer-level alignment above is the Phase 4 answer.

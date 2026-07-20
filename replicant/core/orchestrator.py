@@ -319,6 +319,19 @@ class Orchestrator:
             return request.to_file, "file"
         return "dry-run", "none"
 
+    def _scenario_note(self, composed: ComposedPlan) -> str | None:
+        """Warm-up notes plus any stage truncation, so the scenario manifest records a cut
+        stream exactly as run() does for a single technique (safety rule 5)."""
+
+        notes = list(composed.warmup_notes)
+        for stage in composed.stages:
+            if stage.truncated:
+                notes.append(
+                    f"stage {stage.index} ({stage.technique_id}): event stream truncated at "
+                    f"engine max_events={self.engine.max_events}"
+                )
+        return "; ".join(notes) or None
+
     def run_scenario(
         self,
         request: ScenarioRunRequest,
@@ -385,13 +398,17 @@ class Orchestrator:
                     event_count=s.event_count,
                     tactics=s.tactics,
                     techniques=s.techniques,
+                    start_epoch=s.start_epoch,
+                    end_epoch=s.end_epoch,
+                    truncated=s.truncated,
+                    aligned_days=s.aligned_days,
                 )
                 for s in composed.stages
             ],
             started_at=started_at,
             ended_at=ended_at,
             anchor_epoch=composed.anchor_epoch,
-            warmup_note="; ".join(composed.warmup_notes) or None,
+            warmup_note=self._scenario_note(composed),
             coverage=coverage,
         )
         manifest_path = write_scenario_manifest(manifest, self.settings.manifest_dir)

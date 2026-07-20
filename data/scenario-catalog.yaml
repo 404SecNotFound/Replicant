@@ -9,7 +9,10 @@ scenarios:
     stages:
       - { technique_id: REP-003, label: "external recon", intensity: medium, start_offset: "0s" }
       - { technique_id: REP-001, label: "C2 established",  intensity: low,    start_offset: "1h" }
-      - { technique_id: REP-005, label: "bulk exfil",      intensity: high,   start_offset: "6h" }
+      # REP-005 anchors to the off-hours window (00:00-06:00) of its anchor's day, so without
+      # align it would emit before the recon that precedes it. "next-off-hours" advances the
+      # stage a whole day so the exfil lands overnight, after the C2 stage.
+      - { technique_id: REP-005, label: "bulk exfil",      intensity: high,   start_offset: "6h", align: "next-off-hours" }
     references: ["ATT&CK chain: TA0007 Discovery -> TA0011 C2 -> TA0010 Exfiltration"]
 
   - id: SCEN-002

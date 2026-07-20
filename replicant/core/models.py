@@ -212,6 +212,11 @@ class ScenarioStage(BaseModel):
     intensity: Intensity = "medium"
     start_offset: str = "0s"  # start time relative to the scenario anchor (parse_duration)
     param_overrides: dict[str, Any] = Field(default_factory=dict)
+    # Techniques whose builder anchors to an internal window rather than to the stage anchor
+    # (REP-005 pins to 00:00-06:00 of the anchor's day) would emit before the stage they follow.
+    # "next-off-hours" tells the composer to advance this stage by whole days until it clears
+    # its intended start. Opt-in, because a warm-up baseline (REP-008) legitimately precedes.
+    align: Literal["anchor", "next-off-hours"] = "anchor"
 
 
 class Scenario(BaseModel):
@@ -281,6 +286,12 @@ class ScenarioStageRecord(BaseModel):
     event_count: int
     tactics: list[str]
     techniques: list[str]
+    # The window the stage actually occupied, so the manifest records what was emitted
+    # rather than what was requested (safety rule 5).
+    start_epoch: int | None = None
+    end_epoch: int | None = None
+    truncated: bool = False
+    aligned_days: int = 0
 
 
 class ScenarioManifest(BaseModel):
