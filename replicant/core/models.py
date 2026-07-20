@@ -199,3 +199,117 @@ def load_catalog(path: str | Path) -> Catalog:
 
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     return Catalog.model_validate(raw)
+
+
+SCENARIO_CATALOG_PATH = Path(__file__).resolve().parents[2] / "data" / "scenario-catalog.yaml"
+
+
+class ScenarioStage(BaseModel):
+    """One stage of a scenario: a reference to an existing technique + timing."""
+
+    technique_id: str
+    label: str | None = None
+    intensity: Intensity = "medium"
+    start_offset: str = "0s"  # start time relative to the scenario anchor (parse_duration)
+    param_overrides: dict[str, Any] = Field(default_factory=dict)
+    # Techniques whose builder anchors to an internal window rather than to the stage anchor
+    # (REP-005 pins to 00:00-06:00 of the anchor's day) would emit before the stage they follow.
+    # "next-off-hours" tells the composer to advance this stage by whole days until it clears
+    # its intended start. Opt-in, because a warm-up baseline (REP-008) legitimately precedes.
+    align: Literal["anchor", "next-off-hours"] = "anchor"
+
+
+class Scenario(BaseModel):
+    id: str
+    name: str
+    description: str
+    stages: list[ScenarioStage]
+    kill_chain: list[str] = Field(default_factory=list)
+    references: list[str] = Field(default_factory=list)
+    safety_notes: str | None = None
+
+
+class ScenarioCatalog(BaseModel):
+    version: str
+    scenarios: list[Scenario]
+
+    @field_validator("scenarios")
+    @classmethod
+    def _unique_ids(cls, scenarios: list[Scenario]) -> list[Scenario]:
+        seen: set[str] = set()
+        for scenario in scenarios:
+            if scenario.id in seen:
+                raise ValueError(f"duplicate scenario id: {scenario.id}")
+            seen.add(scenario.id)
+        return scenarios
+
+    def by_id(self, scenario_id: str) -> Scenario:
+        for scenario in self.scenarios:
+            if scenario.id == scenario_id:
+                return scenario
+        raise KeyError(f"unknown scenario id: {scenario_id}")
+
+
+def load_scenario_catalog(path: str | Path, technique_catalog: Catalog) -> ScenarioCatalog:
+    """Load the scenario catalog and validate every stage reference against the techniques."""
+
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    catalog = ScenarioCatalog.model_validate(raw)
+    known = {technique.id for technique in technique_catalog.techniques}
+    for scenario in catalog.scenarios:
+        for stage in scenario.stages:
+            if stage.technique_id not in known:
+                raise ValueError(
+                    f"scenario {scenario.id} references unknown technique {stage.technique_id}"
+                )
+    return catalog
+
+
+class ScenarioRunRequest(BaseModel):
+    scenario_id: str
+    seed: int = 1337
+    intensity_override: Intensity | None = None
+    to_file: str | None = None
+    no_send: bool = False
+    rate_override: int | None = None
+    collector: CollectorProfile | None = None
+    anchor_epoch: int | None = None
+
+
+class ScenarioStageRecord(BaseModel):
+    index: int
+    technique_id: str
+    label: str | None
+    ndr_uc: str
+    intensity: str
+    start_offset: str
+    event_count: int
+    tactics: list[str]
+    techniques: list[str]
+    # The window the stage actually occupied, so the manifest records what was emitted
+    # rather than what was requested (safety rule 5).
+    start_epoch: int | None = None
+    end_epoch: int | None = None
+    truncated: bool = False
+    aligned_days: int = 0
+
+
+class ScenarioManifest(BaseModel):
+    """Audit record for a scenario run (safety rule 5)."""
+
+    replicant_version: str
+    scenario_id: str
+    scenario_name: str
+    seed: int
+    entities: dict[str, Any]
+    target: str
+    transport: str
+    vendor: str
+    accepted_as: str | None = None
+    total_event_count: int
+    stages: list[ScenarioStageRecord]
+    started_at: str
+    ended_at: str
+    anchor_epoch: int
+    warmup_note: str | None = None
+    coverage: dict[str, Any] = Field(default_factory=dict)

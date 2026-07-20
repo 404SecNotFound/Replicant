@@ -303,7 +303,7 @@ Replicant/
 - Phase 1 (pipeline): scaffold, config, CEF serializer with golden tests, minimal FortiGate profile, UDP and TCP syslog with test-log handshake, Rich menu plus headless CLI, and three techniques end to end (REP-001 periodic callback, REP-002 vertical scan, REP-004 DNS tunneling). Loopback CI green. This is the Claude Code kickoff scope.
 - Phase 2 (full catalog): the remaining catalog entries, entity model hardening, off-hours weighting, warm-up baseline for REP-008, TLS transport, saved profiles, run manifest polish.
 - Phase 3 (multi-vendor): Palo Alto and Check Point profiles plus their reference files. Profile-selection in the menu.
-- Phase 4 (ATT&CK and AI builder): a technique-selection and scenario-composition helper that assembles multi-step scenarios from ATT&CK. Keep any AI assist advisory; the human authors the detection design. AI must not write the LogRhythm rule design notes.
+- Phase 4 (ATT&CK and AI builder): a technique-selection and scenario-composition helper that assembles multi-step scenarios from ATT&CK. Keep any AI assist advisory; the human authors the detection design. AI must not write the LogRhythm rule design notes. Done 2026-07-19: data/scenario-catalog.yaml + replicant/scenario/composer.py + advisory.py + Orchestrator.run_scenario, CLI 'scenario' verb and Rich menu [a]. Deterministic, no LLM. Web UI deferred.
 - Phase 5 (web UI): the React 18 + Vite + TypeScript + Tailwind + shadcn/ui front end from the earlier product notes, driving the same Python core over an API.
 
 ## 19. Open questions and assumptions

@@ -1,0 +1,35 @@
+# Replicant scenario catalog: multi-stage ATT&CK chains composed from the technique catalog.
+# Each stage references an existing REP-### technique; start_offset is relative to the scenario
+# anchor. Entities are pinned by the composer (synthetic by construction); none are declared here.
+version: 0.1.0
+scenarios:
+  - id: SCEN-001
+    name: "Perimeter intrusion to exfiltration"
+    description: "External recon, then low-and-slow C2, then bulk exfil from the same host."
+    stages:
+      - { technique_id: REP-003, label: "external recon", intensity: medium, start_offset: "0s" }
+      - { technique_id: REP-001, label: "C2 established",  intensity: low,    start_offset: "1h" }
+      # REP-005 anchors to the off-hours window (00:00-06:00) of its anchor's day, so without
+      # align it would emit before the recon that precedes it. "next-off-hours" advances the
+      # stage a whole day so the exfil lands overnight, after the C2 stage.
+      - { technique_id: REP-005, label: "bulk exfil",      intensity: high,   start_offset: "6h", align: "next-off-hours" }
+    references: ["ATT&CK chain: TA0007 Discovery -> TA0011 C2 -> TA0010 Exfiltration"]
+
+  - id: SCEN-002
+    name: "Recon, first contact, DNS exfil"
+    description: "Vertical scan, first contact to a new external destination, then DNS-channel exfil."
+    stages:
+      - { technique_id: REP-002, label: "port scan",        intensity: medium, start_offset: "0s" }
+      - { technique_id: REP-008, label: "new destination",  intensity: medium, start_offset: "45m" }
+      - { technique_id: REP-004, label: "dns exfil",        intensity: high,   start_offset: "3h" }
+    references: ["ATT&CK chain: TA0007 Discovery -> TA0011 C2 -> TA0010 Exfil-over-DNS"]
+
+  - id: SCEN-003
+    name: "External access to foothold"
+    description: "Scanning noise, password spray, an anomalous VPN login, then an internal beacon."
+    stages:
+      - { technique_id: REP-009, label: "ids spike",        intensity: medium, start_offset: "0s" }
+      - { technique_id: REP-007, label: "password spray",   intensity: high,   start_offset: "30m" }
+      - { technique_id: REP-011, label: "geo anomaly",      intensity: medium, start_offset: "2h" }
+      - { technique_id: REP-001, label: "internal beacon",  intensity: low,    start_offset: "3h" }
+    references: ["ATT&CK chain: TA0043 Recon -> TA0006 Credential Access -> TA0001 Initial Access -> TA0011 C2"]

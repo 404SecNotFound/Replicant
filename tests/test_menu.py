@@ -15,13 +15,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from rich.console import Console
 
-from replicant.cli.menu import _pick_saved_profile, _pick_vendor, _vendor_label
-from replicant.core.models import CollectorProfile
+from replicant.cli.menu import _pick_saved_profile, _pick_scenario, _pick_vendor, _vendor_label
+from replicant.core.models import CollectorProfile, load_catalog, load_scenario_catalog
 
 
 def _profiles() -> dict[str, CollectorProfile]:
@@ -75,3 +76,13 @@ def test_pick_vendor_default_index_tracks_current() -> None:
 def test_vendor_label_falls_back_to_id() -> None:
     assert _vendor_label("checkpoint") == "Check Point"
     assert _vendor_label("mystery") == "mystery"
+
+
+def test_pick_scenario_returns_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    console = Console(quiet=True)
+    root = Path(__file__).resolve().parents[1]
+    tech = load_catalog(root / "data" / "technique-catalog.yaml")
+    scen = load_scenario_catalog(root / "data" / "scenario-catalog.yaml", tech)
+    monkeypatch.setattr("replicant.cli.menu.Prompt.ask", staticmethod(lambda *a, **k: "1"))
+    chosen = _pick_scenario(console, scen)
+    assert chosen.id == scen.scenarios[0].id
