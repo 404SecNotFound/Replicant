@@ -375,6 +375,31 @@ pip_install() {
   fi
 }
 
+build_frontend() {
+  step "Web UI"
+
+  if (( NO_WEB )); then
+    info "skipped (--no-web). 'replicant web' will serve a page explaining how to build it."
+    return 0
+  fi
+
+  local webui="$REPO_ROOT/webui"
+  [[ -d "$webui" ]] || die "$EX_BUILD" "$webui not found"
+
+  # dist/ is gitignored, so a fresh clone never carries a build.
+  if [[ -f "$webui/package-lock.json" ]]; then
+    run_cmd_in "$webui" npm ci || die "$EX_BUILD" "npm ci failed"
+  else
+    run_cmd_in "$webui" npm install || die "$EX_BUILD" "npm install failed"
+  fi
+  run_cmd_in "$webui" npm run build || die "$EX_BUILD" "npm run build failed"
+
+  if (( ! DRY_RUN )) && [[ ! -f "$webui/dist/index.html" ]]; then
+    die "$EX_BUILD" "build finished but $webui/dist/index.html is missing"
+  fi
+  ok "frontend built"
+}
+
 usage() {
   cat <<'EOF'
 Replicant Linux installer
@@ -428,6 +453,7 @@ main() {
   install_prereqs
   setup_venv
   pip_install
+  build_frontend
 }
 
 main "$@"
