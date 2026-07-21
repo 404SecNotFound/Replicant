@@ -205,6 +205,66 @@ pkg_names_for() {
   esac
 }
 
+find_python() {
+  local candidate major minor
+  for candidate in python3.13 python3.12 python3.11 python3; do
+    have "$candidate" || continue
+    major="$("$candidate" -c 'import sys; print(sys.version_info[0])' 2>/dev/null || printf '0')"
+    minor="$("$candidate" -c 'import sys; print(sys.version_info[1])' 2>/dev/null || printf '0')"
+    if (( major > MIN_PY_MAJOR )) || { (( major == MIN_PY_MAJOR )) && (( minor >= MIN_PY_MINOR )); }; then
+      PYTHON_BIN="$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+python_has_venv() {
+  [[ -n "$PYTHON_BIN" ]] && "$PYTHON_BIN" -c 'import venv' >/dev/null 2>&1
+}
+
+node_ok() {
+  have node || return 1
+  local major
+  major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || printf '0')"
+  [[ "$major" =~ ^[0-9]+$ ]] && (( major >= MIN_NODE_MAJOR ))
+}
+
+check_prereqs() {
+  step "Prerequisites"
+  MISSING=()
+
+  if find_python; then
+    ok "Python $("$PYTHON_BIN" -c 'import sys; print("%d.%d" % sys.version_info[:2])') ($PYTHON_BIN)"
+    if python_has_venv; then
+      ok "Python venv module"
+    else
+      warn "Python venv module missing"
+      MISSING+=(python)
+    fi
+  else
+    warn "no Python >= ${MIN_PY_MAJOR}.${MIN_PY_MINOR} found"
+    MISSING+=(python)
+  fi
+
+  if have git; then ok "git"; else warn "git missing"; MISSING+=(git); fi
+
+  if (( NO_WEB )); then
+    info "skipping Node/npm checks (--no-web)"
+  else
+    if node_ok && have npm; then
+      ok "Node $(node -p 'process.versions.node') and npm"
+    else
+      warn "Node >= ${MIN_NODE_MAJOR} and npm required to build the web UI (use --no-web to skip)"
+      MISSING+=(node)
+    fi
+  fi
+
+  if (( ${#MISSING[@]} == 0 )); then
+    ok "all prerequisites satisfied"
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Replicant Linux installer
@@ -254,6 +314,7 @@ main() {
   info "repo: $REPO_ROOT"
   preflight
   detect_pkg_mgr
+  check_prereqs
 }
 
 main "$@"
