@@ -1,0 +1,212 @@
+# Copyright 2026 Imran Hafeez
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first: these jobs spend real
+# minutes in containers and nobody needs results for a superseded commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor declared in pyproject (requires-python = ">=3.11").
+        # Testing it is what keeps that claim honest rather than aspirational.
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install with the dev extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: pytest
+        run: pytest
+
+      - name: black
+        run: black --check replicant tests
+
+      - name: ruff
+        run: ruff check replicant tests
+
+      - name: mypy
+        run: mypy replicant
+
+  frontend:
+    name: Frontend (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 18 is the floor the installer enforces; 20 is what most operators have.
+        node: ["18", "20"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - name: npm ci
+        working-directory: webui
+        run: npm ci
+
+      - name: vitest
+        working-directory: webui
+        run: npm test
+
+      - name: Build
+        working-directory: webui
+        run: npm run build
+
+      - name: Assert the build actually produced a page
+        working-directory: webui
+        run: test -f dist/index.html
+
+  shell:
+    name: Shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: shellcheck scripts/install.sh
+
+      - name: bash -n
+        run: bash -n scripts/install.sh
+
+  installer:
+    name: Installer on ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Satisfies the minimums natively: full install including the frontend.
+          - image: debian:12
+            flags: "--yes"
+            expect_exit: 0
+          # Ships Python 3.9 and Node 16. Python resolves to a versioned package,
+          # Node does not, so --no-web is the supported path here.
+          - image: rockylinux:9
+            flags: "--yes --no-web"
+            expect_exit: 0
+          # Ships Python 3.10, and offers python3.11 only as 3.11.0~rc1. The
+          # correct behaviour is refusal WITHOUT touching the system. This case
+          # is the regression guard for DEF-004: before the fix it installed
+          # packages and only then died with "still missing after install".
+          - image: ubuntu:22.04
+            flags: "--yes"
+            expect_exit: 3
+            expect_no_mutation: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the installer in ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          # Copy rather than bind-mount: the installer writes .venv, node_modules
+          # and manifests/ into the repo root, and a read-only mount would fail
+          # while a writable one would leave Linux build artefacts in the workspace.
+          #
+          # Script is fed on stdin via a QUOTED heredoc so the outer runner shell
+          # expands nothing. Everything below reaches the container verbatim,
+          # which is what lets dpkg-query's ${binary:Package} format string
+          # survive: unquoted, the container's bash would read it as a substring
+          # expansion with a non-numeric offset and abort.
+          # GitHub still substitutes its own matrix expressions first, since that
+          # happens on the YAML before any shell sees it.
+          docker run --rm -i -v "$PWD":/src:ro "${{ matrix.image }}" bash -s <<'CONTAINER' | tee /tmp/installer.log
+          set -uo pipefail
+          mkdir -p /repo
+          tar -C /src -cf - --exclude=./.venv --exclude=node_modules --exclude=./.git . 2>/dev/null \
+            | tar -C /repo -xf - 2>/dev/null
+
+          count_packages() {
+            if command -v dpkg-query >/dev/null 2>&1; then
+              dpkg-query -f '.\n' -W 2>/dev/null | wc -l
+            else
+              rpm -qa 2>/dev/null | wc -l
+            fi
+          }
+          count_desktop_packages() {
+            if command -v dpkg-query >/dev/null 2>&1; then
+              dpkg-query -f '${binary:Package}\n' -W 2>/dev/null \
+                | grep -cE '^(tilix|libgtk-3-0|ubuntu-mono|humanity-icon-theme)$'
+            else
+              echo 0
+            fi
+          }
+
+          BEFORE=$(count_packages)
+          cd /repo
+          ./scripts/install.sh ${{ matrix.flags }}
+          RC=$?
+          AFTER=$(count_packages)
+          GUI=$(count_desktop_packages)
+
+          echo "REPLICANT_EXIT=$RC"
+          echo "REPLICANT_PKG_DELTA=$((AFTER - BEFORE))"
+          echo "REPLICANT_GUI_LEAK=${GUI:-0}"
+          CONTAINER
+
+          exit_code=$(grep -oP 'REPLICANT_EXIT=\K\d+' /tmp/installer.log)
+          pkg_delta=$(grep -oP 'REPLICANT_PKG_DELTA=\K-?\d+' /tmp/installer.log)
+          gui_leak=$(grep -oP 'REPLICANT_GUI_LEAK=\K\d+' /tmp/installer.log)
+
+          echo "::notice::${{ matrix.image }} exit=$exit_code pkg_delta=$pkg_delta gui_leak=$gui_leak"
+
+          if [ "$exit_code" != "${{ matrix.expect_exit }}" ]; then
+            echo "::error::expected exit ${{ matrix.expect_exit }}, got $exit_code"
+            exit 1
+          fi
+
+          # DEF-005 regression guard. The apt path once pulled a GUI terminal
+          # emulator and the GTK stack onto a headless host via recommended
+          # packages, which --dry-run could never have revealed.
+          if [ "$gui_leak" != "0" ]; then
+            echo "::error::installer pulled $gui_leak desktop package(s); --no-install-recommends regressed"
+            exit 1
+          fi
+
+          # DEF-004 regression guard. A refusal must change nothing: the whole
+          # point of resolving prerequisites before consenting to sudo.
+          if [ "${{ matrix.expect_no_mutation }}" = "true" ] && [ "$pkg_delta" != "0" ]; then
+            echo "::error::refusal installed $pkg_delta package(s); it must leave the host untouched"
+            exit 1
+          fi
