@@ -24,7 +24,9 @@
 # collector the operator configures. Verification below sends synthetic data to
 # 127.0.0.1 only and contacts nothing external.
 
-set -euo pipefail
+# -E (errtrace) is required: without it the ERR trap below is not inherited into
+# shell functions, and every step of this installer runs inside one.
+set -Eeuo pipefail
 
 readonly EX_OK=0
 readonly EX_USAGE=1
