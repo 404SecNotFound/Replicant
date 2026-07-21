@@ -104,8 +104,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: shellcheck
-        run: shellcheck scripts/install.sh
+      # Pinned, and run through the same image a developer can run locally.
+      # The runner image's preinstalled shellcheck is a different build from the
+      # one on the development machine, and the two disagreed on SC2015: CI
+      # failed on a line that passed locally. Pinning makes "shellcheck clean"
+      # mean the same thing in both places.
+      #
+      # Reproduce locally with exactly this command.
+      - name: shellcheck (pinned)
+        run: |
+          docker run --rm -v "$PWD":/mnt:ro koalaman/shellcheck:v0.11.0 --version
+          docker run --rm -v "$PWD":/mnt:ro koalaman/shellcheck:v0.11.0 /mnt/scripts/install.sh
 
       - name: bash -n
         run: bash -n scripts/install.sh

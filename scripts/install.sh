@@ -99,8 +99,17 @@ on_err() {
 trap 'on_err "$LINENO" "$?" "$BASH_COMMAND"' ERR
 
 cleanup_tmp() {
-  [[ -n "$LISTENER_PID" ]] && kill "$LISTENER_PID" 2>/dev/null || true
-  (( ${#TMP_FILES[@]} )) && rm -f "${TMP_FILES[@]}"
+  # Written as explicit ifs rather than `A && B || true`. shellcheck flags that
+  # form (SC2015) because the `|| true` also fires when A is false, so the two
+  # cases are indistinguishable to a reader. Here the intent really is "skip
+  # quietly", which is exactly why it should be spelled out: a future edit that
+  # relied on the `|| true` catching only B's failure would be wrong.
+  if [[ -n "$LISTENER_PID" ]]; then
+    kill "$LISTENER_PID" 2>/dev/null || true
+  fi
+  if (( ${#TMP_FILES[@]} )); then
+    rm -f "${TMP_FILES[@]}"
+  fi
   return 0
 }
 trap cleanup_tmp EXIT INT TERM
