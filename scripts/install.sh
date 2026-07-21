@@ -211,6 +211,8 @@ find_python() {
     have "$candidate" || continue
     major="$("$candidate" -c 'import sys; print(sys.version_info[0])' 2>/dev/null || printf '0')"
     minor="$("$candidate" -c 'import sys; print(sys.version_info[1])' 2>/dev/null || printf '0')"
+    [[ "$major" =~ ^[0-9]+$ ]] || major=0
+    [[ "$minor" =~ ^[0-9]+$ ]] || minor=0
     if (( major > MIN_PY_MAJOR )) || { (( major == MIN_PY_MAJOR )) && (( minor >= MIN_PY_MINOR )); }; then
       PYTHON_BIN="$candidate"
       return 0
@@ -274,14 +276,18 @@ install_prereqs() {
   fi
 
   local -a packages=()
-  local logical name
+  local logical name before
   for logical in "${MISSING[@]}"; do
+    before=${#packages[@]}
     while IFS= read -r name; do
       [[ -n "$name" ]] && packages+=("$name")
     done < <(pkg_names_for "$logical")
+    if (( ${#packages[@]} == before )); then
+      die "$EX_DISTRO" "no $PKG_MGR package mapping for '$logical'; install it manually and re-run"
+    fi
   done
 
-  if [[ -z "$PKG_MGR" ]] || (( ${#packages[@]} == 0 )); then
+  if [[ -z "$PKG_MGR" ]] || (( ${#PKG_INSTALL_ARGV[@]} == 0 )) || (( ${#packages[@]} == 0 )); then
     printf '\n'
     warn "cannot install automatically on this system"
     info "install these yourself, then re-run: ${MISSING[*]}"
@@ -290,12 +296,19 @@ install_prereqs() {
 
   printf '\n  The following packages are missing and will be installed:\n'
   printf '    %s\n' "${packages[*]}"
-  printf '  Command:\n'
-  printf '    %s %s\n\n' "${PKG_INSTALL_ARGV[*]}" "${packages[*]}"
+  printf '  Command:\n     '
+  printf ' %q' "${PKG_INSTALL_ARGV[@]}" "${packages[@]}"
+  printf '\n\n'
 
-  if (( ! ASSUME_YES )); then
-    local reply
-    read -r -p "  Proceed? [y/N] " reply || reply=""
+  if (( DRY_RUN )); then
+    info "would prompt for confirmation before installing"
+  elif (( ! ASSUME_YES )); then
+    local reply=""
+    if [[ -r /dev/tty ]]; then
+      read -r -p "  Proceed? [y/N] " reply < /dev/tty || reply=""
+    else
+      die "$EX_PREREQ" "no terminal available to confirm; re-run with --yes to install non-interactively"
+    fi
     case "$reply" in
       [yY]|[yY][eE][sS]) ;;
       *) die "$EX_PREREQ" "declined; install the packages above and re-run" ;;
@@ -307,9 +320,17 @@ install_prereqs() {
   fi
   run_cmd "${PKG_INSTALL_ARGV[@]}" "${packages[@]}"
 
-  MISSING=()
-  if ! find_python; then
-    die "$EX_PREREQ" "Python >= ${MIN_PY_MAJOR}.${MIN_PY_MINOR} still not found after install"
+  if (( DRY_RUN )); then
+    info "would re-check prerequisites after installing"
+    return 0
+  fi
+
+  # Re-run the full check, not just find_python: the usual reason "python" is in
+  # MISSING is an absent python3-venv while python3 itself was already fine, so
+  # re-probing find_python alone would prove nothing about what was missing.
+  check_prereqs
+  if (( ${#MISSING[@]} != 0 )); then
+    die "$EX_PREREQ" "still missing after install: ${MISSING[*]}"
   fi
   ok "prerequisites installed"
 }
