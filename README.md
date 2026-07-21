@@ -12,6 +12,12 @@ Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS
 [![Safety](https://img.shields.io/badge/entities-synthetic%20only-2ea44f.svg)](#safety-model)
 [![Status](https://img.shields.io/badge/phase-4%20complete-2ea44f.svg)](tasks/todo.md)
 
+<br />
+
+<img src="docs/images/webui-emitter.png" alt="Replicant web UI showing the technique catalog, the selected technique's detail panel, and its signal path diagram" width="900" />
+
+<sub>Every technique carries its detection use case, the fields it holds constant, the fields it varies, and the shape of the signal a rule has to catch.</sub>
+
 </div>
 
 ---
@@ -196,11 +202,21 @@ Each technique produces a statistically shaped stream rather than flat constants
 
 ## Three ways to run it
 
-**Headless CLI.** `replicant list`, `replicant connect`, and `replicant run` cover the full workflow for scripting and CI.
+All three call the same Orchestrator. Anything the menu can do, `replicant run` can do headless.
 
-**Rich terminal menu.** `replicant menu` gives an interactive flow: connect to a collector, send a test log, select a technique, set intensity and duration, and watch a live run counter.
+### Headless CLI
 
-**Web UI with an embedded terminal.** `replicant web` serves a browser interface on a random loopback port.
+`replicant list`, `replicant connect`, `replicant run`, and `replicant scenario` cover the full workflow for scripting and CI.
+
+<img src="docs/images/cli-list.png" alt="Output of replicant list: a table of eleven techniques with their IDs, names, detection use cases, log types, and ATT&CK mappings" width="860" />
+
+### Rich terminal menu
+
+`replicant menu` gives an interactive flow: connect to a collector, send a test log, select a technique or a multi-stage scenario, set intensity and duration, and watch a live run counter.
+
+### Web UI with an embedded terminal
+
+`replicant web` serves a browser interface on a random loopback port.
 
 ```bash
 pip install -e ".[web]"
@@ -208,7 +224,15 @@ pip install -e ".[web]"
 replicant web        # prints http://127.0.0.1:<port>/?token=...
 ```
 
-The dashboard configures a collector, browses the catalog, and runs a technique with a live CEF event stream, a progress indicator, a stop control, and the run manifest. The Terminal tab is a real embedded pseudo-terminal running the same `replicant menu`, so the full interactive menu is available inside the browser. The frontend is React, Vite, TypeScript, and Tailwind with shadcn-style components.
+A run streams live CEF while it emits, with the delivered rate plotted against your events-per-second cap:
+
+<img src="docs/images/webui-run.png" alt="A live run in the web UI: 2271 events per second against a 2000 cap, a waveform of the delivered rate, progress at 29900 of 108000 events, and streaming CEF output" width="900" />
+
+The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser:
+
+<img src="docs/images/webui-terminal.png" alt="The embedded terminal tab running the Rich menu, showing the technique table and the technique, scenario, connection, vendor, seed, and quit prompts" width="900" />
+
+The frontend is React, Vite, TypeScript, and Tailwind with shadcn-style components.
 
 ## Safety model
 
