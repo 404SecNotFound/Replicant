@@ -375,7 +375,9 @@ pip_install() {
   local venv="$REPO_ROOT/.venv" extra="web"
   (( DEV )) && extra="dev"
 
-  run_cmd "$venv/bin/python" -m pip install --quiet -e "$REPO_ROOT[$extra]" \
+  # Braces are required: "$REPO_ROOT[$extra]" reads as array-index syntax to
+  # shellcheck (SC1087) even though bash expands it correctly for a scalar.
+  run_cmd "$venv/bin/python" -m pip install --quiet -e "${REPO_ROOT}[$extra]" \
     || die "$EX_VENV" "pip install -e .[$extra] failed"
   ok "installed Replicant with the '$extra' extra"
 
@@ -462,7 +464,7 @@ with open(out, "a") as fh:
   listener_pid=$!
 
   port=""
-  for i in $(seq 1 50); do
+  for _ in $(seq 1 50); do
     port="$(awk "/^PORT /{print \$2; exit}" "$listener_out" 2>/dev/null || true)"
     [[ -n "$port" ]] && break
     sleep 0.1
