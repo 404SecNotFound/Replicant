@@ -48,7 +48,15 @@ export const VENDOR_LABELS: Record<string, string> = {
   checkpoint: "Check Point",
 };
 
-export const vendorLabel = (id: string): string => VENDOR_LABELS[id] ?? id;
+// An own-property check, not `VENDOR_LABELS[id] ?? id`: a plain object inherits
+// from Object.prototype, so the bracket lookup resolves "constructor" and
+// "toString" to functions. Those are not null or undefined, so ?? never fires
+// and the caller gets a function where it expected a label.
+//
+// hasOwnProperty.call rather than Object.hasOwn because the project targets
+// ES2020, and bumping the whole target for one lookup is not worth it.
+export const vendorLabel = (id: string): string =>
+  Object.prototype.hasOwnProperty.call(VENDOR_LABELS, id) ? VENDOR_LABELS[id] : id;
 
 export interface Manifest {
   technique_id: string;
