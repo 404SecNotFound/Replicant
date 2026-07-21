@@ -633,6 +633,18 @@ git commit -m "feat(install): consent-gated installation of missing prerequisite
 
 ---
 
+### Group C amendments (applied during review, `31e89ee` / `b1fe0a7` / `68f9a37`)
+
+The Task 5/6 code above was corrected during review. The shipped version differs as follows, and Groups D and E must not regress any of it:
+
+- **`find_python` guards its arithmetic.** `[[ "$major" =~ ^[0-9]+$ ]] || major=0` (and the same for `minor`) after each capture. `2>/dev/null` only suppresses stderr, so a python wrapper printing a notice on **stdout** otherwise put junk into the arithmetic and killed the script with a bare `set -u` abort, no ERR trap and no context. `node_ok` always had this guard; `find_python` did not.
+- **`--dry-run` is genuinely inert.** Neither the consent prompt nor the post-install re-check runs under `DRY_RUN`; each prints a `would ...` line instead. Previously a dry run on a host actually missing a prerequisite exited 3, which broke the flag's documented promise and would have made Groups D/E dry-run output unreachable on a real target box.
+- **Consent is read from `/dev/tty`, not stdin.** Otherwise `printf 'y\n' | ./scripts/install.sh` (and `curl ... | bash`, where the script's own bytes answer the prompt) would auto-approve the only privileged operation. The open is written `if ! { exec 3< /dev/tty; } 2>/dev/null; then` — a brace group, because bash applies redirections left to right and a bare `exec 3< /dev/tty 2>/dev/null` still leaks its own diagnostic, while reordering the redirections silences stderr permanently for the rest of the script.
+- **Post-install verification re-runs `check_prereqs`,** not just `find_python`. The usual reason `python` is in `MISSING` is an absent `python3-venv` while python3 itself was already fine, so re-probing `find_python` proved nothing, and git/node were never re-checked at all.
+- **The unsupported-distro guard runs before the collection loop,** so that path still reports every missing prerequisite at once. The per-logical "no `$PKG_MGR` package mapping for X" die only fires when a manager is actually present.
+
+---
+
 ## Task 7: Virtualenv and package install
 
 **Files:**
