@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -38,6 +39,67 @@ _DURATION_TOKEN = re.compile(r"(\d+)\s*([smhd]?)")
 # the CLI --vendor choices, the Rich menu picker, and the web selector all derive
 # their option list from here, so adding a vendor is one entry here plus the profile.
 VENDORS: tuple[str, ...] = ("fortigate", "paloalto", "checkpoint")
+
+# How far the anchor may drift from now before a live send is worth warning about.
+STALE_ANCHOR_DAYS = 2
+_DAY = 86400
+
+
+def parse_anchor(value: str) -> int:
+    """Resolve an ``--anchor`` argument to an epoch.
+
+    Accepts ``now``, a bare epoch, or an ISO-8601 timestamp. A naive ISO value is
+    read as UTC rather than as local time, so the same string means the same
+    instant on every machine.
+    """
+    text = value.strip()
+    if text.lower() == "now":
+        return int(datetime.now(UTC).timestamp())
+    if re.fullmatch(r"\d+", text):
+        return int(text)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(
+            f"anchor must be 'now', an epoch, or an ISO-8601 timestamp (got {value!r})"
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return int(parsed.timestamp())
+
+
+def stale_anchor_warning(anchor_epoch: int, *, sending: bool, now: int | None = None) -> str | None:
+    """Warn when a live send would carry event times far from the present.
+
+    The default anchor is deliberately fixed so identical seeds produce
+    byte-identical output. That is right for artifacts written with ``--to-file``
+    and for the golden tests, and wrong the moment events go to a real collector:
+    the syslog header is stamped at send time while the CEF ``eventtime`` stays at
+    the anchor, so the two disagree by however long ago the anchor was.
+
+    Whether that matters depends on the receiving SIEM. If it keys on receipt
+    time, the run looks normal. If it keys on the parsed event time, the events
+    land outside any recent-window rule and nothing fires, which is
+    indistinguishable from the detection being broken. That ambiguity is the exact
+    thing this project exists to remove, so it gets a warning rather than a
+    footnote.
+
+    Returns None when not sending, or when the anchor is close enough to now.
+    """
+    if not sending:
+        return None
+    current = int(datetime.now(UTC).timestamp()) if now is None else now
+    drift_days = (current - anchor_epoch) / _DAY
+    if abs(drift_days) < STALE_ANCHOR_DAYS:
+        return None
+    direction = "in the past" if drift_days > 0 else "in the future"
+    return (
+        f"event times are {abs(drift_days):.0f} days {direction} "
+        f"(anchor {anchor_epoch}), while the syslog header is stamped now. "
+        "If your SIEM keys on the parsed event time rather than receipt time, "
+        "recent-window rules will not fire. Use --anchor now to emit at the "
+        "current time."
+    )
 
 
 class Settings(BaseModel):

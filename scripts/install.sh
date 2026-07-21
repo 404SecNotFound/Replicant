@@ -99,8 +99,17 @@ on_err() {
 trap 'on_err "$LINENO" "$?" "$BASH_COMMAND"' ERR
 
 cleanup_tmp() {
-  [[ -n "$LISTENER_PID" ]] && kill "$LISTENER_PID" 2>/dev/null || true
-  (( ${#TMP_FILES[@]} )) && rm -f "${TMP_FILES[@]}"
+  # Written as explicit ifs rather than `A && B || true`. shellcheck flags that
+  # form (SC2015) because the `|| true` also fires when A is false, so the two
+  # cases are indistinguishable to a reader. Here the intent really is "skip
+  # quietly", which is exactly why it should be spelled out: a future edit that
+  # relied on the `|| true` catching only B's failure would be wrong.
+  if [[ -n "$LISTENER_PID" ]]; then
+    kill "$LISTENER_PID" 2>/dev/null || true
+  fi
+  if (( ${#TMP_FILES[@]} )); then
+    rm -f "${TMP_FILES[@]}"
+  fi
   return 0
 }
 trap cleanup_tmp EXIT INT TERM
@@ -135,11 +144,35 @@ run_cmd_in() {
 # Always runs in $REPO_ROOT: verification invokes `replicant run`, which writes a
 # manifest to the relative path manifests/, and callers must not scatter that
 # into whatever directory the operator happened to be in.
+# Allocate a tracked temp file, or fail. Callers MUST check the return value.
+#
+# Every caller assigns into a variable that is later used as a redirect target.
+# An empty value there is not a benign default: `2>""` fails to open, so the
+# command is never executed, and in a subshell that failure does not propagate
+# the way it appears to. See verify_cmd below for what that cost us.
+new_tmp_file() {
+  local prefix="${1:?new_tmp_file requires a prefix}" path
+  path="$(mktemp -t "$prefix.XXXXXX")" || return 1
+  [[ -n "$path" ]] || return 1
+  TMP_FILES+=("$path")
+  printf '%s\n' "$path"
+}
+
 verify_cmd() {
   local what="$1"; shift
   local err
-  err="$(mktemp -t replicant-verify-err.XXXXXX)"
-  TMP_FILES+=("$err")
+  # Fail closed when no temp file can be created.
+  #
+  # This previously read `err="$(mktemp ...)"` with no check. When mktemp failed
+  # (read-only or full /tmp, or a hardened container), err was empty, the
+  # redirect `2>"$err"` could not open, the command NEVER RAN, and this function
+  # returned 0 anyway. The installer then printed a green [ok] for verification
+  # it had not performed, which is the single worst thing a verification step can
+  # do. Reproduced with a control: /bin/false took the success path.
+  if ! err="$(new_tmp_file replicant-verify-err)"; then
+    warn "$what could not be verified: no writable temporary file available"
+    return 1
+  fi
   if ! ( cd "$REPO_ROOT" && "$@" ) >/dev/null 2>"$err"; then
     warn "$what failed; last output:"
     tail -n 5 "$err" >&2 || true
@@ -685,9 +718,13 @@ verify_install() {
   verify_cmd "'replicant list'" "$bin" list || die "$EX_VERIFY" "'replicant list' failed"
   ok "catalog loads"
 
+  # Guarded, and not only for tidiness: an unguarded assignment here fires the
+  # ERR trap twice, because set -E propagates it into the command-substitution
+  # subshell as well as the outer assignment. That printed six lines of failure
+  # banner where the design specifies three.
   local tmp_log
-  tmp_log="$(mktemp -t replicant-verify.XXXXXX)"
-  TMP_FILES+=("$tmp_log")
+  tmp_log="$(new_tmp_file replicant-verify)" \
+    || die "$EX_VERIFY" "could not create a temporary file for verification output"
   verify_cmd "'replicant run --no-send'" "$bin" run REP-001 --intensity low --to-file "$tmp_log" --no-send \
     || die "$EX_VERIFY" "'replicant run --no-send' failed"
   head -n 1 "$tmp_log" | grep -q '^CEF:0|' \
@@ -695,8 +732,8 @@ verify_install() {
   ok "CEF written ($(wc -l < "$tmp_log" | tr -d ' ') lines)"
 
   local listener_out port count
-  listener_out="$(mktemp -t replicant-listener.XXXXXX)"
-  TMP_FILES+=("$listener_out")
+  listener_out="$(new_tmp_file replicant-listener)" \
+    || die "$EX_VERIFY" "could not create a temporary file for the loopback listener"
 
   "$py" -c '
 import socket, sys

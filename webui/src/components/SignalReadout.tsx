@@ -11,6 +11,10 @@ interface Props {
   count: number;
   total: number;
   elapsedLabel: string;
+  // Seconds of history the waveform actually covers. Passed in rather than
+  // hardcoded: the label read "window 30s" while the plot held 48 samples at
+  // 220ms, which is 10.6s.
+  windowSeconds: number;
 }
 
 const W = 900;
@@ -18,7 +22,7 @@ const H = 76;
 const TOP = 14;
 const BOTTOM = 66;
 
-export function SignalReadout({ eps, cap, samples, pct, running, count, total, elapsedLabel }: Props) {
+export function SignalReadout({ eps, cap, samples, pct, running, count, total, elapsedLabel, windowSeconds }: Props) {
   const scale = Math.max(cap * 0.25, ...samples, 1);
   const span = W * 0.66; // the emitted portion; the rest is the projection lane
   const pts =
@@ -47,7 +51,7 @@ export function SignalReadout({ eps, cap, samples, pct, running, count, total, e
             </span>
           )}
         </div>
-        <span className="font-mono text-[11px] text-text-3">cap {cap} · window 30s</span>
+        <span className="font-mono text-[11px] text-text-3">cap {cap} · window {windowSeconds}s</span>
       </div>
 
       <svg className="block h-[76px] w-full" viewBox="0 0 900 76" preserveAspectRatio="none">

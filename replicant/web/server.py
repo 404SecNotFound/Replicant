@@ -48,6 +48,7 @@ from replicant import __version__
 from replicant.config.settings import VENDORS, Settings
 from replicant.core.models import Catalog, CollectorProfile, RunRequest
 from replicant.core.orchestrator import Orchestrator
+from replicant.scenario.engine import implemented_technique_ids
 from replicant.web.pty_bridge import bridge_terminal
 from replicant.web.runner import RunManager
 
@@ -89,20 +90,7 @@ def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
                 "attack": technique.attack.techniques,
                 "tactics": technique.attack.tactics,
                 "intensities": sorted(technique.params.keys()),
-                "implemented": technique.id
-                in {
-                    "REP-001",
-                    "REP-002",
-                    "REP-003",
-                    "REP-004",
-                    "REP-005",
-                    "REP-006",
-                    "REP-007",
-                    "REP-008",
-                    "REP-009",
-                    "REP-010",
-                    "REP-011",
-                },
+                "implemented": technique.id in implemented_technique_ids(),
                 "safety_notes": technique.safety_notes,
                 "signature_id": technique.fortigate.signature_id,
                 "action": technique.fortigate.action,

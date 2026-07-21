@@ -95,3 +95,46 @@ Inside it I called the script's own `warn` helper, which prints to stdout. That 
 The second bug: the resolver signalled failure with `return 1`, which under `set -E` tripped the ERR trap and printed a generic `installation failed` banner ahead of the specific, actionable refusal message. Returning non-zero for an *expected* outcome is what caused it.
 
 **Rule:** a function that returns data on stdout has a contract as strict as a return type. Diagnostics go to stderr, always. And an expected negative result is not an error: signal it in the data (empty output) rather than through an exit status that error-handling machinery will interpret as a crash.
+
+---
+
+## The dangerous failure is the one that reports success
+
+**2026-07-21, UAT case INST-18.** The installer's `verify_cmd` allocated a temp file for stderr capture:
+
+```bash
+err="$(mktemp -t replicant-verify-err.XXXXXX)"   # unchecked
+if ! ( cd "$REPO_ROOT" && "$@" ) >/dev/null 2>"$err"; then
+```
+
+Where `mktemp` fails, and it does on a read-only or full `/tmp` or in a hardened container, `err` is empty. `2>""` cannot open, so **the command never runs**, and the function returns 0. The installer printed `[ok] catalog loads` for a check it had not performed. Live output showed `mktemp: Permission denied` on stderr and the green tick on stdout, simultaneously.
+
+Note the shape of it. This was not verification that broke. It was verification that **lied**, in the direction of reassurance, in a script whose entire stated purpose is to prove an install works. A crash would have been strictly safer: loud, obvious, and it would not have shipped.
+
+**Rule:** for any check whose output is a claim about the world, ask what happens when the *check's own machinery* fails, not just when the thing under test fails. If a broken harness can produce a pass, the harness is worse than nothing, because it converts an unknown into a false assurance. Fail closed: no evidence means no pass.
+
+**Corollary:** the tell was an unchecked assignment whose result becomes a redirect target. An empty string there is never a benign default, so treat "allocate a resource that something later depends on" as a checked operation every time.
+
+**Corollary:** prove the bug before fixing it, and prove the fix with a control. Here that meant showing `verify_cmd /bin/false` took the success path with a broken `mktemp` and the failure path with a working one, then re-running both against the real function after the change. Without the control, "it returns non-zero now" proves nothing about whether the command actually ran.
+
+---
+
+## Do not assert a guarantee the mechanism does not provide
+
+**2026-07-21, first real CI run.** `test_scenario_loopback_udp_delivers` asserted:
+
+```python
+assert len(received) == result.event_count > 0
+```
+
+SCEN-001 emits 1133 datagrams as fast as the socket accepts them. When the kernel receive buffer fills before the reader thread drains it, UDP drops the surplus. That is not a defect, it is the protocol working as specified. On an idle laptop nothing is dropped and the test is green. On a contended CI runner it failed at 890/1133.
+
+The test therefore reported "transport regression" when the true cause was CPU scheduling. Two costs, and the second is worse: the failure is misdirecting, and it is intermittent, which is how a suite stops being believed. A test that cries wolf gets muted, and then the one real failure gets muted with it.
+
+The fix was not to loosen the assertion and move on. The exact-delivery claim moved to a **TCP** test, where the transport genuinely guarantees it, and the UDP test now asserts what UDP actually promises: something arrived, nothing extra arrived, and the bulk got through. Coverage got stronger, not weaker.
+
+**Rule:** before asserting equality on anything crossing a boundary, ask what the boundary guarantees. UDP does not guarantee delivery, filesystems do not guarantee ordering, `sleep(n)` does not guarantee elapsed wall time, and a network call does not guarantee a bounded latency. Assert the real contract, and put the strict assertion where the strict guarantee actually exists.
+
+**Corollary:** verify a concurrency or timing fix under the condition that broke it, not under the condition you develop in. Five passes on an idle machine proved nothing here. Three passes with every core saturated proved something.
+
+**Corollary:** this is also the argument for CI existing at all. The flake had been latent for weeks and passed every local run. Its first execution on shared, contended hardware surfaced it immediately.

@@ -38,4 +38,10 @@ def test_scenario_run_to_file(tmp_path: Path, capsys) -> None:
 
 def test_scenario_run_unknown_id(capsys) -> None:
     rc = main(["scenario", "run", "SCEN-404", "--to-file", "/tmp/x.log", "--no-send"])
-    assert rc == 1 and "unknown scenario" in capsys.readouterr().out.lower()
+    captured = capsys.readouterr()
+    assert rc == 1
+    # The diagnostic belongs on stderr: `replicant scenario run ... > events.log`
+    # must not swallow the reason it refused. This asserted .out before, which
+    # encoded the bug rather than the requirement.
+    assert "unknown scenario" in captured.err.lower()
+    assert "unknown scenario" not in captured.out.lower()

@@ -23,6 +23,21 @@ interface Props {
 
 const MAX_VISIBLE = 800;
 const SAMPLE_MS = 220;
+// Number of plotted samples. Exported alongside SAMPLE_MS so the readout can
+// label the real window instead of a hardcoded guess.
+const SAMPLE_WINDOW = 48;
+// Report the rate over at least one full limiter period.
+//
+// The emitter is a FIXED-WINDOW limiter: it sends at full speed until a
+// one-second window fills, then sleeps out the remainder. Sampling that every
+// 220ms aliases badly, because a sample lands either inside a burst or inside a
+// sleep. Observed live: the readout alternated between ~5300/s and 0/s while the
+// run was steadily delivering ~1660/s, and it displayed "0 events / sec" next to
+// an "EMITTING" indicator.
+//
+// Averaging over a trailing second spans a whole burst-plus-sleep cycle, so the
+// number shown is the rate actually being delivered.
+const RATE_WINDOW_MS = 1000;
 
 function fmtDur(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -53,7 +68,9 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
   const logRef = useRef<HTMLDivElement | null>(null);
   const countRef = useRef(0);
   const startRef = useRef(0);
-  const lastRef = useRef({ t: 0, c: 0 });
+  // Trailing observations of (timestamp, cumulative count), used to average the
+  // emission rate over RATE_WINDOW_MS instead of over a single 220ms tick.
+  const historyRef = useRef<{ t: number; c: number }[]>([]);
 
   useEffect(() => setSeed(String(defaultSeed)), [defaultSeed]);
   useEffect(() => {
@@ -70,13 +87,23 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
     if (!running) return;
     const timer = setInterval(() => {
       const now = performance.now();
-      const dt = (now - lastRef.current.t) / 1000;
-      const dc = countRef.current - lastRef.current.c;
+      const history = historyRef.current;
+      history.push({ t: now, c: countRef.current });
+
+      // Drop observations older than the rate window, but always keep the one
+      // immediately preceding it so the window stays a full RATE_WINDOW_MS wide
+      // rather than collapsing toward the newest sample.
+      const cutoff = now - RATE_WINDOW_MS;
+      let firstFresh = 0;
+      while (firstFresh < history.length && history[firstFresh].t < cutoff) firstFresh++;
+      if (firstFresh > 0) history.splice(0, firstFresh - 1);
+
+      const oldest = history[0];
+      const dt = (now - oldest.t) / 1000;
       if (dt > 0) {
-        const inst = Math.max(0, dc / dt);
-        setEps(Math.round(inst));
-        setSamples((s) => [...s.slice(-47), inst]);
-        lastRef.current = { t: now, c: countRef.current };
+        const rate = Math.max(0, (countRef.current - oldest.c) / dt);
+        setEps(Math.round(rate));
+        setSamples((s) => [...s.slice(-(SAMPLE_WINDOW - 1)), rate]);
       }
       setElapsed(fmtDur((now - startRef.current) / 1000));
       if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -97,7 +124,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
     setElapsed("0s");
     countRef.current = 0;
     startRef.current = performance.now();
-    lastRef.current = { t: performance.now(), c: 0 };
+    historyRef.current = [{ t: performance.now(), c: 0 }];
   }
 
   async function handleStart() {
@@ -275,6 +302,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
         eps={eps}
         cap={epsCap}
         samples={samples}
+        windowSeconds={Math.round((SAMPLE_WINDOW * SAMPLE_MS) / 1000)}
         pct={pct}
         running={running}
         count={count}

@@ -109,7 +109,27 @@ def test_scenario_vendor_renders_panos(tmp_path: Path) -> None:
 
 
 def test_scenario_loopback_udp_delivers(tmp_path: Path) -> None:
+    """UDP delivery is best-effort, so this asserts what UDP actually promises.
+
+    This test previously asserted ``len(received) == result.event_count``. That
+    is not a guarantee UDP makes. SCEN-001 emits 1133 datagrams as fast as the
+    socket accepts them, and if the kernel receive buffer fills before the
+    reader thread drains it, the surplus is dropped by design. It passed on an
+    idle developer machine and failed on a contended CI runner at 890/1133.
+
+    Asserting exactness here encoded a false contract and produced a test that
+    reported a transport regression when the real cause was scheduling. The
+    exact-delivery claim now lives in the TCP test below, where the transport
+    genuinely provides it.
+
+    What remains worth asserting: something arrived, nothing extra arrived
+    (which would mean duplicate sends), and the bulk got through, so a genuine
+    regression that delivers only a trickle still fails.
+    """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Ask for a large receive buffer before binding. The kernel may clamp this,
+    # which is fine: it reduces loss without the test depending on the increase.
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
     sock.bind(("127.0.0.1", 0))
     sock.settimeout(2.0)
     port = sock.getsockname()[1]
@@ -131,8 +151,62 @@ def test_scenario_loopback_udp_delivers(tmp_path: Path) -> None:
         SCEN,
     )
     # Join before close: let the receiver's own 2s recv timeout drain whatever is
-    # already queued in the kernel UDP buffer. Closing first would cut it off mid-drain
-    # and make this test flaky under a fast burst (SCEN-001 emits 1000+ events).
+    # already queued in the kernel UDP buffer. Closing first would cut it off mid-drain.
     thread.join(timeout=3)
     sock.close()
-    assert len(received) == result.event_count > 0
+
+    assert result.event_count > 0
+    assert len(received) > 0, "no datagrams arrived; the UDP path is broken"
+    assert len(received) <= result.event_count, "more datagrams arrived than events were emitted"
+    assert len(received) >= result.event_count // 2, (
+        f"only {len(received)} of {result.event_count} datagrams arrived. "
+        "Some UDP loss under load is expected; losing half is a regression."
+    )
+
+
+def test_scenario_loopback_tcp_delivers_every_event(tmp_path: Path) -> None:
+    """TCP does guarantee delivery, so the exact-count assertion belongs here.
+
+    Counts lines rather than reads, because TCP is a byte stream: a single recv
+    can return several syslog frames or a partial one, so counting recv calls
+    would measure segmentation instead of delivery.
+    """
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    server.settimeout(10.0)
+    port = server.getsockname()[1]
+    chunks: list[bytes] = []
+
+    def rx() -> None:
+        try:
+            conn, _ = server.accept()
+            conn.settimeout(5.0)
+            with conn:
+                while True:
+                    data = conn.recv(65535)
+                    if not data:
+                        return
+                    chunks.append(data)
+        except OSError:
+            pass
+
+    thread = threading.Thread(target=rx, daemon=True)
+    thread.start()
+    orch = _orch(tmp_path)
+    collector = CollectorProfile(name="t", host="127.0.0.1", port=port, transport="tcp")
+    result = orch.run_scenario(
+        ScenarioRunRequest(scenario_id="SCEN-001", seed=1337, collector=collector, no_send=False),
+        SCEN,
+    )
+    thread.join(timeout=10)
+    server.close()
+
+    payload = b"".join(chunks)
+    delivered = payload.count(b"CEF:0|")
+    assert result.event_count > 0
+    assert delivered == result.event_count, (
+        f"TCP delivered {delivered} of {result.event_count} events. "
+        "Unlike UDP, this transport guarantees delivery, so any shortfall is a real defect."
+    )

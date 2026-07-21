@@ -12,6 +12,12 @@ Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS
 [![Safety](https://img.shields.io/badge/entities-synthetic%20only-2ea44f.svg)](#safety-model)
 [![Status](https://img.shields.io/badge/phase-4%20complete-2ea44f.svg)](tasks/todo.md)
 
+<br />
+
+<img src="docs/images/webui-emitter.png" alt="Replicant web UI showing the technique catalog, the selected technique's detail panel, and its signal path diagram" width="900" />
+
+<sub>Every technique carries its detection use case, the fields it holds constant, the fields it varies, and the shape of the signal a rule has to catch.</sub>
+
 </div>
 
 ---
@@ -196,11 +202,21 @@ Each technique produces a statistically shaped stream rather than flat constants
 
 ## Three ways to run it
 
-**Headless CLI.** `replicant list`, `replicant connect`, and `replicant run` cover the full workflow for scripting and CI.
+All three call the same Orchestrator. Anything the menu can do, `replicant run` can do headless.
 
-**Rich terminal menu.** `replicant menu` gives an interactive flow: connect to a collector, send a test log, select a technique, set intensity and duration, and watch a live run counter.
+### Headless CLI
 
-**Web UI with an embedded terminal.** `replicant web` serves a browser interface on a random loopback port.
+`replicant list`, `replicant connect`, `replicant run`, and `replicant scenario` cover the full workflow for scripting and CI.
+
+<img src="docs/images/cli-list.png" alt="Output of replicant list: a table of eleven techniques with their IDs, names, detection use cases, log types, and ATT&CK mappings" width="860" />
+
+### Rich terminal menu
+
+`replicant menu` gives an interactive flow: connect to a collector, send a test log, select a technique or a multi-stage scenario, set intensity and duration, and watch a live run counter.
+
+### Web UI with an embedded terminal
+
+`replicant web` serves a browser interface on a random loopback port.
 
 ```bash
 pip install -e ".[web]"
@@ -208,7 +224,15 @@ pip install -e ".[web]"
 replicant web        # prints http://127.0.0.1:<port>/?token=...
 ```
 
-The dashboard configures a collector, browses the catalog, and runs a technique with a live CEF event stream, a progress indicator, a stop control, and the run manifest. The Terminal tab is a real embedded pseudo-terminal running the same `replicant menu`, so the full interactive menu is available inside the browser. The frontend is React, Vite, TypeScript, and Tailwind with shadcn-style components.
+A run streams live CEF while it emits, with the delivered rate plotted against your events-per-second cap:
+
+<img src="docs/images/webui-run.png" alt="A live run in the web UI: 2271 events per second against a 2000 cap, a waveform of the delivered rate, progress at 29900 of 108000 events, and streaming CEF output" width="900" />
+
+The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser:
+
+<img src="docs/images/webui-terminal.png" alt="The embedded terminal tab running the Rich menu, showing the technique table and the technique, scenario, connection, vendor, seed, and quit prompts" width="900" />
+
+The frontend is React, Vite, TypeScript, and Tailwind with shadcn-style components.
 
 ## Safety model
 
@@ -217,9 +241,9 @@ Safety is a design constraint, not a disclaimer. The guarantees below are enforc
 | Guarantee | How it is enforced |
 |-----------|--------------------|
 | Single destination | A run sends only to the collector the operator configures. There is no other socket target, and sends fail closed when no collector is set. |
-| Synthetic entities only | Address pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). A configuration that reaches outside these ranges is rejected at build time. DNS parents are non-resolvable synthetic names. |
+| Synthetic entities only | Address pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). A configuration that reaches outside these ranges is rejected at build time. DNS parents are drawn from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761). Replicant never resolves them, and never emits a real domain. |
 | No real behavior | The engine performs no I/O and issues no attack. It produces log strings; byte counts and attack names are field values. |
-| Rate limits | A configurable events-per-second cap protects the operator's own collector. |
+| Rate limits | A configurable events-per-second cap protects the operator's own collector. It is a fixed-window average, not an instantaneous ceiling: sends run at full speed until a one-second window fills, then pause, so a sliding second straddling a boundary can briefly exceed the cap. |
 | Audit trail | Every run writes a manifest recording seed, technique, parameters, entity pools, target, event count, and start and end times in UTC+04:00. |
 
 The web server adds its own controls: it binds to loopback only, requires a per-session token on every API and websocket call, and rejects requests whose Host header is not localhost.
@@ -228,10 +252,28 @@ The web server adds its own controls: it binds to loopback only, requires a per-
 
 The Scenario Engine does no I/O and is seeded, so the same seed plus technique plus parameters yields the same event stream. Event times are computed from a fixed anchor plus a deterministic offset, so a run written to a file is byte-identical across runs. That property makes both the tool and the detections it exercises reproducible.
 
+### Event times, and when to override the anchor
+
+Read this before pointing Replicant at a SIEM for the first time.
+
+That fixed anchor is what makes runs byte-identical, and it is also a trap on a live send. The syslog header is stamped at send time, while the CEF `eventtime` stays at the anchor, so the two disagree by however long ago the anchor is. Whether it matters depends on your SIEM:
+
+- **Keys on receipt time:** the run looks normal, rules fire.
+- **Keys on the parsed event time:** the events land outside every recent-window rule and **nothing fires**, which looks exactly like a broken detection.
+
+Use `--anchor` to emit at the current time:
+
+```bash
+replicant run REP-001 --anchor now --host 10.20.0.50 --port 514
+replicant scenario run SCEN-001 --anchor now --host 10.20.0.50 --port 514
+```
+
+`--anchor` accepts `now`, an epoch, or an ISO-8601 timestamp (a naive value is read as UTC). Sending with an anchor more than two days from now prints a warning naming the drift, so this cannot bite you silently. Leave the anchor alone for `--to-file` artifacts and regression comparisons, where byte-identical output is the point.
+
 The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP, TCP, and TLS transport, catalog validation, the orchestrator end-to-end, and the web API.
 
 ```bash
-./.venv/bin/pytest          # 235 tests
+./.venv/bin/pytest          # 249 tests
 ./.venv/bin/black --check replicant tests
 ./.venv/bin/ruff check replicant tests
 ./.venv/bin/mypy replicant

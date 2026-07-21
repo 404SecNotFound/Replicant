@@ -11,7 +11,7 @@ Full design is in `docs/blueprint.md`. The FortiGate log schema and golden sampl
 ## Non-negotiable safety rules
 
 1. The only network egress is to the operator-configured collector. Never open a socket to anything else. If no collector is configured, sends must fail closed.
-2. All entities are synthetic. Default IPs are RFC1918 and documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parents are non-resolvable synthetic names. No real domains, no real malware, no real C2.
+2. All entities are synthetic. Default IPs are RFC1918 and documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parents come from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761); note example.net does resolve, .invalid does not, and Replicant resolves neither. No real domains, no real malware, no real C2.
 3. No real attacks. Replicant writes log strings. It never executes commands, scans, or moves data. Attack names and byte counts are fields, nothing more.
 4. Respect the events-per-second cap. Default configurable, protect the operator's own collector.
 5. Every run writes a manifest (seed, technique, params, entities, target, counts, times).
@@ -25,13 +25,13 @@ Full design is in `docs/blueprint.md`. The FortiGate log schema and golden sampl
 
 ## Architecture (summary)
 
-Presentation (Rich menu + headless CLI) -> Orchestrator -> Scenario Engine + Connection Manager -> Vendor Profile (FortiGate) + Syslog Emitter -> CEF Serializer -> Transport. The Scenario Engine and CEF Serializer are vendor-neutral. Adding a firewall is implementing the `VendorProfile` interface plus a reference file. See the diagram in `docs/blueprint.md` section 5, module list in section 6.
+Presentation (Rich menu + headless CLI + web UI) -> Orchestrator -> Scenario Engine + Connection Manager -> Vendor Profile (FortiGate, Palo Alto PAN-OS, or Check Point) + Syslog Emitter -> CEF Serializer -> Transport. The Scenario Engine and CEF Serializer are vendor-neutral. Adding a firewall is implementing the `VendorProfile` interface plus a reference file. See the diagram in `docs/blueprint.md` section 5, module list in section 6.
 
 Key rule: no behavior lives only in the TUI. The menu and the CLI both call the Orchestrator. Anything the menu can do, `replicant run ...` can do headless.
 
 ## Coding standards
 
-- Python 3.11+. Full type hints. Pydantic v2 models in `core/models.py`.
+- Python 3.11+. Full type hints. Pydantic v2 models in `replicant/core/models.py`.
 - Keep dependencies small: rich, typer or argparse, pydantic, PyYAML, numpy, stdlib socket and ssl, pytest. No scapy, no requests at runtime.
 - Deterministic core. The Scenario Engine does no I/O and is seedable. Same seed plus technique plus params yields the same plan.
 - Format with black, lint with ruff, type-check with mypy. Tests with pytest.
@@ -43,14 +43,24 @@ Header: `CEF:Version|Device Vendor|Device Product|Device Version|Signature ID|Na
 Escaping: header values escape `\` and `|`; extension values escape `\` and `=`; newlines encode as `\n`/`\r` in extension only. UTF-8. The syslog prefix is added by transport and is not part of the header.
 FortiGate: Vendor `Fortinet`, Product `Fortigate` (lower-case g), Signature ID is last five digits of FortiOS `logid`, severity is reversed FortiOS level, non-standard fields prefixed `FTNTFGT`. The oracle for correctness is the seven golden sample lines in `docs/fortigate-cef-reference.md`.
 
-## How to run (target CLI)
+## How to run
 
 ```
 replicant list
 replicant connect --host 10.20.0.50 --port 514 --transport udp --test
 replicant run REP-001 --intensity medium --duration 30m --seed 1337
 replicant run REP-004 --intensity high --to-file ./out/dns.log --no-send
+replicant run REP-001 --vendor checkpoint --to-file ./out/cp.log --no-send
+
+replicant scenario list
+replicant scenario show SCEN-001              # dry preview, writes nothing
+replicant scenario run SCEN-001 --seed 1337 --to-file ./out/s1.log --no-send
+
+replicant menu                                # Rich TUI
+replicant web --no-browser                    # loopback + per-session token
 ```
+
+Output convention: command results go to stdout, operator-facing errors go to stderr.
 
 ## Phase plan
 
@@ -58,8 +68,9 @@ replicant run REP-004 --intensity high --to-file ./out/dns.log --no-send
 - Phase 1.5 (complete): web UI and embedded terminal over the same Orchestrator.
 - Phase 2 (complete): full catalog (all eleven techniques REP-001..011), entity hardening, TLS transport, REP-008 warm-up baseline, manifests.
 - Phase 3 (complete): Palo Alto and Check Point profiles both done. `replicant/profiles/paloalto.py` + `docs/paloalto-cef-reference.md` and `replicant/profiles/checkpoint.py` + `docs/checkpoint-cef-reference.md` (seven golden lines each, all [Unverified]). Vendor selectable with `--vendor {fortigate,paloalto,checkpoint}`, the Rich menu `[v]` picker, and the web UI selector (canonical id list in `settings.VENDORS`). Check Point emits string CEF severity (Unknown/Low/Medium/High/Very-High), so `CefHeader.severity` is `int | str`.
-- Phase 4: ATT&CK scenario composition (AI advisory only; humans author detection design).
-- Phase 5: React web UI over the same core.
+- Phase 4 (complete): ATT&CK scenario composition. Three curated chains (SCEN-001/002/003) in `data/scenario-catalog.yaml` compose techniques into one deterministic multi-stage timeline; each run writes a paired manifest and advisory. Driven from `replicant scenario list|show|run` and the Rich menu `[a]`. The advisory is coverage and correlation context only, derived from the composed events with no model involved; humans author the detection design. Web UI scenario support is deliberately deferred, and a test asserts its absence so a partial implementation is caught.
+
+Next up, not started: group the catalog by MITRE tactic in the web UI left rail, then a Docs tab. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 ## Definition of done for any change
 

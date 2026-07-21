@@ -8,7 +8,81 @@ Claims that have not been validated against a live vendor build or a real host a
 
 First public release.
 
+An earlier `v0.1.0` tag was cut mid-preparation and then re-cut on this commit.
+Nothing had consumed it: the repository was private and the release was an
+unpublished draft. The entries below therefore ship as part of 0.1.0 rather than
+as a 0.1.1 follow-up, and the pre-release validation described in them is what
+the tag actually contains.
+
 ### Added
+
+- **`--anchor` on `run` and `scenario run`**, accepting `now`, an epoch, or an
+  ISO-8601 timestamp. This closes a real trap. Event times derive from a fixed
+  anchor so identical seeds give byte-identical output, but that anchor was over
+  a year in the past, and the syslog header is stamped at send time. A live run
+  therefore delivered records whose header said *now* and whose CEF `eventtime`
+  said **371 days ago**. On a SIEM keying on receipt time nothing looked wrong;
+  on one keying on the parsed event time, every recent-window rule stayed silent,
+  which is indistinguishable from the detection being broken. That ambiguity is
+  the exact thing this project exists to remove. Sending with an anchor more than
+  two days from now now prints a warning naming the drift and the remedy.
+
+- **Continuous integration.** GitHub Actions across four jobs: Python on 3.11 and
+  3.12, frontend on Node 18 and 20, shell linting, and the installer executed
+  inside real `debian:12`, `rockylinux:9` and `ubuntu:22.04` containers with
+  asserted outcomes. The installer job is a regression guard for the two defects
+  found during pre-release validation, both of which are invisible to a dry run.
+- **Frontend test suite.** vitest with jsdom and Testing Library, eight tests.
+  The Python suite grew to 249.
+
+### Fixed
+
+- **Verification could report success for a command it never ran.** In
+  `scripts/install.sh`, `verify_cmd` allocated its stderr capture file with an
+  unchecked `mktemp`. Where mktemp failed (read-only or full `/tmp`, hardened
+  container), the path was empty, the redirect could not open, the command never
+  executed, and the function returned 0 regardless, printing a green `[ok]` for
+  verification that had not happened. Temp allocation is now checked and fails
+  closed.
+- **Duplicated failure banner.** `set -E` propagates the `ERR` trap into
+  command-substitution subshells, so an unguarded temp-file assignment printed
+  six lines of failure output where three are specified.
+- **`/api/catalog` reported every technique as implemented** from a hardcoded id
+  set rather than from the engine, making the "not yet implemented" interface
+  states unreachable and guaranteeing a wrong answer for any future technique
+  added to the catalog without a planner.
+- **CLI diagnostics went to stdout.** All nine error paths now write to stderr,
+  so redirecting stdout no longer hides the reason a run refused.
+- **`vendorLabel` returned functions for prototype keys.** `VENDOR_LABELS[id] ?? id`
+  resolved `"constructor"` and `"toString"` through the prototype chain, so the
+  `??` fallback never fired. Now an own-property check.
+- **The web UI's events-per-second readout aliased against the rate limiter.** It
+  sampled every 220ms and reported an instantaneous rate, while the limiter runs
+  on a one-second period, so each sample landed either inside a burst or inside a
+  sleep. During a run steadily delivering ~1660/s it alternated between 5313/s
+  and **0/s, the latter printed next to an "EMITTING" indicator**, and the
+  waveform was a sawtooth crashing to zero. The rate is now averaged over a
+  trailing second, which spans a full burst-plus-sleep cycle. Display only: the
+  limiter itself was always correct.
+- **The waveform's window label was hardcoded** to "30s" while the plot held 48
+  samples at 220ms, which is 10.6s. It is now derived from the sampling
+  parameters.
+
+### Documentation
+
+- README now shows all three surfaces: the web UI catalog and technique detail,
+  a live run with the delivered rate plotted against the cap, the embedded
+  terminal running the Rich menu, and `replicant list`. All captured from the
+  running product against a real loopback collector.
+
+### Changed
+
+- The events-per-second cap is documented as a **fixed-window average** rather
+  than an instantaneous ceiling, at the limiter, in the README safety table, and
+  below. It was previously stated only as "a cap", which reasonably reads as the
+  stronger guarantee.
+
+### What ships in 0.1.0
 
 **Technique catalog.** Eleven techniques, `REP-001` through `REP-011`, each mapped one-to-one to a named detection use case and to MITRE ATT&CK:
 
@@ -55,7 +129,7 @@ Each run writes an advisory document beside its manifest, mapping the chain to A
 - **Ubuntu 22.04, Debian 11, and RHEL-family 8** ship Python below 3.11 and cannot be satisfied from their own repositories. The installer refuses on these with guidance rather than installing packages that would not help. Ubuntu 22.04 offers `python3.11` only as a release candidate (`3.11.0~rc1`), which the installer deliberately declines.
 - **The events-per-second cap is a fixed-window cap,** not an instantaneous one. It counts to the cap, sleeps the remainder of the wall second, then resets, so events cluster at the head of each window. A sliding one-second window straddling a boundary was measured once at 59 against a cap of 50; the overall delivered rate held at 49.94/s. Treat the guarantee as a fixed-window average.
 - **The web UI has no scenario surface.** Scenario composition is CLI and Rich menu only. Deferred by design, and covered by a test that asserts the absence so a later partial implementation is caught.
-- **No frontend test runner.** The Python side is covered by 235 tests; the SPA has no vitest suite.
+- **No frontend test runner.** The Python side is covered by 249 tests; the SPA has no vitest suite.
 - **Signature IDs** for DNS `dns-query` (54803) and SSL-VPN tunnel-up (39947) are `[Unverified]` against a live FortiOS build and carry inline notes saying so. Confirm before customer use.
 
 ### Security
