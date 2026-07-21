@@ -438,7 +438,7 @@ verify_install() {
     || die "$EX_VERIFY" "output does not start with CEF:0| (got: $(head -c 40 "$tmp_log"))"
   ok "CEF written ($(wc -l < "$tmp_log" | tr -d ' ') lines)"
 
-  local listener_out port count listener_pid i
+  local listener_out port count listener_pid
   listener_out="$(mktemp -t replicant-listener.XXXXXX)"
   TMP_FILES+=("$listener_out")
 
