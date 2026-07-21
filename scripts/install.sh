@@ -304,7 +304,13 @@ install_prereqs() {
     info "would prompt for confirmation before installing"
   elif (( ! ASSUME_YES )); then
     local reply=""
-    if ! exec 3< /dev/tty 2>/dev/null; then
+    # Brace group, not a bare `exec ... 2>/dev/null`: bash applies redirections
+    # left to right, so a bare form prints its own "/dev/tty: Device not configured"
+    # to the real stderr before 2>/dev/null can take effect. Putting 2>/dev/null on
+    # a { } group suppresses that cleanly, and because { } does not fork a subshell
+    # fd 3 still persists to the read below. Reordering instead would silence stderr
+    # permanently for the rest of the script, including die and the ERR trap.
+    if ! { exec 3< /dev/tty; } 2>/dev/null; then
       die "$EX_PREREQ" "no terminal available to confirm; re-run with --yes to install non-interactively"
     fi
     read -r -p "  Proceed? [y/N] " reply <&3 || reply=""
