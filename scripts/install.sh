@@ -56,6 +56,9 @@ CURRENT_STEP="startup"
 # Guard every expansion with (( ${#MISSING[@]} )) first: on bash <= 4.3
 # (macOS 3.2, RHEL 7) "${MISSING[@]}" on an empty array trips set -u.
 MISSING=()
+# Temp files created during verification, removed by cleanup_tmp on any exit.
+# Guard expansions: this is empty until verification actually runs.
+TMP_FILES=()
 
 if [[ -t 1 && -t 2 && -z "${NO_COLOR:-}" ]]; then
   readonly C_RESET=$'\033[0m'
@@ -86,6 +89,12 @@ on_err() {
   printf '  Re-run with --dry-run to inspect the planned actions without changing anything.\n' >&2
 }
 trap 'on_err "$LINENO" "$?" "$BASH_COMMAND"' ERR
+
+cleanup_tmp() {
+  (( ${#TMP_FILES[@]} )) && rm -f "${TMP_FILES[@]}"
+  return 0
+}
+trap cleanup_tmp EXIT
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -400,6 +409,85 @@ build_frontend() {
   ok "frontend built"
 }
 
+verify_install() {
+  step "Verify"
+  local venv="$REPO_ROOT/.venv"
+  local bin="$venv/bin/replicant"
+  local py="$venv/bin/python"
+
+  if (( DRY_RUN )); then
+    info "would run: $bin list"
+    info "would run: $bin run REP-001 --no-send --to-file <tmp>, requiring a CEF:0| first line"
+    info "would run: a loopback UDP send to 127.0.0.1, requiring datagrams to arrive"
+    return 0
+  fi
+
+  "$bin" list >/dev/null 2>&1 || die "$EX_VERIFY" "'replicant list' failed"
+  ok "catalog loads"
+
+  local tmp_log
+  tmp_log="$(mktemp -t replicant-verify.XXXXXX)"
+  TMP_FILES+=("$tmp_log")
+  "$bin" run REP-001 --intensity low --to-file "$tmp_log" --no-send >/dev/null 2>&1 \
+    || die "$EX_VERIFY" "'replicant run --no-send' failed"
+  head -n 1 "$tmp_log" | grep -q '^CEF:0|' \
+    || die "$EX_VERIFY" "output does not start with CEF:0| (got: $(head -c 40 "$tmp_log"))"
+  ok "CEF written ($(wc -l < "$tmp_log" | tr -d ' ') lines)"
+
+  local listener_out port count listener_pid i
+  listener_out="$(mktemp -t replicant-listener.XXXXXX)"
+  TMP_FILES+=("$listener_out")
+
+  "$py" -c '
+import socket, sys
+out = sys.argv[1]
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(("127.0.0.1", 0))
+with open(out, "w") as fh:
+    fh.write("PORT %d\n" % sock.getsockname()[1])
+sock.settimeout(20.0)
+count = 0
+try:
+    while True:
+        sock.recvfrom(65535)
+        count += 1
+        sock.settimeout(2.0)
+except OSError:
+    pass
+finally:
+    sock.close()
+with open(out, "a") as fh:
+    fh.write("COUNT %d\n" % count)
+' "$listener_out" &
+  listener_pid=$!
+
+  port=""
+  for i in $(seq 1 50); do
+    port="$(awk "/^PORT /{print \$2; exit}" "$listener_out" 2>/dev/null || true)"
+    [[ -n "$port" ]] && break
+    sleep 0.1
+  done
+  if [[ -z "$port" ]]; then
+    kill "$listener_pid" 2>/dev/null || true
+    die "$EX_VERIFY" "loopback listener did not start"
+  fi
+
+  # Low intensity and a short duration deliberately: this path goes through the
+  # emitter and is subject to the events-per-second cap, so a heavier technique
+  # would make the installer look like it had hung.
+  if ! "$bin" run REP-001 --intensity low --duration 2m \
+       --host 127.0.0.1 --port "$port" --transport udp >/dev/null 2>&1; then
+    kill "$listener_pid" 2>/dev/null || true
+    die "$EX_VERIFY" "loopback send failed"
+  fi
+
+  wait "$listener_pid" 2>/dev/null || true
+  count="$(awk "/^COUNT /{print \$2; exit}" "$listener_out" 2>/dev/null || printf '0')"
+  [[ "$count" =~ ^[0-9]+$ ]] || count=0
+  (( count > 0 )) || die "$EX_VERIFY" "no datagrams arrived on the loopback listener"
+  ok "loopback transport delivered $count events"
+}
+
 usage() {
   cat <<'EOF'
 Replicant Linux installer
@@ -454,6 +542,7 @@ main() {
   setup_venv
   pip_install
   build_frontend
+  verify_install
 }
 
 main "$@"
