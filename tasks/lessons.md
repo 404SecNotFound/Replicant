@@ -116,3 +116,25 @@ Note the shape of it. This was not verification that broke. It was verification 
 **Corollary:** the tell was an unchecked assignment whose result becomes a redirect target. An empty string there is never a benign default, so treat "allocate a resource that something later depends on" as a checked operation every time.
 
 **Corollary:** prove the bug before fixing it, and prove the fix with a control. Here that meant showing `verify_cmd /bin/false` took the success path with a broken `mktemp` and the failure path with a working one, then re-running both against the real function after the change. Without the control, "it returns non-zero now" proves nothing about whether the command actually ran.
+
+---
+
+## Do not assert a guarantee the mechanism does not provide
+
+**2026-07-21, first real CI run.** `test_scenario_loopback_udp_delivers` asserted:
+
+```python
+assert len(received) == result.event_count > 0
+```
+
+SCEN-001 emits 1133 datagrams as fast as the socket accepts them. When the kernel receive buffer fills before the reader thread drains it, UDP drops the surplus. That is not a defect, it is the protocol working as specified. On an idle laptop nothing is dropped and the test is green. On a contended CI runner it failed at 890/1133.
+
+The test therefore reported "transport regression" when the true cause was CPU scheduling. Two costs, and the second is worse: the failure is misdirecting, and it is intermittent, which is how a suite stops being believed. A test that cries wolf gets muted, and then the one real failure gets muted with it.
+
+The fix was not to loosen the assertion and move on. The exact-delivery claim moved to a **TCP** test, where the transport genuinely guarantees it, and the UDP test now asserts what UDP actually promises: something arrived, nothing extra arrived, and the bulk got through. Coverage got stronger, not weaker.
+
+**Rule:** before asserting equality on anything crossing a boundary, ask what the boundary guarantees. UDP does not guarantee delivery, filesystems do not guarantee ordering, `sleep(n)` does not guarantee elapsed wall time, and a network call does not guarantee a bounded latency. Assert the real contract, and put the strict assertion where the strict guarantee actually exists.
+
+**Corollary:** verify a concurrency or timing fix under the condition that broke it, not under the condition you develop in. Five passes on an idle machine proved nothing here. Three passes with every core saturated proved something.
+
+**Corollary:** this is also the argument for CI existing at all. The flake had been latent for weeks and passed every local run. Its first execution on shared, contended hardware surfaced it immediately.
