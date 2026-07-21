@@ -13,9 +13,13 @@
 # limitations under the License.
 """Headless CLI entry point.
 
-Verbs: ``list``, ``connect``, ``run``, ``menu``. Every verb calls the Orchestrator,
-so the CLI and the Rich menu share one code path (blueprint s7). Uses stdlib
-argparse to keep the dependency set small.
+Verbs: ``list``, ``connect``, ``run``, ``scenario``, ``web``, ``menu``. Every verb
+calls the Orchestrator, so the CLI and the Rich menu share one code path
+(blueprint s7). Uses stdlib argparse to keep the dependency set small.
+
+Output convention: command results go to stdout, operator-facing errors go to
+stderr via ``_fail``, so redirecting stdout never hides the reason something
+refused.
 """
 
 from __future__ import annotations
@@ -60,22 +64,35 @@ def _find_catalog(settings: Settings) -> Path | None:
     return None
 
 
+# Diagnostics go to stderr, data goes to stdout. Without this, `replicant run
+# ... > events.log` silently swallows the reason a run refused, and anything
+# piping stdout has to filter error text out of its input. Rich needs a distinct
+# Console for stderr; the `console` threaded through the handlers stays stdout,
+# so command OUTPUT is unaffected.
+_err_console = Console(stderr=True)
+
+
+def _fail(message: str) -> None:
+    """Print an operator-facing error to stderr. Callers still return their own exit code."""
+    _err_console.print(message)
+
+
 def _load_catalog(settings: Settings, console: Console) -> Catalog | None:
     path = _find_catalog(settings)
     if path is None:
-        console.print(f"[red]catalog not found[/red]: {settings.catalog_path}")
+        _fail(f"[red]catalog not found[/red]: {settings.catalog_path}")
         return None
     try:
         return load_catalog(path)
     except Exception as exc:  # noqa: BLE001 - surface any validation error to the operator
-        console.print(f"[red]catalog failed to load[/red]: {exc}")
+        _fail(f"[red]catalog failed to load[/red]: {exc}")
         return None
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="replicant",
-        description="Safe synthetic FortiGate CEF telemetry for detection engineering.",
+        description="Safe synthetic firewall CEF telemetry for detection engineering.",
     )
     parser.add_argument("--version", action="version", version=f"replicant {__version__}")
     sub = parser.add_subparsers(dest="command")
@@ -203,7 +220,7 @@ def cmd_connect(
     if ok:
         console.print("[green]test log sent[/green]. Confirm receipt on your collector.")
         return 0
-    console.print("[red]test failed[/red]: transport error (is the collector reachable?)")
+    _fail("[red]test failed[/red]: transport error (is the collector reachable?)")
     return 1
 
 
@@ -215,7 +232,7 @@ def _resolve_collector(
     if args.profile:
         profiles = load_profiles()
         if args.profile not in profiles:
-            console.print(f"[red]no saved profile named[/red] '{args.profile}'")
+            _fail(f"[red]no saved profile named[/red] '{args.profile}'")
             return None, False
         return profiles[args.profile], True
     if args.host:
@@ -239,7 +256,7 @@ def cmd_run(
     try:
         catalog.by_id(args.id)
     except KeyError:
-        console.print(f"[red]unknown technique[/red]: {args.id}. Try 'replicant list'.")
+        _fail(f"[red]unknown technique[/red]: {args.id}. Try 'replicant list'.")
         return 1
 
     collector, ok = _resolve_collector(args, console)
@@ -260,7 +277,7 @@ def cmd_run(
     try:
         result = orchestrator.run(request)
     except (RuntimeError, NotImplementedError) as exc:
-        console.print(f"[red]run refused[/red]: {exc}")
+        _fail(f"[red]run refused[/red]: {exc}")
         return 1
 
     console.print(result.summary())
@@ -293,7 +310,7 @@ def cmd_scenario(
     try:
         scenario = scenarios.by_id(args.id)
     except KeyError:
-        console.print(f"[red]unknown scenario[/red]: {args.id}. Try 'replicant scenario list'.")
+        _fail(f"[red]unknown scenario[/red]: {args.id}. Try 'replicant scenario list'.")
         return 1
 
     if action == "show":
@@ -329,7 +346,7 @@ def cmd_scenario(
     try:
         result = orchestrator.run_scenario(request, scenarios)
     except (RuntimeError, NotImplementedError) as exc:
-        console.print(f"[red]run refused[/red]: {exc}")
+        _fail(f"[red]run refused[/red]: {exc}")
         return 1
     console.print(
         f"scenario {result.manifest.scenario_id}: {result.event_count} events across "
@@ -370,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             from replicant.web.server import serve
         except ImportError:
-            console.print(
+            _fail(
                 "[red]web dependencies missing[/red]. Install them with: " "pip install -e '.[web]'"
             )
             return 1
