@@ -375,8 +375,10 @@ pip_install() {
   local venv="$REPO_ROOT/.venv" extra="web"
   (( DEV )) && extra="dev"
 
-  # Braces are required: "$REPO_ROOT[$extra]" reads as array-index syntax to
-  # shellcheck (SC1087) even though bash expands it correctly for a scalar.
+  # Braces are required here. Without them the expansion reads as array-index
+  # syntax to static analysis (SC1087), even though bash expands it correctly
+  # for a scalar. A comment line must not begin with the linter's own name or
+  # it is parsed as a directive.
   run_cmd "$venv/bin/python" -m pip install --quiet -e "${REPO_ROOT}[$extra]" \
     || die "$EX_VENV" "pip install -e .[$extra] failed"
   ok "installed Replicant with the '$extra' extra"
