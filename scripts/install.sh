@@ -193,9 +193,14 @@ detect_pkg_mgr() {
     if have "$candidate"; then
       PKG_MGR="$candidate"
       case "$PKG_MGR" in
-        apt-get) PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y) ;;
-        dnf)     PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} dnf install -y) ;;
-        yum)     PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} yum install -y) ;;
+        # --no-install-recommends / install_weak_deps=False are not tidiness. Without
+        # them apt pulls the full recommended closure: an observed Ubuntu 22.04 run
+        # dragged in tilix, libgtk-3, ubuntu-mono and humanity-icon-theme, i.e. a GUI
+        # terminal emulator and a desktop icon theme, onto a headless host. Replicant's
+        # audience runs this on servers next to a SIEM.
+        apt-get) PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends) ;;
+        dnf)     PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} dnf install -y --setopt=install_weak_deps=False) ;;
+        yum)     PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} yum install -y --setopt=install_weak_deps=False) ;;
         pacman)  PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} pacman -S --noconfirm) ;;
         zypper)  PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} zypper install -y) ;;
       esac
@@ -238,6 +243,173 @@ pkg_names_for() {
     zypper:node)   printf '%s\n' nodejs npm ;;
     *) : ;;
   esac
+}
+
+# --- Resolving prerequisites against what this host actually offers -----------
+#
+# pkg_names_for above installs a distribution's DEFAULT python3 and nodejs. On
+# several current LTS releases that is below Replicant's minimum: Ubuntu 22.04
+# ships Python 3.10 and Node 12, Debian 11 ships 3.9, RHEL/Rocky/Alma 8 and 9
+# ship 3.6/3.9 and Node 16. The original flow took sudo consent, installed those
+# anyway, re-checked, and only then died with "still missing after install",
+# having changed the operator's system for no benefit.
+#
+# The functions below invert that order: ask the package manager what it would
+# actually install BEFORE asking for sudo, and refuse up front when nothing on
+# offer can meet the minimum. Every query here is read-only and mutates nothing.
+
+# Print the version the package manager would install, or nothing when the
+# package is not offered here.
+pkg_candidate_version() {
+  local pkg="${1:?pkg_candidate_version requires a package name}"
+  case "$PKG_MGR" in
+    apt-get)
+      { apt-cache policy "$pkg" 2>/dev/null || true; } |
+        awk '/Candidate:/ { if ($2 != "(none)") print $2; exit }'
+      ;;
+    dnf|yum)
+      # dnf exits non-zero for an unknown package, and pipefail would propagate
+      # that out of the substitution, so absorb it here rather than at each call.
+      { "$PKG_MGR" -q info --available "$pkg" 2>/dev/null || true; } |
+        awk '/^Version/ { print $3; exit }'
+      ;;
+    *) : ;;
+  esac
+}
+
+# Debian policy and RPM both order pre-releases below the final release using a
+# leading "~", so "~rc" is the reliable marker. This matters concretely: Ubuntu
+# 22.04's python3.11 is 3.11.0~rc1 and was never updated, so it satisfies a
+# numeric ">= 3.11" test while putting the operator on a release-candidate
+# interpreter. Refuse it rather than installing it silently.
+#
+# Keying on "~" alone is deliberate: Debian 12's python3 is "3.11.2-1+b1", a
+# binNMU of a normal release, and must NOT be treated as a pre-release.
+version_is_prerelease() {
+  case "${1:-}" in
+    *~rc*|*~alpha*|*~beta*|*~pre*|*~dev*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Compare a distribution version string ("3.11.2-1+b1", "3.9.18") against the
+# minimum. Only the leading major.minor is significant.
+version_meets_py_min() {
+  local v="${1:-}" major minor
+  major="${v%%.*}"
+  v="${v#*.}"
+  minor="${v%%[!0-9]*}"
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 1
+  (( major > MIN_PY_MAJOR )) && return 0
+  (( major == MIN_PY_MAJOR && minor >= MIN_PY_MINOR )) && return 0
+  return 1
+}
+
+# Newest qualifying series first.
+#
+# Prints nothing when nothing on offer qualifies, and still returns 0. Two
+# reasons this signals by output rather than exit status: the caller already
+# detects "no packages were added", and a `return 1` out of the process
+# substitution below would trip the ERR trap and print a spurious "installation
+# failed" banner ahead of the real, specific refusal message.
+#
+# Every diagnostic here MUST go to stderr. Stdout is the package list the caller
+# reads, so a stray warn on stdout is consumed as a package name.
+resolve_python_packages() {
+  local series ver
+  case "$PKG_MGR" in
+    apt-get|dnf|yum) ;;
+    # pacman and zypper are not probed here; zypper's static mapping is already
+    # version-qualified (python311) and pacman tracks current Python. Keep them.
+    *) pkg_names_for python; return 0 ;;
+  esac
+
+  for series in 3.13 3.12 3.11; do
+    ver="$(pkg_candidate_version "python$series")"
+    [[ -n "$ver" ]] || continue
+    if version_is_prerelease "$ver"; then
+      warn "python$series is offered here only as a pre-release ($ver); not installing it" >&2
+      continue
+    fi
+    case "$PKG_MGR" in
+      # Debian and Ubuntu split ensurepip into pythonX.Y-venv. Without it the
+      # very next step, `python -m venv`, fails.
+      apt-get) printf '%s\n' "python$series" "python$series-venv" ;;
+      *)       printf '%s\n' "python$series" "python$series-pip" ;;
+    esac
+    return 0
+  done
+
+  # No versioned series on offer. The unversioned default is correct on
+  # distributions that already ship a new enough interpreter (Debian 12, Fedora).
+  ver="$(pkg_candidate_version python3)"
+  if [[ -n "$ver" ]] && ! version_is_prerelease "$ver" && version_meets_py_min "$ver"; then
+    pkg_names_for python
+  fi
+  return 0
+}
+
+# Node is only needed for the web UI, so --no-web makes this moot. Same output
+# contract as resolve_python_packages: empty stdout means "cannot satisfy".
+resolve_node_packages() {
+  local ver major
+  case "$PKG_MGR" in
+    apt-get|dnf|yum) ;;
+    *) pkg_names_for node; return 0 ;;
+  esac
+  ver="$(pkg_candidate_version nodejs)"
+  major="${ver%%.*}"
+  if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= MIN_NODE_MAJOR )); then
+    printf '%s\n' nodejs npm
+  fi
+  return 0
+}
+
+resolve_packages_for() {
+  case "${1:?resolve_packages_for requires a prerequisite name}" in
+    python) resolve_python_packages ;;
+    node)   resolve_node_packages ;;
+    *)      pkg_names_for "$1" ;;
+  esac
+}
+
+# Called instead of installing, when the host cannot be brought up to minimum.
+# Prints what is wrong and what the operator can do, then exits WITHOUT having
+# touched the system. This is the whole point of resolving before consenting.
+refuse_unsatisfiable() {
+  local logical="${1:?}"
+  printf '\n'
+  warn "this system cannot reach the required $logical version from its own repositories"
+  case "$logical" in
+    python)
+      info "Replicant needs Python >= ${MIN_PY_MAJOR}.${MIN_PY_MINOR}. Options:"
+      case "$PKG_MGR" in
+        apt-get)
+          info "  - Ubuntu 22.04: add the deadsnakes PPA, then re-run"
+          info "      sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get update"
+          info "  - or upgrade to a release that ships >= ${MIN_PY_MAJOR}.${MIN_PY_MINOR} (Ubuntu 24.04, Debian 12)"
+          ;;
+        dnf|yum)
+          info "  - RHEL/Rocky/Alma 8 and 9 offer a versioned package:"
+          info "      sudo dnf install python3.11 python3.11-pip"
+          info "    then re-run this installer"
+          ;;
+        *)
+          info "  - install Python >= ${MIN_PY_MAJOR}.${MIN_PY_MINOR} using your distribution's method, then re-run"
+          ;;
+      esac
+      ;;
+    node)
+      info "Replicant needs Node >= ${MIN_NODE_MAJOR} to build the web UI. Options:"
+      info "  - re-run with --no-web to install the CLI only and skip Node entirely"
+      case "$PKG_MGR" in
+        dnf|yum) info "  - or enable a newer module stream: sudo dnf module enable nodejs:20" ;;
+        apt-get) info "  - or install Node >= ${MIN_NODE_MAJOR} from NodeSource (https://github.com/nodesource/distributions)" ;;
+      esac
+      ;;
+  esac
+  printf '\n'
+  die "$EX_PREREQ" "refusing to install packages that would not satisfy '$logical'; nothing was changed"
 }
 
 find_python() {
@@ -324,19 +496,36 @@ install_prereqs() {
     die "$EX_DISTRO" "unsupported distribution"
   fi
 
+  # Refresh the index BEFORE resolving, not after consenting. apt-cache reports
+  # nothing at all against a stale or empty list directory, which would make the
+  # resolver below refuse a host that can in fact satisfy the requirement. This
+  # only rewrites /var/lib/apt/lists and installs nothing; the consent prompt
+  # still gates every actual package change.
+  if [[ "$PKG_MGR" == "apt-get" ]]; then
+    info "refreshing package index first, so the check below sees what is really available (installs nothing)"
+    run_cmd ${SUDO:+"$SUDO"} env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update \
+      || die "$EX_PREREQ" "apt-get update failed"
+    if (( DRY_RUN )); then
+      warn "--dry-run skipped the index refresh, so the availability check below may be inconclusive"
+    fi
+  fi
+
   local -a packages=()
   local logical name before
   for logical in "${MISSING[@]}"; do
     before=${#packages[@]}
     while IFS= read -r name; do
       [[ -n "$name" ]] && packages+=("$name")
-    done < <(pkg_names_for "$logical")
+    done < <(resolve_packages_for "$logical")
     if (( ${#packages[@]} == before )); then
       if (( DRY_RUN )); then
-        warn "no $PKG_MGR package mapping for '$logical'; install it manually"
+        warn "nothing $PKG_MGR offers can satisfy '$logical' on this host; install it manually"
         continue
       fi
-      die "$EX_DISTRO" "no $PKG_MGR package mapping for '$logical'; install it manually and re-run"
+      # Refuse here, before the consent prompt and before any sudo. Installing a
+      # package set already known to be insufficient is what produced the old
+      # "still missing after install" dead end.
+      refuse_unsatisfiable "$logical"
     fi
   done
 
@@ -372,10 +561,6 @@ install_prereqs() {
     esac
   fi
 
-  if [[ "$PKG_MGR" == "apt-get" ]]; then
-    run_cmd ${SUDO:+"$SUDO"} env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update \
-      || die "$EX_PREREQ" "apt-get update failed"
-  fi
   run_cmd "${PKG_INSTALL_ARGV[@]}" "${packages[@]}" \
     || die "$EX_PREREQ" "package installation failed"
 

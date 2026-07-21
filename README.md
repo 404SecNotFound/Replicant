@@ -2,13 +2,13 @@
 
 # Replicant
 
-**Safe, synthetic FortiGate firewall telemetry for detection engineering.**
+**Safe, synthetic firewall telemetry for detection engineering.**
 
-Replicant fabricates realistic FortiGate CEF logs, streams them over syslog to your SIEM, and lets a detection engineer pick an ATT&CK-grounded technique from a menu to exercise the matching detection. It writes log text only. It never runs commands, scans hosts, resolves domains, or moves data.
+Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS, and Check Point, streams them over syslog to your SIEM, and lets a detection engineer pick an ATT&CK-grounded technique from a menu to exercise the matching detection. It writes log text only. It never runs commands, scans hosts, resolves domains, or moves data.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](pyproject.toml)
-[![Vendor](https://img.shields.io/badge/vendor-FortiGate%20CEF-EE3124.svg)](docs/fortigate-cef-reference.md)
+[![Vendors](https://img.shields.io/badge/vendors-FortiGate%20%7C%20PAN--OS%20%7C%20Check%20Point-4c6ef5.svg)](#what-the-output-looks-like)
 [![Safety](https://img.shields.io/badge/entities-synthetic%20only-2ea44f.svg)](#safety-model)
 [![Status](https://img.shields.io/badge/phase-4%20complete-2ea44f.svg)](tasks/todo.md)
 
@@ -37,14 +37,14 @@ Replicant fabricates realistic FortiGate CEF logs, streams them over syslog to y
 
 A detection is only as trustworthy as the last time you saw it fire. Detection engineers who want to validate a firewall rule usually face a choice: replay production captures (slow, sensitive, hard to shape), hand-craft a few log lines (brittle, not statistically realistic), or reach for a generic log generator (rarely accurate to a specific next-generation firewall on the wire).
 
-Replicant takes a narrower, more useful position. It reproduces one vendor's CEF format field-for-field, streams it with realistic timing, and ties every generated behavior to a named detection use case, so the telemetry and the detection ship and get tested together.
+Replicant takes a narrower, more useful position. It reproduces a specific firewall's CEF format field-for-field, streams it with realistic timing, and ties every generated behavior to a named detection use case, so the telemetry and the detection ship and get tested together. Three vendor profiles ship today: FortiGate, Palo Alto PAN-OS, and Check Point.
 
 ## What Replicant is, and is not
 
 **Replicant is:**
 
 - A fabricator of log text. Every output is a synthetic string sent to one operator-configured collector.
-- Vendor-profile driven, with FortiGate (FortiOS) modeled first, field-for-field, against a documented CEF reference.
+- Vendor-profile driven. FortiGate (FortiOS) was modeled first, field-for-field, against a documented CEF reference; Palo Alto PAN-OS and Check Point followed. Each profile has its own reference doc with golden sample lines used as the correctness oracle.
 - A validation harness whose technique catalog maps one-to-one to detection use cases.
 - Deterministic and seedable, so a run is reproducible for tests and for the analyst reviewing it.
 
@@ -112,6 +112,16 @@ It checks prerequisites first and, if any are missing, prints exactly what it wi
 
 Flags: `--no-web` (CLI only), `--dev` (dev extra), `--yes` (non-interactive), `--dry-run` (show every action, change nothing).
 
+The installer resolves prerequisites by asking your package manager what it would actually install, **before** it asks for sudo. If nothing on offer can reach Python 3.11, it refuses and tells you what to do rather than installing packages that would not help.
+
+| Distribution | Status |
+|---|---|
+| Debian 12, Ubuntu 24.04+, Fedora | Full install including the web UI. Verified on Debian 12. |
+| RHEL / Rocky / Alma 9 | CLI installs cleanly (resolves Python 3.12). The web UI needs Node 18+, so either run `sudo dnf module enable nodejs:20` first or use `--no-web`. Verified on Rocky 9. |
+| Ubuntu 22.04, Debian 11, RHEL / Rocky / Alma 8 | Refused, with guidance. These ship Python 3.10 or older, and Ubuntu 22.04 offers `python3.11` only as a release candidate. Add the deadsnakes PPA (Ubuntu) or a versioned package, then re-run. Verified on Ubuntu 22.04. |
+
+Verified means the installer was executed against that distribution's live package repositories. [Unverified] on Alma, on RHEL proper as distinct from Rocky, and on Arch and openSUSE, whose package mappings are carried over unchanged and unexercised. The interactive consent prompt and the `sudo` elevation path are also [Unverified], since the container runs that validated the rest execute as root.
+
 Installing pulls packages from your distribution, PyPI, and npm. That is install-time egress and is separate from the runtime rule that Replicant's only network egress is the collector you configure.
 
 List the catalog, send a test log to a collector, then run a technique:
@@ -156,7 +166,7 @@ Every scenario run writes an advisory coverage document beside its manifest: it 
 
 ## What the output looks like
 
-Replicant emits FortiGate CEF. Vendor `Fortinet`, product `Fortigate` (lower-case g, matching real FortiOS output), signature ID taken from the last five digits of the FortiOS `logid`, severity as the reversed FortiOS level, and native fields with no standard CEF key carried under an `FTNTFGT` prefix. A traffic accept record looks like this (the syslog prefix is added by the transport layer and is not part of the CEF payload):
+Each vendor profile renders the same technique into its own CEF dialect. Taking FortiGate as the example: vendor `Fortinet`, product `Fortigate` (lower-case g, matching real FortiOS output), signature ID taken from the last five digits of the FortiOS `logid`, severity as the reversed FortiOS level, and native fields with no standard CEF key carried under an `FTNTFGT` prefix. A traffic accept record looks like this (the syslog prefix is added by the transport layer and is not part of the CEF payload):
 
 ```
 CEF:0|Fortinet|Fortigate|v7.4.3|00013|traffic:forward accept|3|deviceExternalId=FGVMSYNTH0000001 FTNTFGTlogid=0000000013 cat=traffic:forward FTNTFGTsubtype=forward FTNTFGTlevel=notice FTNTFGTvd=root FTNTFGTeventtime=1752661924 src=10.20.30.40 spt=51544 deviceInboundInterface=port2 dst=203.0.113.25 dpt=443 deviceOutboundInterface=port1 proto=6 act=accept FTNTFGTpolicyid=7 FTNTFGTservice=HTTPS app=HTTPS FTNTFGTtrandisp=snat externalId=48213 FTNTFGTduration=122 out=8421 in=61325 FTNTFGTsentpkt=64 FTNTFGTrcvdpkt=58
