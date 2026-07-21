@@ -26,6 +26,7 @@ const base = {
   count: 0,
   total: 1000,
   elapsedLabel: "0s",
+  windowSeconds: 11,
 };
 
 describe("SignalReadout", () => {
@@ -62,6 +63,14 @@ describe("SignalReadout", () => {
     const firstY = Number(d.replace(/^M[\d.]+ /, "").split(" ")[0]);
     // At the scale ceiling the point should sit at TOP (14), not the baseline.
     expect(firstY).toBeCloseTo(14, 1);
+  });
+
+  it("labels the window it was given, not a hardcoded one", () => {
+    // The label read "window 30s" while the plot held 48 samples at 220ms, which
+    // is 10.6s. It is now derived from the real sampling parameters.
+    render(<SignalReadout {...base} windowSeconds={11} />);
+    expect(screen.getByText(/window 11s/)).toBeInTheDocument();
+    expect(screen.queryByText(/window 30s/)).not.toBeInTheDocument();
   });
 
   it("shows the emitting indicator only while running", () => {
