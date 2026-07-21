@@ -341,6 +341,40 @@ install_prereqs() {
   ok "prerequisites installed"
 }
 
+setup_venv() {
+  step "Virtual environment"
+  local venv="$REPO_ROOT/.venv"
+
+  if [[ -d "$venv" ]]; then
+    ok "reusing existing .venv"
+  else
+    run_cmd "$PYTHON_BIN" -m venv "$venv" || die "$EX_VENV" "could not create $venv"
+    ok "created .venv with $PYTHON_BIN"
+  fi
+
+  if (( ! DRY_RUN )) && [[ ! -x "$venv/bin/python" ]]; then
+    die "$EX_VENV" "$venv/bin/python is missing; the venv is not usable"
+  fi
+
+  run_cmd "$venv/bin/python" -m pip install --quiet --upgrade pip \
+    || die "$EX_VENV" "could not upgrade pip inside the venv"
+  ok "pip up to date"
+}
+
+pip_install() {
+  step "Install Replicant"
+  local venv="$REPO_ROOT/.venv" extra="web"
+  (( DEV )) && extra="dev"
+
+  run_cmd "$venv/bin/python" -m pip install --quiet -e "$REPO_ROOT[$extra]" \
+    || die "$EX_VENV" "pip install -e .[$extra] failed"
+  ok "installed Replicant with the '$extra' extra"
+
+  if (( ! DRY_RUN )) && [[ ! -x "$venv/bin/replicant" ]]; then
+    die "$EX_VENV" "the 'replicant' console script was not installed"
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Replicant Linux installer
@@ -392,6 +426,8 @@ main() {
   detect_pkg_mgr
   check_prereqs
   install_prereqs
+  setup_venv
+  pip_install
 }
 
 main "$@"
