@@ -109,6 +109,32 @@ run_cmd_in() {
   ( cd "$dir" && "$@" )
 }
 
+preflight() {
+  step "Preflight"
+
+  local kernel
+  kernel="$(uname -s)"
+  if [[ "$kernel" != "Linux" ]]; then
+    if (( DRY_RUN )); then
+      warn "host is not Linux ($kernel); continuing because --dry-run changes nothing"
+    else
+      die "$EX_USAGE" \
+        "this installer targets Linux, but this host is $kernel. See the README for manual setup."
+    fi
+  else
+    ok "host is Linux ($(uname -r))"
+  fi
+
+  if [[ ! -f "$REPO_ROOT/pyproject.toml" ]] || ! grep -q '^name = "replicant"' "$REPO_ROOT/pyproject.toml"; then
+    die "$EX_USAGE" "$REPO_ROOT does not look like the Replicant repository (no matching pyproject.toml)."
+  fi
+  ok "Replicant repository found"
+
+  if (( DEV )) && (( NO_WEB )); then
+    info "--dev with --no-web: the dev extra still installs fastapi/uvicorn, but no frontend is built"
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Replicant Linux installer
@@ -156,9 +182,7 @@ main() {
   resolve_repo_root
   printf '%sReplicant installer%s\n' "$C_BOLD" "$C_RESET"
   info "repo: $REPO_ROOT"
-  step "Sanity"
-  run_cmd true
-  ok "helpers wired"
+  preflight
 }
 
 main "$@"
