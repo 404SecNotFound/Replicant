@@ -49,9 +49,11 @@ REPO_ROOT=""
 PYTHON_BIN=""
 PKG_MGR=""
 CURRENT_STEP="startup"
+# Guard every expansion with (( ${#MISSING[@]} )) first: on bash <= 4.3
+# (macOS 3.2, RHEL 7) "${MISSING[@]}" on an empty array trips set -u.
 MISSING=()
 
-if [[ -t 1 ]]; then
+if [[ -t 1 && -t 2 && -z "${NO_COLOR:-}" ]]; then
   readonly C_RESET=$'\033[0m'
   readonly C_DIM=$'\033[2m'
   readonly C_RED=$'\033[31m'
@@ -74,21 +76,37 @@ die() {
 }
 
 on_err() {
-  printf '\n%s[fail]%s installation failed during "%s" (line %s)\n' \
-    "$C_RED" "$C_RESET" "$CURRENT_STEP" "$1" >&2
+  local line="$1" code="$2" cmd="$3"
+  printf '\n%s[fail]%s installation failed during "%s"\n' "$C_RED" "$C_RESET" "$CURRENT_STEP" >&2
+  printf '  line %s, exit %s: %s\n' "$line" "$code" "$cmd" >&2
   printf '  Re-run with --dry-run to inspect the planned actions without changing anything.\n' >&2
 }
-trap 'on_err "$LINENO"' ERR
+trap 'on_err "$LINENO" "$?" "$BASH_COMMAND"' ERR
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # Run a command, or print it under --dry-run. Always pass argv, never a string.
 run_cmd() {
   if (( DRY_RUN )); then
-    printf '  %swould run:%s %s\n' "$C_DIM" "$C_RESET" "$*"
+    printf '  %swould run:%s' "$C_DIM" "$C_RESET"
+    printf ' %q' "$@"
+    printf '\n'
     return 0
   fi
   "$@"
+}
+
+# Run argv with the working directory scoped to $1. Later steps need this; putting
+# `cd` outside run_cmd would really change directory even under --dry-run.
+run_cmd_in() {
+  local dir="$1"; shift
+  if (( DRY_RUN )); then
+    printf '  %swould run:%s (cd %s &&' "$C_DIM" "$C_RESET" "$dir"
+    printf ' %q' "$@"
+    printf ')\n'
+    return 0
+  fi
+  ( cd "$dir" && "$@" )
 }
 
 usage() {
@@ -100,9 +118,9 @@ Usage: scripts/install.sh [options]
 Options:
   --no-web     CLI-only install. Skips Node/npm and the frontend build.
   --dev        Install the "dev" extra (pytest, black, ruff, mypy) instead of "web".
-  --yes        Non-interactive. Assume yes when asked to install missing packages.
+  --yes, -y    Non-interactive. Assume yes when asked to install missing packages.
   --dry-run    Print every action that would be taken. Changes nothing.
-  --help       Show this help.
+  --help, -h   Show this help.
 
 Installing pulls packages from PyPI and npm. That is install-time egress and is
 separate from the runtime rule that Replicant's only egress is your collector.
@@ -129,7 +147,7 @@ parse_args() {
 
 resolve_repo_root() {
   local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
   REPO_ROOT="$(cd "$script_dir/.." && pwd -P)"
 }
 
