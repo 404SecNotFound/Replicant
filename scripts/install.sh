@@ -265,6 +265,55 @@ check_prereqs() {
   fi
 }
 
+install_prereqs() {
+  step "Install prerequisites"
+
+  if (( ${#MISSING[@]} == 0 )); then
+    ok "nothing to install"
+    return 0
+  fi
+
+  local -a packages=()
+  local logical name
+  for logical in "${MISSING[@]}"; do
+    while IFS= read -r name; do
+      [[ -n "$name" ]] && packages+=("$name")
+    done < <(pkg_names_for "$logical")
+  done
+
+  if [[ -z "$PKG_MGR" ]] || (( ${#packages[@]} == 0 )); then
+    printf '\n'
+    warn "cannot install automatically on this system"
+    info "install these yourself, then re-run: ${MISSING[*]}"
+    die "$EX_DISTRO" "unsupported distribution"
+  fi
+
+  printf '\n  The following packages are missing and will be installed:\n'
+  printf '    %s\n' "${packages[*]}"
+  printf '  Command:\n'
+  printf '    %s %s\n\n' "${PKG_INSTALL_ARGV[*]}" "${packages[*]}"
+
+  if (( ! ASSUME_YES )); then
+    local reply
+    read -r -p "  Proceed? [y/N] " reply || reply=""
+    case "$reply" in
+      [yY]|[yY][eE][sS]) ;;
+      *) die "$EX_PREREQ" "declined; install the packages above and re-run" ;;
+    esac
+  fi
+
+  if [[ "$PKG_MGR" == "apt-get" ]]; then
+    run_cmd ${SUDO:+"$SUDO"} apt-get update
+  fi
+  run_cmd "${PKG_INSTALL_ARGV[@]}" "${packages[@]}"
+
+  MISSING=()
+  if ! find_python; then
+    die "$EX_PREREQ" "Python >= ${MIN_PY_MAJOR}.${MIN_PY_MINOR} still not found after install"
+  fi
+  ok "prerequisites installed"
+}
+
 usage() {
   cat <<'EOF'
 Replicant Linux installer
@@ -315,6 +364,7 @@ main() {
   preflight
   detect_pkg_mgr
   check_prereqs
+  install_prereqs
 }
 
 main "$@"
