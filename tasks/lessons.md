@@ -95,3 +95,24 @@ Inside it I called the script's own `warn` helper, which prints to stdout. That 
 The second bug: the resolver signalled failure with `return 1`, which under `set -E` tripped the ERR trap and printed a generic `installation failed` banner ahead of the specific, actionable refusal message. Returning non-zero for an *expected* outcome is what caused it.
 
 **Rule:** a function that returns data on stdout has a contract as strict as a return type. Diagnostics go to stderr, always. And an expected negative result is not an error: signal it in the data (empty output) rather than through an exit status that error-handling machinery will interpret as a crash.
+
+---
+
+## The dangerous failure is the one that reports success
+
+**2026-07-21, UAT case INST-18.** The installer's `verify_cmd` allocated a temp file for stderr capture:
+
+```bash
+err="$(mktemp -t replicant-verify-err.XXXXXX)"   # unchecked
+if ! ( cd "$REPO_ROOT" && "$@" ) >/dev/null 2>"$err"; then
+```
+
+Where `mktemp` fails, and it does on a read-only or full `/tmp` or in a hardened container, `err` is empty. `2>""` cannot open, so **the command never runs**, and the function returns 0. The installer printed `[ok] catalog loads` for a check it had not performed. Live output showed `mktemp: Permission denied` on stderr and the green tick on stdout, simultaneously.
+
+Note the shape of it. This was not verification that broke. It was verification that **lied**, in the direction of reassurance, in a script whose entire stated purpose is to prove an install works. A crash would have been strictly safer: loud, obvious, and it would not have shipped.
+
+**Rule:** for any check whose output is a claim about the world, ask what happens when the *check's own machinery* fails, not just when the thing under test fails. If a broken harness can produce a pass, the harness is worse than nothing, because it converts an unknown into a false assurance. Fail closed: no evidence means no pass.
+
+**Corollary:** the tell was an unchecked assignment whose result becomes a redirect target. An empty string there is never a benign default, so treat "allocate a resource that something later depends on" as a checked operation every time.
+
+**Corollary:** prove the bug before fixing it, and prove the fix with a control. Here that meant showing `verify_cmd /bin/false` took the success path with a broken `mktemp` and the failure path with a working one, then re-running both against the real function after the change. Without the control, "it returns non-zero now" proves nothing about whether the command actually ran.

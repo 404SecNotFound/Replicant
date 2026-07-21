@@ -1,4 +1,27 @@
-# Publish prep v0.1.0 (in progress, 2026-07-21, branch: release/v0.1.0-publish-prep)
+# Close outstanding items before lab test (complete, 2026-07-21, branch: chore/close-outstanding-items)
+
+Everything that could be closed without DJR at a terminal or an unprivileged Linux login.
+
+- [x] 1. **CI, which the repo had none of.** Four jobs: Python 3.11/3.12, frontend Node 18/20, shell lint, and the installer run inside real `debian:12`, `rockylinux:9`, `ubuntu:22.04` containers with asserted outcomes. The installer job makes DEF-004 and DEF-005 permanent regression guards. actionlint clean.
+- [x] 2. **Suite G 7/20 -> 18/20.** All 11 runnable cases pass. Only INST-11, INST-12 and the sudo clause of INST-13 remain, and those genuinely need an unprivileged Linux login.
+- [x] 3. **DEF-006 (Medium), found by running INST-18.** `verify_cmd` reported success for commands it never executed when its own `mktemp` failed. Verification that lies in the direction of reassurance, in a script whose job is proving an install works. Fixed, with a control both before and after.
+- [x] 4. **DEF-007 (Low).** Duplicated ERR trap output from `set -E` propagating into a command-substitution subshell. Fixed by the same guard.
+- [x] 5. **DEF-003.** `/api/catalog` now derives `implemented` from the engine registry instead of a hardcoded id set. +3 tests.
+- [x] 6. **OBS-C, widened.** All nine CLI error paths moved to stderr, not just the one the observation named. Test updated: it had asserted stdout, encoding the bug as the requirement.
+- [x] 7. **OBS-A.** The eps cap documented as a fixed-window average at the limiter, in the README safety table, and in the CHANGELOG.
+- [x] 8. **OBS-002.** vitest + jsdom + Testing Library, 8 tests. Found and fixed a real bug on first run: `vendorLabel` resolved `"constructor"` and `"toString"` through the prototype chain, so the `??` fallback never fired.
+- [x] 9. **Launch write-up** (article + LinkedIn variant), drafted in the session scratchpad rather than the repo, since adding launch copy to a repo about to go public is DJR's call.
+
+Gate: 238 Python tests, 8 frontend tests, black, ruff, mypy (32 files), shellcheck, bash -n, actionlint, frontend build. All green.
+
+**Open, and not closeable from here:**
+- Round 1 Suites C and D, plus TUI-07..09. Need DJR at a terminal.
+- INST-11, INST-12, INST-13 sudo clause. Need an unprivileged Linux login.
+- **The `v0.1.0` tag predates all of the above.** It points at `2d0d460`. Since the release is an unpublished draft and the repo is still private, the clean move is to re-cut the tag after lab testing rather than ship a known Medium defect in the first public release. Not done unilaterally: moving a tag is the kind of thing that should not be a surprise.
+
+---
+
+# Publish prep v0.1.0 (complete, 2026-07-21, branch: release/v0.1.0-publish-prep, MERGED as PR #9)
 
 Goal: make Replicant fit to publish as a public GitHub repo with a tagged release.
 
