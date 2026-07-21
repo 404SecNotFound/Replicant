@@ -12,6 +12,17 @@ published and nothing has consumed the tag, these are expected to fold into
 
 ### Added
 
+- **`--anchor` on `run` and `scenario run`**, accepting `now`, an epoch, or an
+  ISO-8601 timestamp. This closes a real trap. Event times derive from a fixed
+  anchor so identical seeds give byte-identical output, but that anchor was over
+  a year in the past, and the syslog header is stamped at send time. A live run
+  therefore delivered records whose header said *now* and whose CEF `eventtime`
+  said **371 days ago**. On a SIEM keying on receipt time nothing looked wrong;
+  on one keying on the parsed event time, every recent-window rule stayed silent,
+  which is indistinguishable from the detection being broken. That ambiguity is
+  the exact thing this project exists to remove. Sending with an anchor more than
+  two days from now now prints a warning naming the drift and the remedy.
+
 - **Continuous integration.** GitHub Actions across four jobs: Python on 3.11 and
   3.12, frontend on Node 18 and 20, shell linting, and the installer executed
   inside real `debian:12`, `rockylinux:9` and `ubuntu:22.04` containers with
@@ -118,7 +129,7 @@ Each run writes an advisory document beside its manifest, mapping the chain to A
 - **Ubuntu 22.04, Debian 11, and RHEL-family 8** ship Python below 3.11 and cannot be satisfied from their own repositories. The installer refuses on these with guidance rather than installing packages that would not help. Ubuntu 22.04 offers `python3.11` only as a release candidate (`3.11.0~rc1`), which the installer deliberately declines.
 - **The events-per-second cap is a fixed-window cap,** not an instantaneous one. It counts to the cap, sleeps the remainder of the wall second, then resets, so events cluster at the head of each window. A sliding one-second window straddling a boundary was measured once at 59 against a cap of 50; the overall delivered rate held at 49.94/s. Treat the guarantee as a fixed-window average.
 - **The web UI has no scenario surface.** Scenario composition is CLI and Rich menu only. Deferred by design, and covered by a test that asserts the absence so a later partial implementation is caught.
-- **No frontend test runner.** The Python side is covered by 235 tests; the SPA has no vitest suite.
+- **No frontend test runner.** The Python side is covered by 249 tests; the SPA has no vitest suite.
 - **Signature IDs** for DNS `dns-query` (54803) and SSL-VPN tunnel-up (39947) are `[Unverified]` against a live FortiOS build and carry inline notes saying so. Confirm before customer use.
 
 ### Security

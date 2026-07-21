@@ -36,7 +36,9 @@ from replicant.config.settings import (
     Settings,
     load_profiles,
     load_settings,
+    parse_anchor,
     save_profile,
+    stale_anchor_warning,
 )
 from replicant.core.models import (
     SCENARIO_CATALOG_PATH,
@@ -132,6 +134,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--intensity", choices=["low", "medium", "high"], default="medium")
     run.add_argument("--duration", help="run duration, e.g. 2m, 30m, 1h")
     run.add_argument("--seed", type=int, help="RNG seed (default from settings)")
+    run.add_argument(
+        "--anchor",
+        metavar="WHEN",
+        help="event-time anchor: 'now', an epoch, or an ISO-8601 timestamp. "
+        "Defaults to a fixed anchor so identical seeds give byte-identical output; "
+        "pass 'now' when sending to a SIEM that keys on event time",
+    )
     run.add_argument("--to-file", metavar="PATH", help="mirror CEF payloads to a file")
     run.add_argument("--no-send", action="store_true", help="do not send to a collector")
     run.add_argument("--rate", type=int, help="events-per-second cap override")
@@ -159,6 +168,11 @@ def build_parser() -> argparse.ArgumentParser:
     scen_run = scen_actions.add_parser("run", help="run a scenario")
     scen_run.add_argument("id", help="scenario id, e.g. SCEN-001")
     scen_run.add_argument("--seed", type=int)
+    scen_run.add_argument(
+        "--anchor",
+        metavar="WHEN",
+        help="event-time anchor: 'now', an epoch, or an ISO-8601 timestamp",
+    )
     scen_run.add_argument(
         "--intensity", choices=["low", "medium", "high"], help="override all stages"
     )
@@ -263,6 +277,19 @@ def cmd_run(
     if not ok:
         return 1
 
+    anchor = settings.anchor_epoch
+    if getattr(args, "anchor", None):
+        try:
+            anchor = parse_anchor(args.anchor)
+        except ValueError as exc:
+            _fail(f"[red]bad --anchor[/red]: {exc}")
+            return 1
+    # Warn before emitting, not after: once the events are on the wire the
+    # operator is already debugging a rule that did not fire.
+    warning = stale_anchor_warning(anchor, sending=not args.no_send and collector is not None)
+    if warning:
+        console.print(f"[yellow]note[/yellow]: {warning}")
+
     request = RunRequest(
         technique_id=args.id,
         intensity=args.intensity,
@@ -272,6 +299,7 @@ def cmd_run(
         no_send=args.no_send,
         rate_override=args.rate,
         collector=collector,
+        anchor_epoch=anchor,
     )
     orchestrator = Orchestrator(catalog, settings)
     try:
@@ -333,6 +361,19 @@ def cmd_scenario(
     collector, ok = _resolve_collector(args, console)
     if not ok:
         return 1
+    anchor = settings.anchor_epoch
+    if getattr(args, "anchor", None):
+        try:
+            anchor = parse_anchor(args.anchor)
+        except ValueError as exc:
+            _fail(f"[red]bad --anchor[/red]: {exc}")
+            return 1
+    # Warn before emitting, not after: once the events are on the wire the
+    # operator is already debugging a rule that did not fire.
+    warning = stale_anchor_warning(anchor, sending=not args.no_send and collector is not None)
+    if warning:
+        console.print(f"[yellow]note[/yellow]: {warning}")
+
     request = ScenarioRunRequest(
         scenario_id=args.id,
         seed=args.seed if args.seed is not None else settings.default_seed,
@@ -341,6 +382,7 @@ def cmd_scenario(
         no_send=args.no_send,
         rate_override=args.rate,
         collector=collector,
+        anchor_epoch=anchor,
     )
     orchestrator = Orchestrator(catalog, settings)
     try:

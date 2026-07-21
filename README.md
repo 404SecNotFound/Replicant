@@ -241,7 +241,7 @@ Safety is a design constraint, not a disclaimer. The guarantees below are enforc
 | Guarantee | How it is enforced |
 |-----------|--------------------|
 | Single destination | A run sends only to the collector the operator configures. There is no other socket target, and sends fail closed when no collector is set. |
-| Synthetic entities only | Address pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). A configuration that reaches outside these ranges is rejected at build time. DNS parents are non-resolvable synthetic names. |
+| Synthetic entities only | Address pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). A configuration that reaches outside these ranges is rejected at build time. DNS parents are drawn from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761). Replicant never resolves them, and never emits a real domain. |
 | No real behavior | The engine performs no I/O and issues no attack. It produces log strings; byte counts and attack names are field values. |
 | Rate limits | A configurable events-per-second cap protects the operator's own collector. It is a fixed-window average, not an instantaneous ceiling: sends run at full speed until a one-second window fills, then pause, so a sliding second straddling a boundary can briefly exceed the cap. |
 | Audit trail | Every run writes a manifest recording seed, technique, parameters, entity pools, target, event count, and start and end times in UTC+04:00. |
@@ -252,10 +252,28 @@ The web server adds its own controls: it binds to loopback only, requires a per-
 
 The Scenario Engine does no I/O and is seeded, so the same seed plus technique plus parameters yields the same event stream. Event times are computed from a fixed anchor plus a deterministic offset, so a run written to a file is byte-identical across runs. That property makes both the tool and the detections it exercises reproducible.
 
+### Event times, and when to override the anchor
+
+Read this before pointing Replicant at a SIEM for the first time.
+
+That fixed anchor is what makes runs byte-identical, and it is also a trap on a live send. The syslog header is stamped at send time, while the CEF `eventtime` stays at the anchor, so the two disagree by however long ago the anchor is. Whether it matters depends on your SIEM:
+
+- **Keys on receipt time:** the run looks normal, rules fire.
+- **Keys on the parsed event time:** the events land outside every recent-window rule and **nothing fires**, which looks exactly like a broken detection.
+
+Use `--anchor` to emit at the current time:
+
+```bash
+replicant run REP-001 --anchor now --host 10.20.0.50 --port 514
+replicant scenario run SCEN-001 --anchor now --host 10.20.0.50 --port 514
+```
+
+`--anchor` accepts `now`, an epoch, or an ISO-8601 timestamp (a naive value is read as UTC). Sending with an anchor more than two days from now prints a warning naming the drift, so this cannot bite you silently. Leave the anchor alone for `--to-file` artifacts and regression comparisons, where byte-identical output is the point.
+
 The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP, TCP, and TLS transport, catalog validation, the orchestrator end-to-end, and the web API.
 
 ```bash
-./.venv/bin/pytest          # 235 tests
+./.venv/bin/pytest          # 249 tests
 ./.venv/bin/black --check replicant tests
 ./.venv/bin/ruff check replicant tests
 ./.venv/bin/mypy replicant

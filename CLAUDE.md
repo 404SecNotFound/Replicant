@@ -11,7 +11,7 @@ Full design is in `docs/blueprint.md`. The FortiGate log schema and golden sampl
 ## Non-negotiable safety rules
 
 1. The only network egress is to the operator-configured collector. Never open a socket to anything else. If no collector is configured, sends must fail closed.
-2. All entities are synthetic. Default IPs are RFC1918 and documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parents are non-resolvable synthetic names. No real domains, no real malware, no real C2.
+2. All entities are synthetic. Default IPs are RFC1918 and documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parents come from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761); note example.net does resolve, .invalid does not, and Replicant resolves neither. No real domains, no real malware, no real C2.
 3. No real attacks. Replicant writes log strings. It never executes commands, scans, or moves data. Attack names and byte counts are fields, nothing more.
 4. Respect the events-per-second cap. Default configurable, protect the operator's own collector.
 5. Every run writes a manifest (seed, technique, params, entities, target, counts, times).

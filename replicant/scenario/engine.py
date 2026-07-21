@@ -42,7 +42,7 @@ from replicant.scenario.distributions import (
 )
 
 # Fixed default so identical seeds produce byte-identical output (acceptance #8).
-# Arbitrary but stable; overridable per run. 2025-07-15T13:20:00Z.
+# Arbitrary but stable; overridable per run with --anchor. 2025-07-15T13:40:00Z.
 DEFAULT_ANCHOR_EPOCH = 1_752_586_800
 
 # Bound on materialized events, protecting memory and the operator's collector.
