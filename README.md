@@ -98,6 +98,22 @@ python3.12 -m venv .venv
 ./.venv/bin/pip install -e ".[dev]"
 ```
 
+### Linux one-shot install
+
+On a fresh Linux box, `scripts/install.sh` does the whole setup and then verifies it:
+
+```bash
+git clone https://github.com/404SecNotFound/Replicant.git
+cd Replicant
+./scripts/install.sh
+```
+
+It checks prerequisites first and, if any are missing, prints exactly what it will install and asks before touching the system. It then creates `.venv`, installs Replicant, builds the web UI, and proves the install works by loading the catalog, rendering CEF to a file, and sending a run over loopback UDP.
+
+Flags: `--no-web` (CLI only), `--dev` (dev extra), `--yes` (non-interactive), `--dry-run` (show every action, change nothing).
+
+Installing pulls packages from your distribution, PyPI, and npm. That is install-time egress and is separate from the runtime rule that Replicant's only network egress is the collector you configure.
+
 List the catalog, send a test log to a collector, then run a technique:
 
 ```bash

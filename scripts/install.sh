@@ -488,6 +488,23 @@ with open(out, "a") as fh:
   ok "loopback transport delivered $count events"
 }
 
+report() {
+  step "Done"
+  local extra="web"
+  if (( DEV )); then extra="dev"; fi
+  printf '\n  Replicant is installed in %s/.venv (extra: %s).\n\n' "$REPO_ROOT" "$extra"
+  printf '  Activate it:      source .venv/bin/activate\n'
+  printf '  Interactive menu: replicant menu\n'
+  if (( NO_WEB )); then
+    printf '  Web UI:           not built (--no-web). Build with: cd webui && npm install && npm run build\n'
+  else
+    printf '  Web UI:           replicant web\n'
+  fi
+  printf '  Headless run:     replicant run REP-001 --to-file ./out/test.log --no-send\n\n'
+  printf '  %sReminder:%s at run time Replicant only sends to the collector you configure.\n' \
+    "$C_BOLD" "$C_RESET"
+}
+
 usage() {
   cat <<'EOF'
 Replicant Linux installer
@@ -543,6 +560,7 @@ main() {
   pip_install
   build_frontend
   verify_install
+  report
 }
 
 main "$@"
