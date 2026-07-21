@@ -275,6 +275,13 @@ install_prereqs() {
     return 0
   fi
 
+  if [[ -z "$PKG_MGR" ]] || (( ${#PKG_INSTALL_ARGV[@]} == 0 )); then
+    printf '\n'
+    warn "cannot install automatically on this system"
+    info "install these yourself, then re-run: ${MISSING[*]}"
+    die "$EX_DISTRO" "unsupported distribution"
+  fi
+
   local -a packages=()
   local logical name before
   for logical in "${MISSING[@]}"; do
@@ -287,13 +294,6 @@ install_prereqs() {
     fi
   done
 
-  if [[ -z "$PKG_MGR" ]] || (( ${#PKG_INSTALL_ARGV[@]} == 0 )) || (( ${#packages[@]} == 0 )); then
-    printf '\n'
-    warn "cannot install automatically on this system"
-    info "install these yourself, then re-run: ${MISSING[*]}"
-    die "$EX_DISTRO" "unsupported distribution"
-  fi
-
   printf '\n  The following packages are missing and will be installed:\n'
   printf '    %s\n' "${packages[*]}"
   printf '  Command:\n     '
@@ -304,11 +304,11 @@ install_prereqs() {
     info "would prompt for confirmation before installing"
   elif (( ! ASSUME_YES )); then
     local reply=""
-    if [[ -r /dev/tty ]]; then
-      read -r -p "  Proceed? [y/N] " reply < /dev/tty || reply=""
-    else
+    if ! exec 3< /dev/tty 2>/dev/null; then
       die "$EX_PREREQ" "no terminal available to confirm; re-run with --yes to install non-interactively"
     fi
+    read -r -p "  Proceed? [y/N] " reply <&3 || reply=""
+    exec 3<&-
     case "$reply" in
       [yY]|[yY][eE][sS]) ;;
       *) die "$EX_PREREQ" "declined; install the packages above and re-run" ;;
