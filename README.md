@@ -219,7 +219,7 @@ Safety is a design constraint, not a disclaimer. The guarantees below are enforc
 | Single destination | A run sends only to the collector the operator configures. There is no other socket target, and sends fail closed when no collector is set. |
 | Synthetic entities only | Address pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). A configuration that reaches outside these ranges is rejected at build time. DNS parents are non-resolvable synthetic names. |
 | No real behavior | The engine performs no I/O and issues no attack. It produces log strings; byte counts and attack names are field values. |
-| Rate limits | A configurable events-per-second cap protects the operator's own collector. |
+| Rate limits | A configurable events-per-second cap protects the operator's own collector. It is a fixed-window average, not an instantaneous ceiling: sends run at full speed until a one-second window fills, then pause, so a sliding second straddling a boundary can briefly exceed the cap. |
 | Audit trail | Every run writes a manifest recording seed, technique, parameters, entity pools, target, event count, and start and end times in UTC+04:00. |
 
 The web server adds its own controls: it binds to loopback only, requires a per-session token on every API and websocket call, and rejects requests whose Host header is not localhost.

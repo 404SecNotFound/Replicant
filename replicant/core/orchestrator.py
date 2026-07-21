@@ -277,6 +277,19 @@ class Orchestrator:
                 sink.open()
             if emitter is not None:
                 emitter.connect()
+            # Fixed-window rate limit, and the guarantee is worth stating exactly:
+            # this bounds events per DISCRETE one-second window, not per sliding
+            # second. Sends run at full speed until the window fills, then the
+            # loop sleeps out the remainder, so events cluster at the head of each
+            # window. A sliding second that straddles a boundary can therefore
+            # exceed the cap: measured once at 59 against a cap of 50 while the
+            # overall delivered rate held at 49.94/s.
+            #
+            # That is acceptable for the purpose (protecting an operator's
+            # collector from a sustained flood) and is documented as a
+            # fixed-window average in the README and CHANGELOG. Anything relying
+            # on an instantaneous ceiling needs a token bucket instead, which is
+            # deliberately not what this is.
             window_start = time.monotonic()
             in_window = 0
             for event in events:
