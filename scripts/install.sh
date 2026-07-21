@@ -24,6 +24,10 @@
 # collector the operator configures. Verification below sends synthetic data to
 # 127.0.0.1 only and contacts nothing external.
 
+# Bash-only script (arrays, [[, local). Fail clearly under `sh` instead of
+# limping into whatever `set -E` does on a shell that does not support it.
+[ -n "${BASH_VERSION:-}" ] || { echo "run this with bash: bash scripts/install.sh" >&2; exit 1; }
+
 # -E (errtrace) is required: without it the ERR trap below is not inherited into
 # shell functions, and every step of this installer runs inside one.
 set -Eeuo pipefail
@@ -59,6 +63,10 @@ MISSING=()
 # Temp files created during verification, removed by cleanup_tmp on any exit.
 # Guard expansions: this is empty until verification actually runs.
 TMP_FILES=()
+# PID of the loopback listener started by verify_install. Global (not local to
+# verify_install) so cleanup_tmp can reap it if the script exits before that
+# function's own wait does, e.g. on SIGTERM.
+LISTENER_PID=""
 
 if [[ -t 1 && -t 2 && -z "${NO_COLOR:-}" ]]; then
   readonly C_RESET=$'\033[0m'
@@ -91,10 +99,11 @@ on_err() {
 trap 'on_err "$LINENO" "$?" "$BASH_COMMAND"' ERR
 
 cleanup_tmp() {
+  [[ -n "$LISTENER_PID" ]] && kill "$LISTENER_PID" 2>/dev/null || true
   (( ${#TMP_FILES[@]} )) && rm -f "${TMP_FILES[@]}"
   return 0
 }
-trap cleanup_tmp EXIT
+trap cleanup_tmp EXIT INT TERM
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -120,6 +129,23 @@ run_cmd_in() {
     return 0
   fi
   ( cd "$dir" && "$@" )
+}
+
+# Run a verification command with stdout suppressed, surfacing stderr on failure.
+# Always runs in $REPO_ROOT: verification invokes `replicant run`, which writes a
+# manifest to the relative path manifests/, and callers must not scatter that
+# into whatever directory the operator happened to be in.
+verify_cmd() {
+  local what="$1"; shift
+  local err
+  err="$(mktemp -t replicant-verify-err.XXXXXX)"
+  TMP_FILES+=("$err")
+  if ! ( cd "$REPO_ROOT" && "$@" ) >/dev/null 2>"$err"; then
+    warn "$what failed; last output:"
+    tail -n 5 "$err" >&2 || true
+    return 1
+  fi
+  return 0
 }
 
 preflight() {
@@ -154,7 +180,7 @@ detect_pkg_mgr() {
 
   if (( EUID == 0 )); then
     SUDO=""
-    info "running as root; package installs will not use sudo"
+    warn "running this whole installer as root; .venv, node_modules, dist/, and manifests/ inside this clone will end up root-owned, which an unprivileged 'replicant' run cannot write to afterward. Prefer running this script unprivileged; only the package-manager install needs sudo."
   elif have sudo; then
     SUDO="sudo"
   else
@@ -167,7 +193,7 @@ detect_pkg_mgr() {
     if have "$candidate"; then
       PKG_MGR="$candidate"
       case "$PKG_MGR" in
-        apt-get) PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} apt-get install -y) ;;
+        apt-get) PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y) ;;
         dnf)     PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} dnf install -y) ;;
         yum)     PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} yum install -y) ;;
         pacman)  PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} pacman -S --noconfirm) ;;
@@ -258,7 +284,10 @@ check_prereqs() {
     MISSING+=(python)
   fi
 
-  if have git; then ok "git"; else warn "git missing"; MISSING+=(git); fi
+  # git is not actually invoked anywhere below; the repo is necessarily already
+  # cloned to have gotten this far. A missing git only warns and never adds to
+  # MISSING, so it never forces an automatic sudo install on its own.
+  if have git; then ok "git"; else warn "git missing (not required by this installer)"; fi
 
   if (( NO_WEB )); then
     info "skipping Node/npm checks (--no-web)"
@@ -288,6 +317,10 @@ install_prereqs() {
     printf '\n'
     warn "cannot install automatically on this system"
     info "install these yourself, then re-run: ${MISSING[*]}"
+    if (( DRY_RUN )); then
+      warn "--dry-run: continuing without a package manager; the plan below assumes these prerequisites end up present"
+      return 0
+    fi
     die "$EX_DISTRO" "unsupported distribution"
   fi
 
@@ -299,9 +332,18 @@ install_prereqs() {
       [[ -n "$name" ]] && packages+=("$name")
     done < <(pkg_names_for "$logical")
     if (( ${#packages[@]} == before )); then
+      if (( DRY_RUN )); then
+        warn "no $PKG_MGR package mapping for '$logical'; install it manually"
+        continue
+      fi
       die "$EX_DISTRO" "no $PKG_MGR package mapping for '$logical'; install it manually and re-run"
     fi
   done
+
+  if (( ${#packages[@]} == 0 )); then
+    warn "no installable packages after mapping; nothing to install automatically"
+    return 0
+  fi
 
   printf '\n  The following packages are missing and will be installed:\n'
   printf '    %s\n' "${packages[*]}"
@@ -331,9 +373,11 @@ install_prereqs() {
   fi
 
   if [[ "$PKG_MGR" == "apt-get" ]]; then
-    run_cmd ${SUDO:+"$SUDO"} apt-get update
+    run_cmd ${SUDO:+"$SUDO"} env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update \
+      || die "$EX_PREREQ" "apt-get update failed"
   fi
-  run_cmd "${PKG_INSTALL_ARGV[@]}" "${packages[@]}"
+  run_cmd "${PKG_INSTALL_ARGV[@]}" "${packages[@]}" \
+    || die "$EX_PREREQ" "package installation failed"
 
   if (( DRY_RUN )); then
     info "would re-check prerequisites after installing"
@@ -356,18 +400,37 @@ setup_venv() {
 
   if [[ -d "$venv" ]]; then
     ok "reusing existing .venv"
+
+    if (( ! DRY_RUN )) && [[ -x "$venv/bin/python" ]]; then
+      local vmajor vminor
+      vmajor="$("$venv/bin/python" -c 'import sys; print(sys.version_info[0])' 2>/dev/null || printf '0')"
+      vminor="$("$venv/bin/python" -c 'import sys; print(sys.version_info[1])' 2>/dev/null || printf '0')"
+      [[ "$vmajor" =~ ^[0-9]+$ ]] || vmajor=0
+      [[ "$vminor" =~ ^[0-9]+$ ]] || vminor=0
+      if (( vmajor < MIN_PY_MAJOR )) || { (( vmajor == MIN_PY_MAJOR )) && (( vminor < MIN_PY_MINOR )); }; then
+        die "$EX_VENV" "existing .venv uses Python ${vmajor}.${vminor}, below ${MIN_PY_MAJOR}.${MIN_PY_MINOR}; remove it and re-run: rm -rf $venv"
+      fi
+    fi
   else
     run_cmd "$PYTHON_BIN" -m venv "$venv" || die "$EX_VENV" "could not create $venv"
-    ok "created .venv with $PYTHON_BIN"
+    if (( DRY_RUN )); then
+      info "would create .venv with $PYTHON_BIN"
+    else
+      ok "created .venv with $PYTHON_BIN"
+    fi
   fi
 
   if (( ! DRY_RUN )) && [[ ! -x "$venv/bin/python" ]]; then
-    die "$EX_VENV" "$venv/bin/python is missing; the venv is not usable"
+    die "$EX_VENV" "$venv/bin/python is missing; the venv is not usable; remove it and re-run: rm -rf $venv"
   fi
 
   run_cmd "$venv/bin/python" -m pip install --quiet --upgrade pip \
     || die "$EX_VENV" "could not upgrade pip inside the venv"
-  ok "pip up to date"
+  if (( DRY_RUN )); then
+    info "would upgrade pip in the venv"
+  else
+    ok "pip up to date"
+  fi
 }
 
 pip_install() {
@@ -381,7 +444,11 @@ pip_install() {
   # it is parsed as a directive.
   run_cmd "$venv/bin/python" -m pip install --quiet -e "${REPO_ROOT}[$extra]" \
     || die "$EX_VENV" "pip install -e .[$extra] failed"
-  ok "installed Replicant with the '$extra' extra"
+  if (( DRY_RUN )); then
+    info "would install Replicant with the '$extra' extra"
+  else
+    ok "installed Replicant with the '$extra' extra"
+  fi
 
   if (( ! DRY_RUN )) && [[ ! -x "$venv/bin/replicant" ]]; then
     die "$EX_VENV" "the 'replicant' console script was not installed"
@@ -410,7 +477,11 @@ build_frontend() {
   if (( ! DRY_RUN )) && [[ ! -f "$webui/dist/index.html" ]]; then
     die "$EX_BUILD" "build finished but $webui/dist/index.html is missing"
   fi
-  ok "frontend built"
+  if (( DRY_RUN )); then
+    info "would build frontend"
+  else
+    ok "frontend built"
+  fi
 }
 
 verify_install() {
@@ -426,19 +497,19 @@ verify_install() {
     return 0
   fi
 
-  "$bin" list >/dev/null 2>&1 || die "$EX_VERIFY" "'replicant list' failed"
+  verify_cmd "'replicant list'" "$bin" list || die "$EX_VERIFY" "'replicant list' failed"
   ok "catalog loads"
 
   local tmp_log
   tmp_log="$(mktemp -t replicant-verify.XXXXXX)"
   TMP_FILES+=("$tmp_log")
-  "$bin" run REP-001 --intensity low --to-file "$tmp_log" --no-send >/dev/null 2>&1 \
+  verify_cmd "'replicant run --no-send'" "$bin" run REP-001 --intensity low --to-file "$tmp_log" --no-send \
     || die "$EX_VERIFY" "'replicant run --no-send' failed"
   head -n 1 "$tmp_log" | grep -q '^CEF:0|' \
     || die "$EX_VERIFY" "output does not start with CEF:0| (got: $(head -c 40 "$tmp_log"))"
   ok "CEF written ($(wc -l < "$tmp_log" | tr -d ' ') lines)"
 
-  local listener_out port count listener_pid
+  local listener_out port count
   listener_out="$(mktemp -t replicant-listener.XXXXXX)"
   TMP_FILES+=("$listener_out")
 
@@ -463,41 +534,57 @@ finally:
 with open(out, "a") as fh:
     fh.write("COUNT %d\n" % count)
 ' "$listener_out" &
-  listener_pid=$!
+  LISTENER_PID=$!
 
   port=""
   for _ in $(seq 1 50); do
-    port="$(awk "/^PORT /{print \$2; exit}" "$listener_out" 2>/dev/null || true)"
+    port="$(awk '/^PORT /{print $2; exit}' "$listener_out" 2>/dev/null || true)"
     [[ -n "$port" ]] && break
     sleep 0.1
   done
   if [[ -z "$port" ]]; then
-    kill "$listener_pid" 2>/dev/null || true
+    kill "$LISTENER_PID" 2>/dev/null || true
     die "$EX_VERIFY" "loopback listener did not start"
   fi
 
-  # Low intensity and a short duration deliberately: this path goes through the
-  # emitter and is subject to the events-per-second cap, so a heavier technique
-  # would make the installer look like it had hung.
-  if ! "$bin" run REP-001 --intensity low --duration 2m \
-       --host 127.0.0.1 --port "$port" --transport udp >/dev/null 2>&1; then
-    kill "$listener_pid" 2>/dev/null || true
+  # Default plan, no --duration override: REP-001 low has interval_s 300, so a
+  # short window such as 2m would truncate the plan down to a single callback at
+  # t=0 and prove nothing. The default plan (duration_min 240) fires about 49
+  # events in well under a second, since eps_cap is 2000 and the pacing loop only
+  # sleeps once a 1-second window is full, so it is both a stronger delivery
+  # signal and still fast.
+  if ! verify_cmd "loopback send" "$bin" run REP-001 --intensity low \
+       --host 127.0.0.1 --port "$port" --transport udp; then
+    kill "$LISTENER_PID" 2>/dev/null || true
     die "$EX_VERIFY" "loopback send failed"
   fi
 
-  wait "$listener_pid" 2>/dev/null || true
-  count="$(awk "/^COUNT /{print \$2; exit}" "$listener_out" 2>/dev/null || printf '0')"
+  wait "$LISTENER_PID" 2>/dev/null || true
+  LISTENER_PID=""
+  count="$(awk '/^COUNT /{print $2; exit}' "$listener_out" 2>/dev/null || printf '0')"
   [[ "$count" =~ ^[0-9]+$ ]] || count=0
   (( count > 0 )) || die "$EX_VERIFY" "no datagrams arrived on the loopback listener"
-  ok "loopback transport delivered $count events"
+  if (( count == 1 )); then
+    ok "loopback transport delivered 1 event"
+  else
+    ok "loopback transport delivered $count events"
+  fi
 }
 
 report() {
   step "Done"
   local extra="web"
   if (( DEV )); then extra="dev"; fi
+
+  if (( DRY_RUN )); then
+    printf '\n  This was a dry run: the plan above was printed and nothing was installed.\n'
+    printf '  Re-run without --dry-run to install Replicant into %s/.venv (extra: %s).\n\n' \
+      "$REPO_ROOT" "$extra"
+    return 0
+  fi
+
   printf '\n  Replicant is installed in %s/.venv (extra: %s).\n\n' "$REPO_ROOT" "$extra"
-  printf '  Activate it:      source .venv/bin/activate\n'
+  printf '  Activate it:      source %s/.venv/bin/activate\n' "$REPO_ROOT"
   printf '  Interactive menu: replicant menu\n'
   if (( NO_WEB )); then
     printf '  Web UI:           not built (--no-web). Build with: cd webui && npm install && npm run build\n'
