@@ -384,17 +384,39 @@ pkg_names_for() {
 }
 ```
 
-Also add `PKG_INSTALL_ARGV=()` to the globals block in `scripts/install.sh` (next to `PKG_MGR=""`), and set it inside `detect_pkg_mgr` immediately after `PKG_MGR="$candidate"`, before the `ok` line:
+Also add `PKG_INSTALL_ARGV=()` and `SUDO=""` to the globals block (next to `PKG_MGR=""`). Resolve the elevation prefix at the top of `detect_pkg_mgr` (root needs no `sudo`, and a root container often does not have `sudo` installed at all):
+
+```bash
+  if (( EUID == 0 )); then
+    SUDO=""
+    info "running as root; package installs will not use sudo"
+  elif have sudo; then
+    SUDO="sudo"
+  else
+    SUDO=""
+    warn "not root and sudo is not available; packages cannot be installed automatically"
+  fi
+```
+
+Then set the argv array immediately after `PKG_MGR="$candidate"`, before the `ok` line:
 
 ```bash
       case "$PKG_MGR" in
-        apt-get) PKG_INSTALL_ARGV=(sudo apt-get install -y) ;;
-        dnf)     PKG_INSTALL_ARGV=(sudo dnf install -y) ;;
-        yum)     PKG_INSTALL_ARGV=(sudo yum install -y) ;;
-        pacman)  PKG_INSTALL_ARGV=(sudo pacman -S --noconfirm) ;;
-        zypper)  PKG_INSTALL_ARGV=(sudo zypper install -y) ;;
+        apt-get) PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} apt-get install -y) ;;
+        dnf)     PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} dnf install -y) ;;
+        yum)     PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} yum install -y) ;;
+        pacman)  PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} pacman -S --noconfirm) ;;
+        zypper)  PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} zypper install -y) ;;
       esac
+      if [[ -z "$SUDO" ]] && (( EUID != 0 )); then
+        PKG_MGR=""
+        PKG_INSTALL_ARGV=()
+        warn "found $candidate but cannot elevate; missing prerequisites will be reported only"
+        return 0
+      fi
 ```
+
+`${SUDO:+"$SUDO"}` expands to nothing at all when `SUDO` is empty (no stray empty argument) and to one quoted `sudo` when set. Hardcoding a literal `sudo` would fail with `sudo: command not found` in a root container, and only *after* the operator had already consented to the install.
 
 An array, not a printf string. The earlier string form forced the caller to rely on
 deliberate word-splitting and to suppress SC2086, which silently breaks under a
