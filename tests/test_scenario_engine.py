@@ -24,7 +24,11 @@ from replicant.core.models import EventRecord, load_catalog
 from replicant.entities.model import EntityModel
 from replicant.profiles.fortigate import FortiGateProfile
 from replicant.scenario.distributions import shannon_entropy
-from replicant.scenario.engine import ScenarioEngine
+from replicant.scenario.engine import (
+    _BUILDER_METHOD_NAMES,
+    ScenarioEngine,
+    implemented_technique_ids,
+)
 
 CATALOG = load_catalog(Path(__file__).resolve().parents[1] / "data" / "technique-catalog.yaml")
 ENTITIES = EntityModel.build()
@@ -423,3 +427,38 @@ def test_rep011_deterministic_same_seed() -> None:
     a = _plan("REP-011", "high", 1337)
     b = _plan("REP-011", "high", 1337)
     assert _serialize(a.events) == _serialize(b.events)
+
+
+def test_engine_builder_names_resolve() -> None:
+    """Every planner name in the registry must be a real ScenarioEngine method.
+
+    The registry maps technique id -> method NAME so callers can ask what is
+    implemented without building an engine. That indirection means a typo or a
+    renamed method would only surface as a runtime AttributeError during a real
+    run, so it is checked here instead.
+    """
+    engine = ScenarioEngine()
+    for technique_id, method_name in _BUILDER_METHOD_NAMES.items():
+        assert callable(
+            getattr(engine, method_name, None)
+        ), f"{technique_id} maps to {method_name!r}, which is not a ScenarioEngine method"
+
+
+def test_implemented_ids_match_the_catalog() -> None:
+    """The registry and the shipped catalog must agree on what exists.
+
+    A technique in the catalog with no planner raises NotImplementedError when
+    selected; a planner with no catalog entry is unreachable code. Either is a
+    packaging mistake worth catching before release.
+    """
+    assert implemented_technique_ids() == {t.id for t in CATALOG.techniques}
+
+
+def test_unregistered_technique_is_reported_as_not_implemented() -> None:
+    """implemented_technique_ids() must not simply claim everything is implemented.
+
+    This is the guard for DEF-003: the web catalog previously answered this
+    question with a hardcoded set of all eleven ids, which was true only by
+    coincidence and made the "not yet implemented" UI states unreachable.
+    """
+    assert "REP-999" not in implemented_technique_ids()

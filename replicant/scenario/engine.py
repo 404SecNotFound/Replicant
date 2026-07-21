@@ -232,6 +232,34 @@ class ScenarioPlan:
 
 _BuilderResult = tuple[list[EventRecord], str | None, bool]
 
+# Technique id -> the ScenarioEngine method that plans it. Module level, and
+# keyed by method NAME rather than by bound method, so that callers can ask
+# which techniques are actually implemented without constructing an engine or
+# provoking NotImplementedError.
+#
+# This is the single source of truth for that question. The web catalog used to
+# answer it with its own hardcoded set of all eleven ids, which was true only by
+# coincidence and silently made the "not yet implemented" UI states unreachable.
+# test_engine_builder_names_resolve guards against a name here going stale.
+_BUILDER_METHOD_NAMES: dict[str, str] = {
+    "REP-001": "_plan_periodic_c2",
+    "REP-002": "_plan_vertical_scan",
+    "REP-003": "_plan_horizontal_sweep",
+    "REP-004": "_plan_dns_tunnel",
+    "REP-005": "_plan_exfil_volume",
+    "REP-006": "_plan_destination_fanout",
+    "REP-007": "_plan_brute_spray",
+    "REP-008": "_plan_newly_observed_dst",
+    "REP-009": "_plan_ips_spike",
+    "REP-010": "_plan_denied_burst",
+    "REP-011": "_plan_geovelocity",
+}
+
+
+def implemented_technique_ids() -> frozenset[str]:
+    """Technique ids the engine can plan. Everything else raises NotImplementedError."""
+    return frozenset(_BUILDER_METHOD_NAMES)
+
 
 class ScenarioEngine:
     """Deterministic technique-to-event planner. No I/O."""
@@ -254,22 +282,10 @@ class ScenarioEngine:
         if param_overrides:
             preset.update(param_overrides)
 
-        builders: dict[str, Callable[..., _BuilderResult]] = {
-            "REP-001": self._plan_periodic_c2,
-            "REP-002": self._plan_vertical_scan,
-            "REP-003": self._plan_horizontal_sweep,
-            "REP-004": self._plan_dns_tunnel,
-            "REP-005": self._plan_exfil_volume,
-            "REP-006": self._plan_destination_fanout,
-            "REP-007": self._plan_brute_spray,
-            "REP-008": self._plan_newly_observed_dst,
-            "REP-009": self._plan_ips_spike,
-            "REP-010": self._plan_denied_burst,
-            "REP-011": self._plan_geovelocity,
-        }
-        builder = builders.get(technique.id)
-        if builder is None:
-            raise NotImplementedError(f"technique {technique.id} is not implemented in Phase 1")
+        builder_name = _BUILDER_METHOD_NAMES.get(technique.id)
+        if builder_name is None:
+            raise NotImplementedError(f"technique {technique.id} is not implemented")
+        builder: Callable[..., _BuilderResult] = getattr(self, builder_name)
 
         rng = make_rng(seed)
         events, warmup, truncated = builder(
