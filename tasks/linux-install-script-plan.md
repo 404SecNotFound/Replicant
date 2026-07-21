@@ -362,37 +362,43 @@ detect_pkg_mgr() {
   info "missing prerequisites will be reported but not installed"
 }
 
-# Distribution package names for a logical prerequisite.
+# One distribution package name per line for a logical prerequisite.
+# One per line, never a space-separated string: the caller reads these into an
+# array so a name is never word-split and run_cmd keeps its argv contract.
 pkg_names_for() {
   case "$PKG_MGR:$1" in
-    apt-get:python) printf 'python3 python3-venv python3-pip' ;;
-    apt-get:git)    printf 'git' ;;
-    apt-get:node)   printf 'nodejs npm' ;;
-    dnf:python|yum:python) printf 'python3 python3-pip' ;;
-    dnf:git|yum:git)       printf 'git' ;;
-    dnf:node|yum:node)     printf 'nodejs npm' ;;
-    pacman:python) printf 'python python-pip' ;;
-    pacman:git)    printf 'git' ;;
-    pacman:node)   printf 'nodejs npm' ;;
-    zypper:python) printf 'python311 python311-pip' ;;
-    zypper:git)    printf 'git' ;;
-    zypper:node)   printf 'nodejs npm' ;;
-    *) printf '' ;;
-  esac
-}
-
-# argv of the install command for this package manager.
-pkg_install_argv() {
-  case "$PKG_MGR" in
-    apt-get) printf 'sudo apt-get install -y' ;;
-    dnf)     printf 'sudo dnf install -y' ;;
-    yum)     printf 'sudo yum install -y' ;;
-    pacman)  printf 'sudo pacman -S --noconfirm' ;;
-    zypper)  printf 'sudo zypper install -y' ;;
-    *)       printf '' ;;
+    apt-get:python) printf '%s\n' python3 python3-venv python3-pip ;;
+    apt-get:git)    printf '%s\n' git ;;
+    apt-get:node)   printf '%s\n' nodejs npm ;;
+    dnf:python|yum:python) printf '%s\n' python3 python3-pip ;;
+    dnf:git|yum:git)       printf '%s\n' git ;;
+    dnf:node|yum:node)     printf '%s\n' nodejs npm ;;
+    pacman:python) printf '%s\n' python python-pip ;;
+    pacman:git)    printf '%s\n' git ;;
+    pacman:node)   printf '%s\n' nodejs npm ;;
+    zypper:python) printf '%s\n' python311 python311-pip ;;
+    zypper:git)    printf '%s\n' git ;;
+    zypper:node)   printf '%s\n' nodejs npm ;;
+    *) : ;;
   esac
 }
 ```
+
+Also add `PKG_INSTALL_ARGV=()` to the globals block in `scripts/install.sh` (next to `PKG_MGR=""`), and set it inside `detect_pkg_mgr` immediately after `PKG_MGR="$candidate"`, before the `ok` line:
+
+```bash
+      case "$PKG_MGR" in
+        apt-get) PKG_INSTALL_ARGV=(sudo apt-get install -y) ;;
+        dnf)     PKG_INSTALL_ARGV=(sudo dnf install -y) ;;
+        yum)     PKG_INSTALL_ARGV=(sudo yum install -y) ;;
+        pacman)  PKG_INSTALL_ARGV=(sudo pacman -S --noconfirm) ;;
+        zypper)  PKG_INSTALL_ARGV=(sudo zypper install -y) ;;
+      esac
+```
+
+An array, not a printf string. The earlier string form forced the caller to rely on
+deliberate word-splitting and to suppress SC2086, which silently breaks under a
+non-default `IFS` or any package name containing a space.
 
 - [ ] **Step 3: Call it from `main()`, after `preflight`**
 
@@ -532,25 +538,25 @@ install_prereqs() {
     return 0
   fi
 
-  local packages="" logical
+  local -a packages=()
+  local logical name
   for logical in "${MISSING[@]}"; do
-    packages+="$(pkg_names_for "$logical") "
+    while IFS= read -r name; do
+      [[ -n "$name" ]] && packages+=("$name")
+    done < <(pkg_names_for "$logical")
   done
-  packages="${packages% }"
 
-  if [[ -z "$PKG_MGR" || -z "$packages" ]]; then
+  if [[ -z "$PKG_MGR" ]] || (( ${#packages[@]} == 0 )); then
     printf '\n'
     warn "cannot install automatically on this system"
     info "install these yourself, then re-run: ${MISSING[*]}"
     die "$EX_DISTRO" "unsupported distribution"
   fi
 
-  local install_argv
-  install_argv="$(pkg_install_argv)"
   printf '\n  The following packages are missing and will be installed:\n'
-  printf '    %s\n' "$packages"
+  printf '    %s\n' "${packages[*]}"
   printf '  Command:\n'
-  printf '    %s %s\n\n' "$install_argv" "$packages"
+  printf '    %s %s\n\n' "${PKG_INSTALL_ARGV[*]}" "${packages[*]}"
 
   if (( ! ASSUME_YES )); then
     local reply
@@ -564,8 +570,7 @@ install_prereqs() {
   if [[ "$PKG_MGR" == "apt-get" ]]; then
     run_cmd sudo apt-get update
   fi
-  # shellcheck disable=SC2086
-  run_cmd $install_argv $packages
+  run_cmd "${PKG_INSTALL_ARGV[@]}" "${packages[@]}"
 
   MISSING=()
   if ! find_python; then
@@ -575,7 +580,7 @@ install_prereqs() {
 }
 ```
 
-Note on the `shellcheck disable`: `$install_argv` and `$packages` must word-split here, which is exactly what SC2086 warns about. The values are built from the fixed tables in Task 4 and never from user input.
+Note: both `PKG_INSTALL_ARGV` and `packages` are arrays and are expanded with `"${a[@]}"`, so every element reaches `sudo` as its own argument. No `shellcheck disable=SC2086` is needed or wanted. An earlier draft printed these as space-separated strings and relied on deliberate word-splitting, which breaks under a non-default `IFS` or any package name containing a space, and required suppressing the exact warning that would have caught it.
 
 - [ ] **Step 3: Call it from `main()`, after `check_prereqs`**
 
@@ -703,12 +708,15 @@ build_frontend() {
   [[ -d "$webui" ]] || die "$EX_BUILD" "$webui not found"
 
   # dist/ is gitignored, so a fresh clone never carries a build.
+  # run_cmd_in, not ( cd "$webui" && run_cmd ... ): with cd outside the runner the
+  # directory change happens for real even under --dry-run, and the printed trace
+  # loses the directory, which is the artifact this project verifies against.
   if [[ -f "$webui/package-lock.json" ]]; then
-    ( cd "$webui" && run_cmd npm ci ) || die "$EX_BUILD" "npm ci failed"
+    run_cmd_in "$webui" npm ci || die "$EX_BUILD" "npm ci failed"
   else
-    ( cd "$webui" && run_cmd npm install ) || die "$EX_BUILD" "npm install failed"
+    run_cmd_in "$webui" npm install || die "$EX_BUILD" "npm install failed"
   fi
-  ( cd "$webui" && run_cmd npm run build ) || die "$EX_BUILD" "npm run build failed"
+  run_cmd_in "$webui" npm run build || die "$EX_BUILD" "npm run build failed"
 
   if (( ! DRY_RUN )) && [[ ! -f "$webui/dist/index.html" ]]; then
     die "$EX_BUILD" "build finished but $webui/dist/index.html is missing"
