@@ -4,11 +4,15 @@ All notable changes to Replicant are recorded here. Format follows [Keep a Chang
 
 Claims that have not been validated against a live vendor build or a real host are marked `[Unverified]`, and stay marked until they are.
 
-## [Unreleased]
+## [0.1.0] - 2026-07-21
 
-The `v0.1.0` tag was cut before these landed. Since the release has not been
-published and nothing has consumed the tag, these are expected to fold into
-`0.1.0` by re-cutting it at publication rather than shipping as `0.1.1`.
+First public release.
+
+An earlier `v0.1.0` tag was cut mid-preparation and then re-cut on this commit.
+Nothing had consumed it: the repository was private and the release was an
+unpublished draft. The entries below therefore ship as part of 0.1.0 rather than
+as a 0.1.1 follow-up, and the pre-release validation described in them is what
+the tag actually contains.
 
 ### Added
 
@@ -29,7 +33,7 @@ published and nothing has consumed the tag, these are expected to fold into
   asserted outcomes. The installer job is a regression guard for the two defects
   found during pre-release validation, both of which are invisible to a dry run.
 - **Frontend test suite.** vitest with jsdom and Testing Library, eight tests.
-  The Python suite grew to 238.
+  The Python suite grew to 249.
 
 ### Fixed
 
@@ -78,11 +82,7 @@ published and nothing has consumed the tag, these are expected to fold into
   below. It was previously stated only as "a cap", which reasonably reads as the
   stronger guarantee.
 
-## [0.1.0] - 2026-07-21
-
-First public release.
-
-### Added
+### What ships in 0.1.0
 
 **Technique catalog.** Eleven techniques, `REP-001` through `REP-011`, each mapped one-to-one to a named detection use case and to MITRE ATT&CK:
 
