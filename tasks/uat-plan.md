@@ -217,7 +217,7 @@ New in r2. Covers `scripts/install.sh` (PR #8) against `docs/linux-install-scrip
 | INST-15 | IN-5 | Verification actually proves the install | Read the Verify step output | `replicant list` succeeds; first line of the file run matches `^CEF:0\|`; loopback listener receives > 0 datagrams | |
 | INST-16 | IN-5, SR-5 | Nothing written outside the repository | Marker file + `find` for newer files outside the repo, excluding package-manager paths | Only the repo and package-manager paths touched. Verification manifests are **deliberately kept** in `manifests/` as the safety-rule-5 audit record; confirm they are present rather than cleaned up | |
 | INST-17 | IN-1 | Stale sub-3.11 venv rejected with a usable fix | Pre-create a Python 3.9 `.venv`, then run the installer | Dies `EX_VENV` (4) with `existing .venv uses Python 3.9, below 3.11; remove it and re-run: rm -rf <venv>` | |
-| INST-18 | IN-1 | ERR trap names the failing step | Induce a mid-run failure (e.g. drop the network during pip) | Three stderr lines: `installation failed during "<step>"`, then `line N, exit C: <command>`, then the `--dry-run` hint. Confirms `set -E` is live and the trap is not dead | |
+| INST-18 | IN-1 | ERR trap names the failing step | Induce a failure in an **unguarded** command. Dropping the network during pip does NOT reach the trap: every substantive command is `\|\| die`-guarded and dies cleanly (see OBS-E). Use `chmod 000 /usr/bin/mktemp` after a green baseline, which models a read-only or full `/tmp` | Exactly three stderr lines: `installation failed during "<step>"`, then `line N, exit C: <command>`, then the `--dry-run` hint. Confirms `set -E` is live. More than three means the trap is also firing inside a subshell (DEF-007) | |
 | INST-19 | IN-1 | Clean output when not a TTY | `./scripts/install.sh --dry-run > log 2>&1`, then again with `NO_COLOR=1` | No ANSI escape sequences in either log | |
 
 ## 11. Pre-execution findings (from recon, before formal run)
@@ -337,7 +337,32 @@ The Linux-host entry criterion was met differently than planned: Docker containe
 - **INST-15 PASS** — verification proved a working install: catalog loads, first line matched `^CEF:0|`, loopback listener received 49 datagrams.
 - **Refusal is all-or-nothing, verified.** Rocky 9 *without* `--no-web` needs both Python and Node. Python resolves (3.12.13 on offer), Node does not (16.20.2). The script refuses on Node with `pkg_delta=0`, so it does not install the Python it could have satisfied and leave the host half-changed. Exit 3.
 - **DEF-005 regression check** — post-fix Debian 12 run: `GUI_LEAK=0` (zero of `tilix`, `libgtk-3-0`, `ubuntu-mono`, `humanity-icon-theme` present). Rocky 9 installed 9 packages total.
-- **Still BLOCKED:** INST-11/12 (consent paths, need a non-root TTY host), INST-13 (sudo scope, needs a non-root host), INST-16/17/18/19.
+### Manual run 2 — 2026-07-21, Suite G remainder COMPLETE (11 further cases)
+
+Executed via containers plus the macOS host. **11/11 PASS**, taking Suite G to **18/20**.
+
+- **INST-01 PASS** — all five flags documented, egress note present.
+- **INST-02 PASS** — `--bogus`: exit 1, **stdout 0 bytes**, usage on stderr.
+- **INST-03 PASS** — `--dry-run` inert, proven twice: a 7,586-entry stat manifest of `.venv` + `webui/dist` byte-identical, and a 16,576-entry full-tree manifest with zero delta. `git status --porcelain` unchanged.
+- **INST-04 PASS** — exit 1 at Preflight on macOS. An 80-line `bash -x` trace contains no sudo, apt-get, dnf, yum, pacman, zypper, npm or venv token. It refuses before touching anything.
+- **INST-09 PASS** — `--dev` installs pytest 9.1.1, black 26.5.1, ruff 0.15.22, mypy 2.3.0; `.venv/bin/pytest` runs 238 passed.
+- **INST-10 PASS** — the `--dev --no-web` info line is accurate: no node/npm anywhere, no `webui/dist`, yet fastapi 0.139.2 and uvicorn 0.51.0 present exactly as the line claims.
+- **INST-14 PASS** — tcpdump across the whole run, correlated to the Verify step boundaries: **49 packets, 100% UDP, 100% `127.0.0.1 > 127.0.0.1`, zero non-loopback**, matching the script's own "delivered 49 events". Non-loopback traffic (PyPI, DNS) occurs only *before* Verify, which also demonstrates install-time egress stopping at that boundary.
+- **INST-16 PASS** — of 7,604 entries outside the repo, everything after excluding package-manager paths is toolchain cache (`/root/.npm`, `/root/.cache/pip`, apt logs). **Zero** under `/opt`, `/srv`, `/home`, `/usr/local/bin`, `/etc/systemd`. Zero `replicant-*` files left in `/tmp`, so `cleanup_tmp` works. One verification manifest kept in `manifests/` as the expected SR-5 record.
+- **INST-17 PASS** — pre-seeded Python 3.9 venv: exit 4 (`EX_VENV`), `existing .venv uses Python 3.9, below 3.11; remove it and re-run: rm -rf /repo/.venv`, and `Install prerequisites` reported nothing to install, so the host was unchanged.
+- **INST-18 PASS** — trap fired naming the step, `set -E` confirmed live. Surfaced NEW-2 (below).
+- **INST-19 PASS** — 0 ESC bytes redirected, 0 with `NO_COLOR=1`, 0 with `NO_COLOR=1` on a real pty. Control (pty, no `NO_COLOR`) showed 72 ESC bytes, so the negatives are meaningful rather than vacuous.
+
+**Still BLOCKED (2):** INST-11 and INST-12 (interactive consent and the no-TTY refusal) plus the sudo-scope clause of INST-13. All need an unprivileged Linux login. Note every container run did emit the EUID-0 warning, satisfying that one clause of INST-13.
+
+### Findings from manual run 2
+
+| ID | Sev | Title | Status |
+|----|-----|-------|--------|
+| DEF-006 | Medium | **`verify_cmd` reported success for a command it never ran.** `err="$(mktemp ...)"` was unchecked. When mktemp failed, `err` was empty, the redirect `2>"$err"` could not open, the command never executed, and the function returned 0 regardless. The installer printed a green `[ok]` for verification it had not performed. Observed live during INST-18: stderr showed `mktemp: Permission denied` while stdout printed `[ok] catalog loads`. Directly undermines INST-15's guarantee. | **FIXED.** Temp allocation moved into a checked `new_tmp_file` helper; `verify_cmd` now fails closed with `could not be verified: no writable temporary file available`. Re-verified in a container with a control: the same call now returns non-zero. |
+| DEF-007 | Low | **ERR trap output duplicated.** `set -E` propagates the trap into the command-substitution subshell, so an unguarded `tmp_log="$(mktemp ...)"` fired it twice with different `BASH_COMMAND` values. Six stderr lines where the design specifies three. | **FIXED** by the same guard. |
+| OBS-E | Info | **INST-18's suggested induction cannot reach the trap.** "Drop the network during pip" produces `[fail] pip install failed` and exit 4 with no trap output, because every substantive command (`apt-get`, pip, `npm ci`, `npm run build`, each verify) is `\|\| die`-guarded. The trap's reachable surface was essentially the two unguarded `mktemp` assignments, both now guarded. | Case text updated to name a reachable induction. |
+| OBS-D | Info | **Concurrent-session interference, worse this time.** During execution another session landed 5 commits and moved `HEAD` from `2d0d460` to `18062e1`. The first container copy was a torn mid-edit snapshot, producing a spurious `test_scenario_cli` failure, and a second confound proved a load-dependent flake in `test_scenario_orchestrator::test_scenario_loopback_udp_delivers` (passed 3/3 in isolation). | Entry criterion already added after run 1; **reinforced**: take the tree with `git archive HEAD` rather than copying a live working directory. |
 
 ---
 
@@ -357,9 +382,11 @@ Scope: Phases 1, 1.5, 2, 3, against `main` @ `8fe3d31`. **This verdict does not 
 Scope: Phase 4 scenario composition (Suite F, TUI-07..09) and the Linux installer (Suite G), against `release/v0.1.0-publish-prep` off `main` @ `0af51f7`.
 
 - **Suite F 16/16 PASS.** Every case driven with real commands and concrete evidence; no case accepted on inspection.
-- **Suite G 7/20 PASS, 13 blocked or not run.** The Linux-host criterion was met with Docker containers rather than VMs, which was enough to confirm and then fix two High defects.
+- **Suite G 18/20 PASS.** The Linux-host criterion was met with Docker containers rather than VMs. Two cases remain genuinely blocked (INST-11, INST-12, plus the sudo clause of INST-13): they need an unprivileged Linux login, which a root container cannot provide.
 - **TUI-07..09 0/3.** Manual, still needs DJR.
-- Quality gate: **235 passed**, black / ruff / mypy clean (32 source files), `shellcheck` clean, frontend builds.
+- Quality gate: **238 passed**, black / ruff / mypy clean (32 source files), `shellcheck`, `actionlint`, 8 frontend tests, frontend builds.
+
+**Four defects found and fixed by executing rather than reviewing.** DEF-004 (predicted, confirmed destructive), DEF-005 (unpredicted, and structurally invisible to `--dry-run`), DEF-006 (a verification step that reported green for work it never did), DEF-007 (duplicated trap output). Every one required running the thing on a real system.
 
 **What changed the verdict from blocked to conditional go:** DEF-004 was confirmed on real Linux, not merely predicted, and then fixed and re-verified. DEF-005 was found only because the script was executed rather than reasoned about. Both are now closed with evidence. The installer has gone from never-executed to validated on three distributions.
 

@@ -4,6 +4,51 @@ All notable changes to Replicant are recorded here. Format follows [Keep a Chang
 
 Claims that have not been validated against a live vendor build or a real host are marked `[Unverified]`, and stay marked until they are.
 
+## [Unreleased]
+
+The `v0.1.0` tag was cut before these landed. Since the release has not been
+published and nothing has consumed the tag, these are expected to fold into
+`0.1.0` by re-cutting it at publication rather than shipping as `0.1.1`.
+
+### Added
+
+- **Continuous integration.** GitHub Actions across four jobs: Python on 3.11 and
+  3.12, frontend on Node 18 and 20, shell linting, and the installer executed
+  inside real `debian:12`, `rockylinux:9` and `ubuntu:22.04` containers with
+  asserted outcomes. The installer job is a regression guard for the two defects
+  found during pre-release validation, both of which are invisible to a dry run.
+- **Frontend test suite.** vitest with jsdom and Testing Library, eight tests.
+  The Python suite grew to 238.
+
+### Fixed
+
+- **Verification could report success for a command it never ran.** In
+  `scripts/install.sh`, `verify_cmd` allocated its stderr capture file with an
+  unchecked `mktemp`. Where mktemp failed (read-only or full `/tmp`, hardened
+  container), the path was empty, the redirect could not open, the command never
+  executed, and the function returned 0 regardless, printing a green `[ok]` for
+  verification that had not happened. Temp allocation is now checked and fails
+  closed.
+- **Duplicated failure banner.** `set -E` propagates the `ERR` trap into
+  command-substitution subshells, so an unguarded temp-file assignment printed
+  six lines of failure output where three are specified.
+- **`/api/catalog` reported every technique as implemented** from a hardcoded id
+  set rather than from the engine, making the "not yet implemented" interface
+  states unreachable and guaranteeing a wrong answer for any future technique
+  added to the catalog without a planner.
+- **CLI diagnostics went to stdout.** All nine error paths now write to stderr,
+  so redirecting stdout no longer hides the reason a run refused.
+- **`vendorLabel` returned functions for prototype keys.** `VENDOR_LABELS[id] ?? id`
+  resolved `"constructor"` and `"toString"` through the prototype chain, so the
+  `??` fallback never fired. Now an own-property check.
+
+### Changed
+
+- The events-per-second cap is documented as a **fixed-window average** rather
+  than an instantaneous ceiling, at the limiter, in the README safety table, and
+  below. It was previously stated only as "a cap", which reasonably reads as the
+  stronger guarantee.
+
 ## [0.1.0] - 2026-07-21
 
 First public release.
