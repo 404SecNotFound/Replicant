@@ -57,7 +57,23 @@ The loopback check runs its UDP listener through `.venv/bin/python` rather than 
 
    `git` is reported if absent but does not block and is never installed: the repository is necessarily already cloned by the time this script runs, and nothing in it shells out to git. `pip` is not probed separately, since the `venv` module provides it.
 
-   **[Unverified] distribution caveat.** The package mappings install each distribution's default `python3`, which on several current LTS releases is below 3.11 (Ubuntu 22.04 ships 3.10, Debian 11 ships 3.9, RHEL/Rocky/Alma 8 and 9 ship 3.6/3.9, and their default `nodejs` module is below 18). On those hosts the flow consents, installs, re-checks, and then fails with `still missing after install`, having changed the system for no benefit. This has not been verified against live repositories from the macOS development host. Resolving it properly means either version-qualified package names per distribution (`python3.11`, `dnf module enable nodejs:20`) or refusing before the sudo step when the mapping demonstrably cannot reach the minimum. Tracked as the first follow-up after real-hardware validation.
+   **Distribution version resolution (was the `[Unverified]` caveat; now measured and resolved).** An earlier draft installed each distribution's *default* `python3` and flagged as `[Unverified]` the risk that this is below 3.11 on current LTS releases. Container runs on 2026-07-21 confirmed it, and confirmed the failure was destructive rather than merely unhelpful.
+
+   Measured availability, from live repositories:
+
+   | Distribution | default `python3` | versioned package on offer | default `nodejs` |
+   |---|---|---|---|
+   | Ubuntu 22.04 | 3.10.6 | `python3.11` = **3.11.0~rc1**, a release candidate | 12.22.9 |
+   | Debian 12 | 3.11.2 | `python3.11` = 3.11.2 | 18.20.4 |
+   | Rocky 9 (RHEL family) | 3.9.18 | `python3.11` = 3.11.13, `python3.12` = 3.12.13 | 16.20.2, module streams 18/20/22/24 |
+
+   Two findings the original caveat did not anticipate. First, Ubuntu 22.04's `python3.11` is a **release candidate** that was never updated, so naive version-qualification would silently place operators on a pre-release interpreter. Second, and unrelated to versions, the apt install carried no `--no-install-recommends`, so the recommended closure pulled `tilix`, `libgtk-3-bin`, `libvte`, `ubuntu-mono` and `humanity-icon-theme` onto a headless server image. That was invisible to `--dry-run`, which never resolves a dependency tree.
+
+   The resolution is to **ask the package manager what it would install, before asking for sudo**. `pkg_candidate_version` queries `apt-cache policy` or `dnf info --available`; `resolve_python_packages` walks `python3.13`, `python3.12`, `python3.11` and takes the newest that is offered and is not a pre-release, falling back to the unversioned default only when its own candidate version already meets the minimum; `resolve_node_packages` does the same for Node. When nothing on offer qualifies, `refuse_unsatisfiable` prints per-distribution guidance and exits **before any package is installed**. Pre-release detection keys on the leading `~` that both Debian policy and RPM use to order pre-releases, which correctly excludes Debian's `3.11.2-1+b1` binNMU form.
+
+   Consequence for the flow: the apt index refresh moved *ahead* of resolution, because `apt-cache` reports nothing against a stale list directory and the resolver would otherwise refuse a host that can in fact be satisfied. The refresh rewrites only `/var/lib/apt/lists` and installs nothing; the consent prompt still gates every actual package change.
+
+   Verified end to end (see §8): Ubuntu 22.04 refuses with zero packages installed; Debian 12 and Rocky 9 install and pass verification.
 4. **Install what is missing.** Print a summary of missing items and the exact command about to run, prompt `y/N` (bypassed by `--yes`), then run it under `sudo`. Never upgrade or reinstall anything already satisfied.
 5. **Virtual environment.** Create `.venv` with the selected interpreter if absent; upgrade `pip` inside it. An existing `.venv` is reused.
 6. **Install the package.** `pip install -e ".[web]"`, or `".[dev]"` under `--dev`.
@@ -98,10 +114,21 @@ The table below applies to `die` paths. A failure caught by the ERR trap rather 
 
 ## 8. Testing
 
-- `bash -n scripts/install.sh` for syntax, and `shellcheck` if it is available on the machine.
-- `--dry-run` exercised locally to walk the full decision path (flag parsing, package-manager detection, prerequisite evaluation, step sequencing) without mutating anything. This exists partly because the development host is macOS, where the real path cannot run.
+- `bash -n scripts/install.sh` for syntax, and `shellcheck` (clean as of 2026-07-21).
+- `--dry-run` exercised locally to walk the full decision path (flag parsing, package-manager detection, prerequisite evaluation, step sequencing) without mutating anything.
 - **Not covered by pytest.** This is a shell script with no Python surface; adding a subprocess test that shells out to it on a non-Linux host would assert nothing useful. The suite count is unchanged by this item.
-- Final confirmation is a real run on a Linux host by the operator. Distribution package names and the `sudo` path cannot be genuinely validated from macOS, and the spec should not pretend otherwise.
+- **Container validation, 2026-07-21.** The script now runs against real distributions via Docker, which exercises distro detection, live package repositories, venv creation, `pip install -e`, the frontend build, and the verification step:
+
+  | Image | Invocation | Result |
+  |---|---|---|
+  | `ubuntu:22.04` | `--yes` | Refuses on Python. Exit 3, **0 packages installed**, deadsnakes/24.04 guidance printed. |
+  | `ubuntu:22.04` | `--yes --no-web` | Same refusal, exit 3, 0 packages installed. |
+  | `debian:12` | `--yes` | **Full success.** Exit 0, Python 3.11.2, `webui/dist/index.html` built, verification green, zero GUI packages pulled. |
+  | `rockylinux:9` | `--yes --no-web` | **Success.** Exit 0, resolved Python 3.12.13, 9 packages installed, verification green (49 CEF lines written, 49 delivered over loopback). |
+
+  Before the fix, `ubuntu:22.04 --yes` installed a GTK desktop stack and *then* died exit 3.
+
+- **Still not covered, and it should not be claimed:** containers run as root, so the `sudo` elevation path never executes; what runs instead is the script's `EUID == 0` warning branch. The interactive consent prompt and the no-TTY refusal are likewise unexercised, since `--yes` bypasses them. Confirming those needs a real unprivileged Linux login. UAT cases INST-11, INST-12, INST-13 and INST-16..19 remain blocked on that.
 
 ## 9. Non-goals
 
