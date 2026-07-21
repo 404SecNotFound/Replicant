@@ -48,7 +48,10 @@ DRY_RUN=0
 REPO_ROOT=""
 PYTHON_BIN=""
 PKG_MGR=""
+# Same guard rule as MISSING: check [[ -n "$PKG_MGR" ]] before expanding this,
+# it is deliberately empty when no usable package manager was found.
 PKG_INSTALL_ARGV=()
+SUDO=""
 CURRENT_STEP="startup"
 # Guard every expansion with (( ${#MISSING[@]} )) first: on bash <= 4.3
 # (macOS 3.2, RHEL 7) "${MISSING[@]}" on an empty array trips set -u.
@@ -126,7 +129,8 @@ preflight() {
     ok "host is Linux ($(uname -r))"
   fi
 
-  if [[ ! -f "$REPO_ROOT/pyproject.toml" ]] || ! grep -q '^name = "replicant"' "$REPO_ROOT/pyproject.toml"; then
+  if [[ ! -f "$REPO_ROOT/pyproject.toml" ]] \
+     || ! grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*["'"'"']replicant["'"'"']' "$REPO_ROOT/pyproject.toml"; then
     die "$EX_USAGE" "$REPO_ROOT does not look like the Replicant repository (no matching pyproject.toml)."
   fi
   ok "Replicant repository found"
@@ -138,17 +142,34 @@ preflight() {
 
 detect_pkg_mgr() {
   step "Package manager"
+
+  if (( EUID == 0 )); then
+    SUDO=""
+    info "running as root; package installs will not use sudo"
+  elif have sudo; then
+    SUDO="sudo"
+  else
+    SUDO=""
+    warn "not root and sudo is not available; packages cannot be installed automatically"
+  fi
+
   local candidate
   for candidate in apt-get dnf yum pacman zypper; do
     if have "$candidate"; then
       PKG_MGR="$candidate"
       case "$PKG_MGR" in
-        apt-get) PKG_INSTALL_ARGV=(sudo apt-get install -y) ;;
-        dnf)     PKG_INSTALL_ARGV=(sudo dnf install -y) ;;
-        yum)     PKG_INSTALL_ARGV=(sudo yum install -y) ;;
-        pacman)  PKG_INSTALL_ARGV=(sudo pacman -S --noconfirm) ;;
-        zypper)  PKG_INSTALL_ARGV=(sudo zypper install -y) ;;
+        apt-get) PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} apt-get install -y) ;;
+        dnf)     PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} dnf install -y) ;;
+        yum)     PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} yum install -y) ;;
+        pacman)  PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} pacman -S --noconfirm) ;;
+        zypper)  PKG_INSTALL_ARGV=(${SUDO:+"$SUDO"} zypper install -y) ;;
       esac
+      if [[ -z "$SUDO" ]] && (( EUID != 0 )); then
+        PKG_MGR=""
+        PKG_INSTALL_ARGV=()
+        warn "found $candidate but cannot elevate; missing prerequisites will be reported only"
+        return 0
+      fi
       ok "detected package manager: $PKG_MGR"
       return 0
     fi
@@ -158,11 +179,16 @@ detect_pkg_mgr() {
   info "missing prerequisites will be reported but not installed"
 }
 
-# One distribution package name per line for a logical prerequisite. One per line,
-# never a space-separated string: the caller reads these into an array so a name is
-# never word-split and run_cmd keeps its argv contract.
+# One distribution package name per line for a logical prerequisite, never a
+# space-separated string: the caller reads these into an array so a name is never
+# word-split and run_cmd keeps its argv contract.
+#
+# A zero-length result means the prerequisite is unmapped for this manager. Callers
+# MUST treat that as a failure, not as "nothing to install" - running the package
+# manager with no operands exits 0 and would report success having installed nothing.
 pkg_names_for() {
-  case "$PKG_MGR:$1" in
+  local prereq="${1:?pkg_names_for requires a prerequisite name}"
+  case "$PKG_MGR:$prereq" in
     apt-get:python) printf '%s\n' python3 python3-venv python3-pip ;;
     apt-get:git)    printf '%s\n' git ;;
     apt-get:node)   printf '%s\n' nodejs npm ;;
