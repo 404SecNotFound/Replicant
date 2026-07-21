@@ -41,6 +41,24 @@ published and nothing has consumed the tag, these are expected to fold into
 - **`vendorLabel` returned functions for prototype keys.** `VENDOR_LABELS[id] ?? id`
   resolved `"constructor"` and `"toString"` through the prototype chain, so the
   `??` fallback never fired. Now an own-property check.
+- **The web UI's events-per-second readout aliased against the rate limiter.** It
+  sampled every 220ms and reported an instantaneous rate, while the limiter runs
+  on a one-second period, so each sample landed either inside a burst or inside a
+  sleep. During a run steadily delivering ~1660/s it alternated between 5313/s
+  and **0/s, the latter printed next to an "EMITTING" indicator**, and the
+  waveform was a sawtooth crashing to zero. The rate is now averaged over a
+  trailing second, which spans a full burst-plus-sleep cycle. Display only: the
+  limiter itself was always correct.
+- **The waveform's window label was hardcoded** to "30s" while the plot held 48
+  samples at 220ms, which is 10.6s. It is now derived from the sampling
+  parameters.
+
+### Documentation
+
+- README now shows all three surfaces: the web UI catalog and technique detail,
+  a live run with the delivered rate plotted against the cap, the embedded
+  terminal running the Rich menu, and `replicant list`. All captured from the
+  running product against a real loopback collector.
 
 ### Changed
 
