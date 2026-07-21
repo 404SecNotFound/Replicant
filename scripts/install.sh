@@ -48,6 +48,7 @@ DRY_RUN=0
 REPO_ROOT=""
 PYTHON_BIN=""
 PKG_MGR=""
+PKG_INSTALL_ARGV=()
 CURRENT_STEP="startup"
 # Guard every expansion with (( ${#MISSING[@]} )) first: on bash <= 4.3
 # (macOS 3.2, RHEL 7) "${MISSING[@]}" on an empty array trips set -u.
@@ -135,6 +136,49 @@ preflight() {
   fi
 }
 
+detect_pkg_mgr() {
+  step "Package manager"
+  local candidate
+  for candidate in apt-get dnf yum pacman zypper; do
+    if have "$candidate"; then
+      PKG_MGR="$candidate"
+      case "$PKG_MGR" in
+        apt-get) PKG_INSTALL_ARGV=(sudo apt-get install -y) ;;
+        dnf)     PKG_INSTALL_ARGV=(sudo dnf install -y) ;;
+        yum)     PKG_INSTALL_ARGV=(sudo yum install -y) ;;
+        pacman)  PKG_INSTALL_ARGV=(sudo pacman -S --noconfirm) ;;
+        zypper)  PKG_INSTALL_ARGV=(sudo zypper install -y) ;;
+      esac
+      ok "detected package manager: $PKG_MGR"
+      return 0
+    fi
+  done
+  PKG_MGR=""
+  warn "no supported package manager found (looked for apt-get, dnf, yum, pacman, zypper)"
+  info "missing prerequisites will be reported but not installed"
+}
+
+# One distribution package name per line for a logical prerequisite. One per line,
+# never a space-separated string: the caller reads these into an array so a name is
+# never word-split and run_cmd keeps its argv contract.
+pkg_names_for() {
+  case "$PKG_MGR:$1" in
+    apt-get:python) printf '%s\n' python3 python3-venv python3-pip ;;
+    apt-get:git)    printf '%s\n' git ;;
+    apt-get:node)   printf '%s\n' nodejs npm ;;
+    dnf:python|yum:python) printf '%s\n' python3 python3-pip ;;
+    dnf:git|yum:git)       printf '%s\n' git ;;
+    dnf:node|yum:node)     printf '%s\n' nodejs npm ;;
+    pacman:python) printf '%s\n' python python-pip ;;
+    pacman:git)    printf '%s\n' git ;;
+    pacman:node)   printf '%s\n' nodejs npm ;;
+    zypper:python) printf '%s\n' python311 python311-pip ;;
+    zypper:git)    printf '%s\n' git ;;
+    zypper:node)   printf '%s\n' nodejs npm ;;
+    *) : ;;
+  esac
+}
+
 usage() {
   cat <<'EOF'
 Replicant Linux installer
@@ -183,6 +227,7 @@ main() {
   printf '%sReplicant installer%s\n' "$C_BOLD" "$C_RESET"
   info "repo: $REPO_ROOT"
   preflight
+  detect_pkg_mgr
 }
 
 main "$@"
