@@ -1,3 +1,55 @@
+# Publish prep v0.1.0 (in progress, 2026-07-21, branch: release/v0.1.0-publish-prep)
+
+Goal: make Replicant fit to publish as a public GitHub repo with a tagged release.
+
+- [x] 1. **Execute UAT Suite F** (scenario composition). **16/16 PASS**, every case driven with real commands. Full evidence in `tasks/uat-plan.md` §14, automated run 4.
+- [x] 2. **Validate the installer on real Linux.** Docker containers rather than VMs: `ubuntu:22.04`, `debian:12`, `rockylinux:9`. This is the first time `scripts/install.sh` has ever executed on Linux.
+- [x] 3. **DEF-004 confirmed, then fixed.** Reproduced the destructive failure on Ubuntu 22.04 (installed packages, then died exit 3). Replaced the assumed package mapping with a resolver that queries the package manager *before* consenting to sudo, and refuses with per-distro guidance when nothing on offer qualifies. Re-verified: Ubuntu 22.04 exit 3 / 0 packages installed; Debian 12 full success incl. frontend build; Rocky 9 success on Python 3.12.13.
+- [x] 4. **DEF-005 found and fixed** (nobody predicted this one). The apt path lacked `--no-install-recommends` and pulled a GUI desktop stack (tilix, GTK, icon themes) onto a headless server. Added `--no-install-recommends` / `--setopt=install_weak_deps=False`. Regression check: `GUI_LEAK=0`.
+- [x] 5. **Front-page accuracy.** README headline, tagline, vendor badge and the positioning paragraph all claimed FortiGate-only; the product has shipped three vendors since Phase 3. Corrected, plus an honest supported-distribution table that labels what is verified and what is not.
+- [x] 6. **Quality gate green:** 235 tests, black, ruff, mypy (32 files), shellcheck, `bash -n`, frontend build.
+- [ ] 7. Stale `pyproject.toml` description (still says "FortiGate CEF firewall telemetry generator").
+- [ ] 8. Release notes / tag for v0.1.0.
+- [ ] 9. Flip repository visibility to public. **Requires DJR.** Not something to do without an explicit go.
+
+Deliberately NOT done: DEF-003 (dead `implemented` UI state, Trivial) and OBS-002 (no frontend test runner, Info). Neither blocks a v0.1.0 publish; both are recorded in the UAT plan for disposition.
+
+---
+
+# UAT plan revision 2 - Phase 4 scenarios + Linux installer (complete, 2026-07-21)
+
+`tasks/uat-plan.md` was authored 2026-07-19 against Phases 1/1.5/2/3 and carries a signed **GO**. It predates Phase 4 (PR #7) and the Linux installer (PR #8), and several of its stated facts have gone stale. Revising in place, versioned, so the Round 1 record stays intact and attributable.
+
+- [x] A. Front matter + section 1 scope. Add a revision line; retarget **Product under test** from `webui-reskin@fbedea1` to `main@0af51f7`; move Phase 4 out of "Out of scope"; drop the "detail panel not built yet" line (shipped in PR #6); add scenario composition + installer to "In scope"; add the two genuine new exclusions (web UI scenario support, deferred; macOS/Windows installer, a stated non-goal).
+- [x] B. Section 2 environment + entry criteria. Refresh the setup block; correct the entry criteria (working tree is clean now, the 3 untracked `re-fresh-*.md` files are gone; PRs #7/#8 merged); add a Linux-host criterion gating Suite G.
+- [x] C. Section 3 RTM. Correct QG-1 from 179 to 235 tests. Add FR-9..FR-12 (scenario composition, paired advisory+manifest, dual-surface reachability, advisory-only boundary) and IN-1..IN-5 (installer fail-closed reporting, sudo scope + consent, flag behaviour, distro version reachability, verification integrity).
+- [x] D. Suite C additions: TUI-07..09 covering the `[a]` scenario picker, the advisory-before-emit ordering, and the no-collector guidance path.
+- [x] E. New Suite F - scenario composition, automated, **CHAIN-01..16** (planned 15; CHAIN-16 added to assert the web UI scenario surface stays absent, so a later partial implementation is caught). Prefix is `CHAIN-` deliberately: `SCEN-001` is already a catalog scenario id, so a `SCEN-` test prefix would collide.
+- [x] F. New Suite G - Linux installer, **INST-00..19** (planned 01..19; INST-00 added for `shellcheck`, which is automatable today and became QG-4). Only INST-00/03/04 are runnable without Linux; the rest are BLOCKED pending a VM and are marked as such rather than left to look executable.
+- [x] G. Renumber sections 9-12 to 11-14 after the two inserted suites.
+- [x] H. Pre-execution findings. Re-verified all five: **DEF-001 FIXED** (README now says 235), **DEF-002 FIXED** (RunPanel takes an `epsCap` prop), **DEF-003 STILL OPEN** (`server.py:92-105` hardcodes a set of all 11 ids, so `implemented` is unconditionally true), **OBS-001 RESOLVED** by PR #6, **OBS-002 STILL OPEN** (no vitest, no `test` script). Add DEF-004 (installer distro/python gap, High), OBS-005 (menu scenario path is a subset of the CLI - parity rule satisfied, not a defect), OBS-006 (web UI has zero scenario surface).
+- [x] I. Exit criteria + verdict. Split Round 1 (executed, GO) from Round 2 (pending); retitle the existing verdict as Round 1 so it is not read as covering the new surfaces; correct 179 to 235.
+
+Constraint: this is a plan revision only. No product code changes in this pass. DEF-003, DEF-004, and OBS-002 are recorded for disposition, not fixed here.
+
+## UAT r2 Review (complete)
+
+`tasks/uat-plan.md` grew 206 -> 319 lines. Sections renumbered to 1-14, sequential. 39 new test cases: Suite F CHAIN-01..16, Suite G INST-00..19, Suite C TUI-07..09. RTM extended from 16 requirements to 26 (added FR-9..12, IN-1..5, QG-4).
+
+Verified rather than assumed:
+- **Traceability closes both ways.** Scripted cross-check of the finished file: 26 requirements defined, 26 cited, zero cited-but-undefined, zero defined-but-uncovered. The new CHAIN cases were also back-referenced into the existing SR-1/2/4/5 and FR-2/6/8 rows, otherwise tracing "what covers safety rule 1?" would have silently missed CHAIN-11 and INST-14.
+- **All five Round 1 findings re-checked against `0af51f7`, not carried forward on trust.** Three had already closed (DEF-001, DEF-002, OBS-001 via PR #6); two are genuinely still open (DEF-003, OBS-002). A plan that lists fixed defects as open is worse than no plan.
+- **Baseline re-run:** 235 passed, exit 0.
+- The three surviving `179` references are deliberate. They sit inside the Round 1 execution log, exit criteria, and verdict, where 179 was the true count at the time.
+
+Two judgement calls worth recording:
+- **Round 1's GO was retitled, not overwritten.** It now reads "Round 1 automated UAT verdict (2026-07-19)" and states explicitly that it does not cover Phase 4 or the installer. A signed verdict silently widened to cover code that did not exist when it was signed would be the worst possible outcome of this edit.
+- **Suite G is marked BLOCKED, not merely untested.** 17 of its 20 cases cannot run without a Linux VM. The exit criteria say so directly, so that "Round 2 authored" is never mistaken for "Round 2 passed". DEF-004 is logged High, which under the existing severity rule blocks Go until it is fixed or the supported-distro claim is narrowed.
+
+Not done here, by design: no product code touched, so DEF-003, DEF-004 and OBS-002 remain open. Suite F is fully automatable today and is the obvious next execution step; Suite G waits on hardware.
+
+---
+
 # Phase 3 - multi-vendor (complete, branch: phase-3-paloalto off phase-2c-polish)
 
 - [x] Palo Alto (PAN-OS) vendor profile — done. `docs/paloalto-cef-reference.md` oracle (7 golden lines, all [Unverified]); `replicant/profiles/paloalto.py` renders the neutral (log_type, subtype) categories -> PAN-OS CEF (TRAFFIC / THREAT / GLOBALPROTECT / SYSTEM), non-reversed integer severity.
