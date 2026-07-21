@@ -49,6 +49,46 @@ PKG_MGR=""
 CURRENT_STEP="startup"
 MISSING=()
 
+if [[ -t 1 ]]; then
+  readonly C_RESET=$'\033[0m'
+  readonly C_DIM=$'\033[2m'
+  readonly C_RED=$'\033[31m'
+  readonly C_GREEN=$'\033[32m'
+  readonly C_YELLOW=$'\033[33m'
+  readonly C_BOLD=$'\033[1m'
+else
+  readonly C_RESET="" C_DIM="" C_RED="" C_GREEN="" C_YELLOW="" C_BOLD=""
+fi
+
+step()  { CURRENT_STEP="$1"; printf '\n%s==>%s %s\n' "$C_BOLD" "$C_RESET" "$1"; }
+ok()    { printf '  %s[ok]%s %s\n' "$C_GREEN" "$C_RESET" "$1"; }
+warn()  { printf '  %s[warn]%s %s\n' "$C_YELLOW" "$C_RESET" "$1"; }
+info()  { printf '  %s%s%s\n' "$C_DIM" "$1" "$C_RESET"; }
+
+die() {
+  local code="$1"; shift
+  printf '  %s[fail]%s %s\n' "$C_RED" "$C_RESET" "$*" >&2
+  exit "$code"
+}
+
+on_err() {
+  printf '\n%s[fail]%s installation failed during "%s" (line %s)\n' \
+    "$C_RED" "$C_RESET" "$CURRENT_STEP" "$1" >&2
+  printf '  Re-run with --dry-run to inspect the planned actions without changing anything.\n' >&2
+}
+trap 'on_err "$LINENO"' ERR
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Run a command, or print it under --dry-run. Always pass argv, never a string.
+run_cmd() {
+  if (( DRY_RUN )); then
+    printf '  %swould run:%s %s\n' "$C_DIM" "$C_RESET" "$*"
+    return 0
+  fi
+  "$@"
+}
+
 usage() {
   cat <<'EOF'
 Replicant Linux installer
@@ -94,8 +134,11 @@ resolve_repo_root() {
 main() {
   parse_args "$@"
   resolve_repo_root
-  printf 'Replicant installer\n'
-  printf '  repo: %s\n' "$REPO_ROOT"
+  printf '%sReplicant installer%s\n' "$C_BOLD" "$C_RESET"
+  info "repo: $REPO_ROOT"
+  step "Sanity"
+  run_cmd true
+  ok "helpers wired"
 }
 
 main "$@"
