@@ -80,6 +80,15 @@ class FortiGateProfile(VendorProfile):
     def name(self) -> str:
         return "fortigate"
 
+    @property
+    def hostname(self) -> str:
+        return self.device.hostname
+
+    @property
+    def accepted_as(self) -> str:
+        # The LogRhythm log-source type these FortiOS CEF records map to.
+        return "Syslog - Fortinet FortiGate v5.6 CEF"
+
     def severity(self, level: str) -> int:
         try:
             return _LEVEL_TO_SEVERITY[level.lower()]

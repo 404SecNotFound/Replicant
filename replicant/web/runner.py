@@ -34,6 +34,24 @@ from replicant.core.orchestrator import Orchestrator
 
 MAX_STREAM_LINES = 2000
 QUEUE_MAXSIZE = 8000
+# A terminal handle is kept so the client can fetch its final status/manifest, but
+# only this many are retained: without a bound, ``_runs`` grows for the life of the
+# server. A live run is never evicted.
+MAX_TERMINAL_RETAINED = 16
+_TERMINAL_STATES = frozenset({"done", "stopped", "error"})
+
+
+class RunInProgressError(RuntimeError):
+    """A run was requested while another is still active.
+
+    Each run gets its own rate limiter, so concurrent runs to one collector would
+    multiply the configured eps cap (safety rule 4). The web layer allows one
+    active run at a time and surfaces this as HTTP 409.
+    """
+
+    def __init__(self, active_run_id: str) -> None:
+        super().__init__(f"a run is already in progress: {active_run_id}")
+        self.active_run_id = active_run_id
 
 
 @dataclass
@@ -68,7 +86,29 @@ class RunManager:
         handle.orchestrator.stop()
         return True
 
+    def _active_locked(self) -> RunHandle | None:
+        """Return a non-terminal handle if one exists. Caller holds ``_lock``."""
+        for handle in self._runs.values():
+            if handle.status not in _TERMINAL_STATES:
+                return handle
+        return None
+
+    def _evict_terminal(self) -> None:
+        """Drop the oldest terminal handles beyond the retention bound, never a live one."""
+        with self._lock:
+            terminal_ids = [rid for rid, h in self._runs.items() if h.status in _TERMINAL_STATES]
+            for rid in terminal_ids[: max(0, len(terminal_ids) - MAX_TERMINAL_RETAINED)]:
+                del self._runs[rid]
+
     def start(self, request: RunRequest, settings: Settings | None = None) -> RunHandle:
+        # One active run at a time: reject before doing any work so a second start
+        # cannot spin up a second limiter against the same collector.
+        with self._lock:
+            active = self._active_locked()
+            if active is not None:
+                raise RunInProgressError(active.run_id)
+        self._evict_terminal()
+
         orchestrator = Orchestrator(self.catalog, settings or self.settings)
         total = len(orchestrator.build_plan(request))
         events: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=QUEUE_MAXSIZE)
@@ -78,7 +118,11 @@ class RunManager:
             queue=events,
             total=total,
         )
+        # Re-check under the lock: another start could have registered in the gap.
         with self._lock:
+            active = self._active_locked()
+            if active is not None:
+                raise RunInProgressError(active.run_id)
             self._runs[handle.run_id] = handle
         thread = threading.Thread(target=self._worker, args=(handle, request), daemon=True)
         handle.thread = thread

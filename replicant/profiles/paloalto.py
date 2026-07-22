@@ -75,6 +75,16 @@ class PaloAltoProfile(VendorProfile):
     def name(self) -> str:
         return "paloalto"
 
+    @property
+    def hostname(self) -> str:
+        return self.device.hostname
+
+    @property
+    def accepted_as(self) -> str:
+        # [Unverified] the exact LogRhythm log-source type name for PAN-OS CEF;
+        # named honestly for PAN-OS rather than inheriting the FortiGate parser.
+        return "Syslog - Palo Alto Networks PAN-OS CEF"
+
     def severity(self, level: str) -> int:
         try:
             return _LEVEL_TO_SEVERITY[level.lower()]

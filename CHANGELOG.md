@@ -14,6 +14,43 @@ unpublished draft. The entries below therefore ship as part of 0.1.0 rather than
 as a 0.1.1 follow-up, and the pre-release validation described in them is what
 the tag actually contains.
 
+### Security hardening
+
+A final pre-publication code review found several ways the tool's own safety
+claims could be violated. All are fixed here, each with a regression test.
+
+- **The events-per-second cap could be silently disabled.** The emit loop treats
+  a non-positive cap as "no limit", and neither `Settings.eps_cap` nor a
+  `rate_override` was constrained, so a zero or negative value turned off the
+  collector protection (safety rule 4) without any error. Both are now positive
+  integers by construction at the model boundary, which the CLI, menu, web API,
+  and scenario paths all pass through.
+- **Concurrent web runs multiplied the cap, and run handles never expired.** Each
+  run gets its own rate limiter, so N simultaneous runs delivered N times the
+  configured eps to one collector, and the handle map grew for the life of the
+  server. The web layer now allows one active run at a time (a second request
+  gets HTTP 409) and retains only a bounded number of completed handles, never
+  evicting a live one.
+- **The web server's "loopback only" claim was not enforced.** `--host` was bound
+  verbatim while the banner always said loopback, so `--host 0.0.0.0` exposed the
+  UI on every interface. A non-loopback bind address is now refused before the
+  socket is created; the claim is enforced, not just printed.
+- **A run's manifest could be overwritten by another in the same second.** The
+  manifest filename carried a second-precision timestamp, so two same-id,
+  same-seed runs in one second resolved to one path and the second destroyed the
+  first run's audit record (safety rule 5). Names now carry a unique token and are
+  created exclusively.
+- **Alternate-vendor runs claimed FortiGate identity.** A Palo Alto or Check Point
+  run wrote a manifest asserting the Fortinet FortiGate log-source parser and
+  framed its syslog with the FortiGate lab hostname, both sourced from
+  FortiGate-flavoured defaults. Identity now comes from the active vendor profile,
+  with an operator override still honoured. The PAN-OS and Check Point log-source
+  names are `[Unverified]`, consistent with those profiles' reference docs.
+- **A dropped event stream looked like a finished run.** In the web UI, any SSE
+  error set the run to complete and removed the Stop control while the backend
+  kept emitting. The UI now polls authoritative run status on a stream drop and
+  keeps the run (and Stop) active until the backend reports a terminal state.
+
 ### Added
 
 - **`--anchor` on `run` and `scenario run`**, accepting `now`, an epoch, or an

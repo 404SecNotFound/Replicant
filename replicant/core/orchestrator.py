@@ -88,6 +88,37 @@ class ScenarioRunResult:
     stopped: bool
 
 
+def build_profile(settings: Settings) -> VendorProfile:
+    """Select the vendor profile from settings.vendor (blueprint s10, Phase 3).
+
+    The single source of truth for the vendor -> profile mapping, shared by the
+    Orchestrator and the web layer so the two cannot drift.
+    """
+
+    if settings.vendor == "paloalto":
+        return PaloAltoProfile()
+    if settings.vendor == "checkpoint":
+        return CheckPointProfile()
+    if settings.vendor == "fortigate":
+        return FortiGateProfile(
+            FortiGateDevice(
+                byte_key_out=settings.byte_key_out,
+                byte_key_in=settings.byte_key_in,
+            )
+        )
+    raise ValueError(f"unknown vendor profile: {settings.vendor!r}")
+
+
+def effective_identity(settings: Settings) -> tuple[str, str]:
+    """(syslog hostname, accepted_as) an operator would see for these settings.
+
+    Operator overrides on ``Settings`` win; otherwise the active vendor profile's
+    own identity is used. Lets the web layer echo the same values a run records.
+    """
+    profile = build_profile(settings)
+    return settings.hostname or profile.hostname, settings.accepted_as or profile.accepted_as
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -101,25 +132,20 @@ class Orchestrator:
         self.settings = settings or Settings()
         self.entities = entities or EntityModel.build()
         self.engine = engine or ScenarioEngine()
-        self.profile = profile or self._build_profile(self.settings)
+        self.profile = profile or build_profile(self.settings)
         self._stop = threading.Event()
 
-    @staticmethod
-    def _build_profile(settings: Settings) -> VendorProfile:
-        """Select the vendor profile from settings.vendor (blueprint s10, Phase 3)."""
+    # -- vendor identity -------------------------------------------------------
 
-        if settings.vendor == "paloalto":
-            return PaloAltoProfile()
-        if settings.vendor == "checkpoint":
-            return CheckPointProfile()
-        if settings.vendor == "fortigate":
-            return FortiGateProfile(
-                FortiGateDevice(
-                    byte_key_out=settings.byte_key_out,
-                    byte_key_in=settings.byte_key_in,
-                )
-            )
-        raise ValueError(f"unknown vendor profile: {settings.vendor!r}")
+    @property
+    def syslog_hostname(self) -> str:
+        """Syslog frame hostname: operator override, else the active profile's."""
+        return self.settings.hostname or self.profile.hostname
+
+    @property
+    def accepted_as(self) -> str:
+        """Log-source identity for the manifest: operator override, else the profile's."""
+        return self.settings.accepted_as or self.profile.accepted_as
 
     # -- kill switch -----------------------------------------------------------
 
@@ -172,7 +198,7 @@ class Orchestrator:
         """Send one benign test line to the collector; return transport success."""
 
         line = self.build_test_line()
-        with SyslogEmitter(collector, hostname=self.settings.hostname) as emitter:
+        with SyslogEmitter(collector, hostname=self.syslog_hostname) as emitter:
             return emitter.send_test(line)
 
     # -- planning / running ----------------------------------------------------
@@ -241,7 +267,7 @@ class Orchestrator:
             entities=self.entities.summary(),
             target=target,
             transport=transport,
-            accepted_as=self.settings.accepted_as,
+            accepted_as=self.accepted_as,
             event_count=count,
             started_at=started_at,
             ended_at=ended_at,
@@ -267,7 +293,7 @@ class Orchestrator:
         stopped = False
         sink = FileSink(to_file) if to_file else None
         emitter = (
-            SyslogEmitter(collector, hostname=self.settings.hostname)
+            SyslogEmitter(collector, hostname=self.syslog_hostname)
             if send and collector is not None
             else None
         )
@@ -398,7 +424,7 @@ class Orchestrator:
             target=target,
             transport=transport,
             vendor=self.settings.vendor,
-            accepted_as=self.settings.accepted_as,
+            accepted_as=self.accepted_as,
             total_event_count=count,
             stages=[
                 ScenarioStageRecord(

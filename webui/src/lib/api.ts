@@ -146,6 +146,21 @@ export const startRun = (body: RunBody) =>
 export const stopRun = (runId: string) =>
   api<{ ok: boolean }>(`/api/runs/${runId}/stop`, { method: "POST" });
 
+export interface RunStatus {
+  run_id: string;
+  status: string; // running | done | stopped | error
+  total: number;
+  event_count: number;
+  dropped: number;
+  manifest: Manifest | null;
+  manifest_path: string | null;
+}
+
+// Authoritative run state, polled when the SSE stream drops so a transient
+// disconnect is not mistaken for the run finishing.
+export const getRunStatus = (runId: string) =>
+  api<RunStatus>(`/api/runs/${encodeURIComponent(runId)}`);
+
 export function runEventsUrl(runId: string): string {
   return `/api/runs/${runId}/events?token=${encodeURIComponent(TOKEN)}`;
 }

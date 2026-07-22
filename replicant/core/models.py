@@ -167,7 +167,9 @@ class RunRequest(BaseModel):
     duration: str | None = None
     to_file: str | None = None
     no_send: bool = False
-    rate_override: int | None = None
+    # A non-positive override disables the emit-loop rate limiter (safety rule 4),
+    # so it must be a positive events-per-second value when present.
+    rate_override: int | None = Field(default=None, gt=0)
     collector: CollectorProfile | None = None
     anchor_epoch: int | None = None
     param_overrides: dict[str, Any] = Field(default_factory=dict)
@@ -271,7 +273,8 @@ class ScenarioRunRequest(BaseModel):
     intensity_override: Intensity | None = None
     to_file: str | None = None
     no_send: bool = False
-    rate_override: int | None = None
+    # Positive when present; a non-positive value would disable the rate limiter.
+    rate_override: int | None = Field(default=None, gt=0)
     collector: CollectorProfile | None = None
     anchor_epoch: int | None = None
 

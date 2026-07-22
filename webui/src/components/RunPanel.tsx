@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/select";
 import { SignalReadout } from "@/components/SignalReadout";
 import { cn } from "@/lib/utils";
-import { startRun, stopRun, runEventsUrl, type Collector, type Manifest, type Technique } from "@/lib/api";
+import { startRun, stopRun, getRunStatus, runEventsUrl, type Collector, type Manifest, type Technique } from "@/lib/api";
+import { pollRunUntilTerminal } from "@/lib/runLifecycle";
 
 interface Props {
   technique: Technique | null;
@@ -68,6 +69,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
   const logRef = useRef<HTMLDivElement | null>(null);
   const countRef = useRef(0);
   const startRef = useRef(0);
+  const mountedRef = useRef(true);
   // Trailing observations of (timestamp, cumulative count), used to average the
   // emission rate over RATE_WINDOW_MS instead of over a single 220ms tick.
   const historyRef = useRef<{ t: number; c: number }[]>([]);
@@ -111,7 +113,13 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
     return () => clearInterval(timer);
   }, [running]);
 
-  useEffect(() => () => esRef.current?.close(), []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      esRef.current?.close();
+    };
+  }, []);
 
   function reset() {
     linesRef.current = [];
@@ -171,8 +179,30 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
         }
       };
       es.onerror = () => {
-        setRunning(false);
         es.close();
+        // A dropped SSE stream is not run completion: the backend worker may still
+        // be emitting. Keep the run active (Stop stays available) and poll the
+        // authoritative status until the backend itself reports terminal.
+        setError("live stream interrupted; polling run status…");
+        void pollRunUntilTerminal({
+          getStatus: () => getRunStatus(run_id),
+          onProgress: (c) => {
+            if (!mountedRef.current) return;
+            countRef.current = Math.max(countRef.current, c);
+            setCount((x) => Math.max(x, c));
+          },
+          onTerminal: (snap) => {
+            if (!mountedRef.current) return;
+            countRef.current = Math.max(countRef.current, snap.event_count);
+            setCount((x) => Math.max(x, snap.event_count));
+            if (snap.manifest) setManifest(snap.manifest as Manifest);
+            setError(snap.status === "error" ? "run failed" : null);
+            setRunning(false);
+          },
+          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+          // Stop polling if the view unmounts or a newer run supersedes this one.
+          isCancelled: () => !mountedRef.current || runIdRef.current !== run_id,
+        });
       };
     } catch (err) {
       setError((err as Error).message);

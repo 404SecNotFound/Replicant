@@ -1,3 +1,53 @@
+# Safety-hardening before public flip (in progress, 2026-07-22, branch: fix/safety-hardening)
+
+Source: accurate code review pasted 2026-07-22. Scope: safety-truth blockers only;
+packaging / numeric-ranges / bundle / Apache-headers / coverage deferred to v0.1.1.
+Every change is test-first (TDD). Branch off `main` (b9d4bcc), clean repo.
+
+- [x] 1. **EPS cap cannot be silently disabled.** DONE. `Field(gt=0)` on `Settings.eps_cap`,
+      `RunRequest.rate_override`, `ScenarioRunRequest.rate_override`. 12 tests in
+      tests/test_safety_constraints.py. Full suite 261 green.
+- [x] 2. **Universal event ceiling holds for every builder.** DONE (guard, no prod change).
+      Parametrized test plans all 11 techniques at high/86400s against max_events=10; all
+      respect it, so the [Unverified] REP-007/008/011 escape worry is verified false.
+- [x] 3. **Manifests are collision-resistant.** DONE. `_write_unique` adds a uuid token +
+      exclusive create in manifest.py; both write_manifest and write_scenario_manifest.
+      2 tests; name prefix preserved so existing assertion holds.
+- [x] 4. **Manifest + syslog identity follow the active vendor, not FortiGate.** DONE.
+      `VendorProfile.hostname`/`.accepted_as` (abstract; PAN-OS/Check Point [Unverified]);
+      CheckPointDevice gained `hostname=CP-LAB-GW-01`; `Settings.hostname`/`accepted_as`
+      now Optional None; shared `build_profile`/`effective_identity`; orchestrator props +
+      web echo. 8 tests. Full suite + mypy green.
+- [x] 5. **Web runs cannot multiply collector load; handles do not leak.** DONE.
+      `RunInProgressError` + double-checked single-active guard; `_evict_terminal` bounds
+      the map at MAX_TERMINAL_RETAINED (never a live one); server maps to HTTP 409. 6 run-manager
+      tests + 1 server 409 test.
+- [x] 7. **Loopback-only bind is enforced.** DONE. `_require_loopback` rejects any non-loopback
+      host (localhost/127.x/::1 allowed) before bind; called in `serve`; IPv6 family handled.
+      10 tests. The "(loopback only)" line is now truthful.
+- [x] 6. **Frontend stops hiding an active emitter.** DONE. Extracted a pure
+      `pollRunUntilTerminal` (webui/src/lib/runLifecycle.ts) so the decision is unit-testable;
+      RunPanel's SSE `onerror` now polls `/api/runs/{id}` and keeps the run + Stop active until
+      the backend reports terminal. 5 vitest tests; tsc + build clean.
+
+Out of scope (v0.1.1 backlog): wheel/asset packaging + clean-install smoke; port 1..65535 /
+facility 0..23 constraints + 4xx malformed-body tests; bundle lazy-load (JS chunk 578kB, over
+Vite's 500kB warn); Apache headers on the 22 pre-existing frontend files + font OFL NOTICE;
+broader frontend coverage; plan-twice cost; stale egg-info.
+
+## Review
+
+All seven safety-truth items landed test-first (RED observed, then GREEN). Final gate:
+297 Python tests (was 249; +48), 14 frontend tests (was 9; +5), ruff/black/mypy clean,
+frontend tsc + production build clean. New files carry the Apache header. CHANGELOG has a
+"Security hardening" subsection under 0.1.0. Two findings were verified NOT real: every
+technique builder already respects `max_events` (item 2), so the [Unverified] REP-007/008/011
+escape worry was false. Vendor log-source names for PAN-OS/Check Point are labelled
+[Unverified], consistent with those profiles. Backlog items above are genuine but do not affect
+the correctness of what ships; recorded for v0.1.1.
+
+---
+
 # Close outstanding items before lab test (complete, 2026-07-21, branch: chore/close-outstanding-items)
 
 Everything that could be closed without DJR at a terminal or an unprivileged Linux login.

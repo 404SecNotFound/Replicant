@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from replicant.core.models import CollectorProfile, Intensity
 from replicant.scenario.engine import DEFAULT_ANCHOR_EPOCH
@@ -106,15 +106,19 @@ class Settings(BaseModel):
     """Operator defaults. The default layer of the precedence chain."""
 
     default_seed: int = 1337
-    eps_cap: int = 2000
+    # Positive by construction: the emit loop treats a non-positive cap as "no
+    # limit", so a zero or negative value would silently disable safety rule 4.
+    eps_cap: int = Field(default=2000, gt=0)
     default_intensity: Intensity = "medium"
     vendor: str = "fortigate"  # fortigate | paloalto | checkpoint (selects the VendorProfile)
     benign_marker: bool = False
     byte_key_out: str = "out"
     byte_key_in: str = "in"
     anchor_epoch: int = DEFAULT_ANCHOR_EPOCH
-    hostname: str = "FGT-LAB-01"
-    accepted_as: str = "Syslog - Fortinet FortiGate v5.6 CEF"
+    # None means "use the active vendor profile's identity" (the correct default);
+    # a value here is an explicit operator override that wins for every vendor.
+    hostname: str | None = None
+    accepted_as: str | None = None
     catalog_path: str = "data/technique-catalog.yaml"
     manifest_dir: str = "manifests"
 

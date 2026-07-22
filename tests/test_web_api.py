@@ -306,3 +306,34 @@ def test_run_to_file_from_web(client: TestClient, tmp_path: Path) -> None:
     lines = out.read_text().splitlines()
     assert all("dns:dns-query pass" in line for line in lines)
     assert json.loads(json.dumps(status))  # serializable
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost", "127.5.5.5"])
+def test_serve_accepts_loopback_hosts(host: str) -> None:
+    from replicant.web.server import _require_loopback
+
+    _require_loopback(host)  # must not raise
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.168.1.5", "10.20.0.50", "example.com"])
+def test_serve_rejects_non_loopback_hosts(host: str) -> None:
+    from replicant.web.server import _require_loopback
+
+    with pytest.raises(ValueError):
+        _require_loopback(host)
+
+
+def test_start_run_while_one_active_returns_409(client: TestClient, monkeypatch) -> None:
+    from replicant.web import runner as runner_mod
+
+    def busy(self, request, settings=None):  # type: ignore[no-untyped-def]
+        raise runner_mod.RunInProgressError("run-abc")
+
+    monkeypatch.setattr(runner_mod.RunManager, "start", busy)
+    resp = client.post(
+        "/api/runs",
+        headers=HEADERS,
+        json={"technique_id": "REP-001", "intensity": "low", "no_send": True},
+    )
+    assert resp.status_code == 409
+    assert "in progress" in resp.json()["detail"]

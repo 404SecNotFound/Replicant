@@ -78,6 +78,7 @@ class CheckPointDevice:
 
     vendor: str = "Check Point"
     version: str = "Check Point"  # Log Exporter puts the literal words here, not a version
+    hostname: str = "CP-LAB-GW-01"  # syslog frame host, per the reference doc
     product_fw: str = "VPN-1 & FireWall-1"
     product_ips: str = "SmartDefense"
     product_vpn: str = "Mobile Access"
@@ -96,6 +97,16 @@ class CheckPointProfile(VendorProfile):
     @property
     def name(self) -> str:
         return "checkpoint"
+
+    @property
+    def hostname(self) -> str:
+        return self.device.hostname
+
+    @property
+    def accepted_as(self) -> str:
+        # [Unverified] the exact LogRhythm log-source type name for Check Point
+        # Log Exporter CEF; named honestly for Check Point, not FortiGate.
+        return "Syslog - Check Point Log Exporter CEF"
 
     def severity(self, level: str) -> int | str:
         try:
