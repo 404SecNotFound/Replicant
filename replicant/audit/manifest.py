@@ -21,6 +21,7 @@ with detections.
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -37,16 +38,34 @@ def _stamp_for_filename() -> str:
     return datetime.now(DUBAI_TZ).strftime("%Y%m%dT%H%M%S")
 
 
-def write_manifest(manifest: RunManifest, out_dir: str | Path) -> Path:
-    directory = Path(out_dir)
+def _write_unique(directory: Path, prefix: str, payload: str) -> Path:
+    """Write ``payload`` to ``{prefix}-{stamp}-{token}.json`` under ``directory``.
+
+    The timestamp has second precision, so two same-id, same-seed runs in one
+    second would otherwise resolve to one path and the second would overwrite the
+    first, destroying a run's audit record (safety rule 5). A random token makes
+    the name unique, and exclusive creation (``open("x")``) guarantees two writers
+    never resolve to the same file even under a race; on the astronomically
+    unlikely collision it retries with a fresh token.
+    """
     directory.mkdir(parents=True, exist_ok=True)
-    filename = f"{manifest.technique_id}-seed{manifest.seed}-{_stamp_for_filename()}.json"
-    path = directory / filename
-    path.write_text(
-        json.dumps(manifest.model_dump(), indent=2, sort_keys=False) + "\n",
-        encoding="utf-8",
-    )
-    return path
+    stamp = _stamp_for_filename()
+    for _ in range(8):
+        token = uuid.uuid4().hex[:8]
+        path = directory / f"{prefix}-{stamp}-{token}.json"
+        try:
+            with path.open("x", encoding="utf-8") as handle:
+                handle.write(payload)
+            return path
+        except FileExistsError:
+            continue
+    raise RuntimeError(f"could not allocate a unique manifest path in {directory}")
+
+
+def write_manifest(manifest: RunManifest, out_dir: str | Path) -> Path:
+    payload = json.dumps(manifest.model_dump(), indent=2, sort_keys=False) + "\n"
+    prefix = f"{manifest.technique_id}-seed{manifest.seed}"
+    return _write_unique(Path(out_dir), prefix, payload)
 
 
 def human_summary(manifest: RunManifest, manifest_path: Path) -> str:
@@ -68,13 +87,9 @@ def human_summary(manifest: RunManifest, manifest_path: Path) -> str:
 
 
 def write_scenario_manifest(manifest: ScenarioManifest, out_dir: str | Path) -> Path:
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    path = out / f"{manifest.scenario_id}-seed{manifest.seed}-{_stamp_for_filename()}.json"
-    path.write_text(
-        json.dumps(manifest.model_dump(), indent=2, sort_keys=False) + "\n", encoding="utf-8"
-    )
-    return path
+    payload = json.dumps(manifest.model_dump(), indent=2, sort_keys=False) + "\n"
+    prefix = f"{manifest.scenario_id}-seed{manifest.seed}"
+    return _write_unique(Path(out_dir), prefix, payload)
 
 
 def write_advisory(text: str, manifest_path: Path) -> Path:

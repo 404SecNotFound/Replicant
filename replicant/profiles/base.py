@@ -43,6 +43,26 @@ class VendorProfile(ABC):
     def name(self) -> str:
         """Short profile name, e.g. ``fortigate``."""
 
+    @property
+    @abstractmethod
+    def hostname(self) -> str:
+        """Syslog frame hostname for this vendor's lab device.
+
+        The transport prepends this to every record. It is vendor-specific, so it
+        comes from the profile rather than a global setting, which would otherwise
+        stamp one vendor's device name onto another vendor's logs.
+        """
+
+    @property
+    @abstractmethod
+    def accepted_as(self) -> str:
+        """The SIEM log-source type a run's CEF should be parsed as.
+
+        Recorded in the manifest so an operator knows which parser the events are
+        built for. It is inherently vendor-specific; a shared default would tell a
+        Palo Alto or Check Point run to parse as FortiGate.
+        """
+
     @abstractmethod
     def render(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
         """Build the CEF header and ordered extension for one event."""

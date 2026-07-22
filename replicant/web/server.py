@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import ipaddress
 import json
 import os
 import queue
@@ -47,10 +48,10 @@ from starlette.websockets import WebSocket
 from replicant import __version__
 from replicant.config.settings import VENDORS, Settings
 from replicant.core.models import Catalog, CollectorProfile, RunRequest
-from replicant.core.orchestrator import Orchestrator
+from replicant.core.orchestrator import Orchestrator, effective_identity
 from replicant.scenario.engine import implemented_technique_ids
 from replicant.web.pty_bridge import bridge_terminal
-from replicant.web.runner import RunManager
+from replicant.web.runner import RunInProgressError, RunManager
 
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
@@ -190,13 +191,14 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
 
     @app.get("/api/config", dependencies=[Depends(require_token)])
     def get_config() -> dict[str, Any]:
+        hostname, accepted_as = effective_identity(settings)
         return {
             "default_seed": settings.default_seed,
             "eps_cap": settings.eps_cap,
             "default_intensity": settings.default_intensity,
-            "hostname": settings.hostname,
+            "hostname": hostname,
             "anchor_epoch": settings.anchor_epoch,
-            "accepted_as": settings.accepted_as,
+            "accepted_as": accepted_as,
             "vendor": settings.vendor,
             "vendors": list(VENDORS),
         }
@@ -250,6 +252,8 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
         )
         try:
             handle = manager.start(request, settings=_settings_for(body.vendor))
+        except RunInProgressError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (RuntimeError, NotImplementedError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"run_id": handle.run_id, "total": handle.total}
@@ -332,6 +336,32 @@ def _mount_frontend(app: FastAPI) -> None:
         )
 
 
+_LOOPBACK_HOSTNAMES = {"localhost"}
+
+
+def _require_loopback(host: str) -> None:
+    """Reject any bind address that is not loopback.
+
+    The web UI prints "(loopback only)" and its safety model assumes a local-only
+    listener, but the bind address was used verbatim, so ``--host 0.0.0.0`` exposed
+    the socket on every interface while still claiming loopback. Remote hosting is
+    not a supported mode: it would need origin checks, TLS, and a stronger auth
+    model than a per-session token, so a non-loopback host is refused outright.
+    """
+    if host in _LOOPBACK_HOSTNAMES:
+        return
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        raise ValueError(
+            f"web server host must be loopback (127.0.0.1, ::1, or localhost); got {host!r}"
+        ) from None
+    if not address.is_loopback:
+        raise ValueError(
+            f"web server host must be loopback; {host!r} would expose the UI on that interface"
+        )
+
+
 def serve(
     catalog: Catalog,
     settings: Settings,
@@ -340,10 +370,12 @@ def serve(
 ) -> None:
     """Start the web server on a random loopback port and print its URL."""
 
+    _require_loopback(host)
     token = secrets.token_urlsafe(16)
     app = create_app(catalog, settings, token)
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    sock = socket.socket(family, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((host, 0))
     port = sock.getsockname()[1]
