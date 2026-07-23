@@ -42,12 +42,12 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.websockets import WebSocket
 
 from replicant import __version__
 from replicant.config.settings import VENDORS, Settings
-from replicant.core.models import Catalog, CollectorProfile, RunRequest
+from replicant.core.models import Catalog, CollectorProfile, Intensity, RunRequest, Transport
 from replicant.core.orchestrator import Orchestrator, effective_identity
 from replicant.scenario.engine import implemented_technique_ids
 from replicant.web.pty_bridge import bridge_terminal
@@ -59,8 +59,8 @@ FRONTEND_DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
 
 class CollectorBody(BaseModel):
     host: str
-    port: int = 514
-    transport: str = "udp"
+    port: int = Field(default=514, ge=1, le=65535)
+    transport: Transport = "udp"
     tls_verify: bool = True
     tls_cafile: str | None = None
     vendor: str | None = None  # override the CEF dialect of the rendered test line
@@ -68,7 +68,7 @@ class CollectorBody(BaseModel):
 
 class RunBody(BaseModel):
     technique_id: str
-    intensity: str = "medium"
+    intensity: Intensity = "medium"
     duration: str | None = None
     seed: int | None = None
     to_file: str | None = None

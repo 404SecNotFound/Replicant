@@ -308,6 +308,27 @@ def test_run_to_file_from_web(client: TestClient, tmp_path: Path) -> None:
     assert json.loads(json.dumps(status))  # serializable
 
 
+def test_connect_test_rejects_out_of_range_port(client: TestClient) -> None:
+    resp = client.post("/api/connect/test", headers=HEADERS, json={"host": "192.0.2.1", "port": 0})
+    assert resp.status_code == 422
+
+
+def test_connect_test_rejects_unknown_transport(client: TestClient) -> None:
+    resp = client.post(
+        "/api/connect/test", headers=HEADERS, json={"host": "192.0.2.1", "transport": "banana"}
+    )
+    assert resp.status_code == 422
+
+
+def test_start_run_rejects_unknown_intensity(client: TestClient) -> None:
+    resp = client.post(
+        "/api/runs",
+        headers=HEADERS,
+        json={"technique_id": "REP-001", "intensity": "ludicrous", "no_send": True},
+    )
+    assert resp.status_code == 422
+
+
 @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost", "127.5.5.5"])
 def test_serve_accepts_loopback_hosts(host: str) -> None:
     from replicant.web.server import _require_loopback

@@ -15,6 +15,24 @@ The MITRE Corporation.
 https://attack.mitre.org/
 
 -------------------------------------------------------------------------------
+Bundled third-party components and assets
+-------------------------------------------------------------------------------
+The web UI ships the following third-party works.
+
+IBM Plex (Sans and Mono), self-hosted as .woff2 subsets under
+webui/public/fonts. Copyright 2017 IBM Corp. Licensed under the SIL Open Font
+License, Version 1.1.
+  https://github.com/IBM/plex
+  https://openfontlicense.org
+
+shadcn/ui component patterns, adapted into webui/src/components/ui/* and the
+`cn` helper in webui/src/lib/utils.ts. Copyright 2023 shadcn. MIT License.
+  https://ui.shadcn.com
+These components wrap Radix UI primitives (Copyright Radix UI, WorkOS; MIT
+License; https://www.radix-ui.com), which are declared npm dependencies rather
+than vendored source.
+
+-------------------------------------------------------------------------------
 Design acknowledgements
 -------------------------------------------------------------------------------
 Replicant's design was informed by the open-source projects below. No code from

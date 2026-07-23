@@ -1,10 +1,23 @@
-import { useEffect, useState } from "react";
+// Copyright 2026 Imran Hafeez (RZA)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { ConnectionCard } from "@/components/ConnectionCard";
 import { CatalogTable } from "@/components/CatalogTable";
 import { RunPanel } from "@/components/RunPanel";
 import { TechniqueDetail } from "@/components/TechniqueDetail";
-import { TerminalView } from "@/components/TerminalView";
 import { cn } from "@/lib/utils";
 import {
   getCatalog,
@@ -14,6 +27,12 @@ import {
   type ConfigResponse,
   type Technique,
 } from "@/lib/api";
+
+// Lazy-loaded so xterm.js (the terminal's heavy dependency) is fetched only when
+// the operator opens the Terminal tab, not on first paint of the Emitter view.
+const TerminalView = lazy(() =>
+  import("@/components/TerminalView").then((m) => ({ default: m.TerminalView })),
+);
 
 const MARK = (
   <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
@@ -160,7 +179,15 @@ export default function App() {
       ) : (
         <div className="min-h-0 flex-1 p-4">
           <div className="h-full overflow-hidden rounded-lg border bg-card p-2">
-            <TerminalView />
+            <Suspense
+              fallback={
+                <div className="grid h-full place-items-center text-sm text-muted-foreground">
+                  Loading terminal…
+                </div>
+              }
+            >
+              <TerminalView />
+            </Suspense>
           </div>
         </div>
       )}

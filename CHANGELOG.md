@@ -119,6 +119,22 @@ claims could be violated. All are fixed here, each with a regression test.
   below. It was previously stated only as "a cap", which reasonably reads as the
   stronger guarantee.
 
+- **Input domains are constrained at the model boundary.** Collector `port` is
+  bounded to 1..65535 and syslog `facility` to 0..23, and the web request bodies
+  reject an unknown intensity, transport, or out-of-range port with a 422 instead
+  of failing deep in a handler. Malformed-body tests cover each.
+
+- **The web bundle no longer ships xterm.js on first paint.** The terminal view is
+  loaded on demand when its tab opens, splitting the single ~578 kB chunk into a
+  ~288 kB main chunk and a ~292 kB chunk fetched only if the terminal is used. The
+  build no longer trips Vite's size warning.
+
+- **Licensing hygiene for the web UI.** Every first-party frontend source and
+  config file now carries the Apache header; the vendored shadcn/ui components
+  carry a header crediting their MIT origin. `NOTICE` gains the bundled
+  third-party attributions it was missing: IBM Plex (SIL OFL 1.1), shadcn/ui and
+  Radix UI (MIT).
+
 ### What ships in 0.1.0
 
 **Technique catalog.** Eleven techniques, `REP-001` through `REP-011`, each mapped one-to-one to a named detection use case and to MITRE ATT&CK:
@@ -167,6 +183,7 @@ Each run writes an advisory document beside its manifest, mapping the chain to A
 - **The events-per-second cap is a fixed-window cap,** not an instantaneous one. It counts to the cap, sleeps the remainder of the wall second, then resets, so events cluster at the head of each window. A sliding one-second window straddling a boundary was measured once at 59 against a cap of 50; the overall delivered rate held at 49.94/s. Treat the guarantee as a fixed-window average.
 - **The web UI has no scenario surface.** Scenario composition is CLI and Rich menu only. Deferred by design, and covered by a test that asserts the absence so a later partial implementation is caught.
 - **Signature IDs** for DNS `dns-query` (54803) and SSL-VPN tunnel-up (39947) are `[Unverified]` against a live FortiOS build and carry inline notes saying so. Confirm before customer use.
+- **The built wheel is not yet self-contained.** The technique and scenario catalogs live in the repo-root `data/` directory, which the supported install (a git clone plus an editable install) resolves correctly and CI verifies in real containers. A plain `pip install` of the wheel would not bundle them. Relocating the catalogs into the package so the wheel stands alone is deferred to 0.1.1, since the shipping path does not use the wheel.
 
 ### Security
 
