@@ -12,9 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { VENDOR_LABELS, vendorLabel } from "./api";
+import { VENDOR_LABELS, getRunStatus, startRun, stopRun, vendorLabel } from "./api";
+
+function mockFetch(status: number, body: unknown) {
+  return vi.fn(async () => ({
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: `status ${status}`,
+    json: async () => body,
+  })) as unknown as typeof fetch;
+}
 
 describe("vendorLabel", () => {
   it("maps every vendor id the backend can send", () => {
@@ -46,5 +55,42 @@ describe("vendorLabel", () => {
     for (const [id, label] of Object.entries(VENDOR_LABELS)) {
       expect(vendorLabel(id)).toBe(label);
     }
+  });
+});
+
+describe("api client", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("returns parsed JSON and attaches the session token header", async () => {
+    const f = mockFetch(200, {
+      run_id: "r1",
+      status: "running",
+      total: 5,
+      event_count: 2,
+      dropped: 0,
+      manifest: null,
+      manifest_path: null,
+    });
+    vi.stubGlobal("fetch", f);
+    const status = await getRunStatus("r1");
+    expect(status.status).toBe("running");
+    const [url, init] = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock
+      .calls[0];
+    expect(url).toBe("/api/runs/r1");
+    expect((init.headers as Record<string, string>)["X-Replicant-Token"]).toBeDefined();
+  });
+
+  it("throws with the server's detail on an error response", async () => {
+    // The 409 the backend returns when a run is already active must reach the user
+    // as its message, not a generic failure.
+    vi.stubGlobal("fetch", mockFetch(409, { detail: "a run is already in progress: r9" }));
+    await expect(
+      startRun({ technique_id: "REP-001", intensity: "low", no_send: true }),
+    ).rejects.toThrow(/in progress/);
+  });
+
+  it("falls back to a status-coded message when the error body has no detail", async () => {
+    vi.stubGlobal("fetch", mockFetch(500, {}));
+    await expect(stopRun("r1")).rejects.toThrow(/request failed: 500/);
   });
 });

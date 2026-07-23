@@ -29,7 +29,12 @@ import pytest
 from pydantic import ValidationError
 
 from replicant.config.settings import Settings
-from replicant.core.models import RunRequest, ScenarioRunRequest, load_catalog
+from replicant.core.models import (
+    CollectorProfile,
+    RunRequest,
+    ScenarioRunRequest,
+    load_catalog,
+)
 from replicant.entities.model import EntityModel
 from replicant.scenario.engine import ScenarioEngine, implemented_technique_ids
 
@@ -68,6 +73,31 @@ def test_scenario_request_rejects_nonpositive_rate_override(bad: int) -> None:
 def test_scenario_request_allows_none_or_positive_rate_override() -> None:
     assert ScenarioRunRequest(scenario_id="SCEN-001").rate_override is None
     assert ScenarioRunRequest(scenario_id="SCEN-001", rate_override=10).rate_override == 10
+
+
+# --- Collector numeric domains -----------------------------------------------
+
+
+@pytest.mark.parametrize("bad_port", [0, -1, 65536, 99999])
+def test_collector_rejects_out_of_range_port(bad_port: int) -> None:
+    with pytest.raises(ValidationError):
+        CollectorProfile(host="192.0.2.1", port=bad_port)
+
+
+@pytest.mark.parametrize("port", [1, 514, 65535])
+def test_collector_accepts_valid_port(port: int) -> None:
+    assert CollectorProfile(host="192.0.2.1", port=port).port == port
+
+
+@pytest.mark.parametrize("bad_facility", [-1, 24, 100])
+def test_collector_rejects_out_of_range_facility(bad_facility: int) -> None:
+    with pytest.raises(ValidationError):
+        CollectorProfile(host="192.0.2.1", facility=bad_facility)
+
+
+@pytest.mark.parametrize("facility", [0, 7, 23])
+def test_collector_accepts_valid_facility(facility: int) -> None:
+    assert CollectorProfile(host="192.0.2.1", facility=facility).facility == facility
 
 
 # --- Universal event ceiling -------------------------------------------------

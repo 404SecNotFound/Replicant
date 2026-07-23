@@ -30,10 +30,17 @@ Every change is test-first (TDD). Branch off `main` (b9d4bcc), clean repo.
       RunPanel's SSE `onerror` now polls `/api/runs/{id}` and keeps the run + Stop active until
       the backend reports terminal. 5 vitest tests; tsc + build clean.
 
-Out of scope (v0.1.1 backlog): wheel/asset packaging + clean-install smoke; port 1..65535 /
-facility 0..23 constraints + 4xx malformed-body tests; bundle lazy-load (JS chunk 578kB, over
-Vite's 500kB warn); Apache headers on the 22 pre-existing frontend files + font OFL NOTICE;
-broader frontend coverage; plan-twice cost; stale egg-info.
+Backlog (was "v0.1.1", pulled forward on request 2026-07-23, branch chore/close-v011-backlog):
+- [x] Numeric range constraints: port 1..65535, facility 0..23 + 4xx malformed-body tests. DONE.
+- [x] Apache headers on the 22 frontend files (13 first-party + 9 shadcn-derived w/ MIT credit). DONE.
+- [x] NOTICE: IBM Plex OFL 1.1 + shadcn/ui + Radix MIT attribution. DONE.
+- [x] Bundle lazy-load: xterm split out (578kB -> 288kB main + 292kB async terminal chunk). DONE.
+- [x] Broader frontend coverage: +3 api-client tests (token/error/run-status). DONE.
+- [ ] Wheel/asset packaging + clean-install smoke: DEFERRED to v0.1.1 by decision. Needs
+      relocating the catalogs into the package (48 refs / 21 files), risky right before the
+      irreversible flip, and v0.1.0 ships git-clone + editable install (not the wheel). Recorded
+      in CHANGELOG Known limitations.
+- [ ] Minor, still deferred: plan-twice cost in RunManager.start; stale replicant.egg-info.
 
 ## Review
 

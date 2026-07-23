@@ -141,9 +141,9 @@ class CollectorProfile(BaseModel):
 
     name: str = "default"
     host: str
-    port: int = 514
+    port: int = Field(default=514, ge=1, le=65535)
     transport: Transport = "udp"
-    facility: int = 23  # local7
+    facility: int = Field(default=23, ge=0, le=23)  # syslog facility 0..23, 23=local7
     app_name: str | None = None
     tls_verify: bool = True  # verify the collector certificate (transport="tls")
     tls_cafile: str | None = None  # path to a CA bundle for a private/lab collector CA
