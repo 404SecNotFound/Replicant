@@ -289,6 +289,18 @@ DNS query:
 <189>Jul 16 10:34:01 FGT-LAB-01 CEF:0|Fortinet|Fortigate|v7.4.3|54803|dns:dns-query pass|3|deviceExternalId=FGVMSYNTH0000001 FTNTFGTlogid=1501054803 cat=dns:dns-query FTNTFGTsubtype=dns-query FTNTFGTlevel=notice FTNTFGTvd=root FTNTFGTeventtime=1752662041 FTNTFGTpolicyid=7 externalId=13355 src=10.20.30.40 spt=54621 deviceInboundInterface=port2 dst=10.20.0.53 dpt=53 proto=17 FTNTFGTprofile=default FTNTFGTxid=42311 FTNTFGTqname=updates.example.net FTNTFGTqtype=A FTNTFGTqtypeval=1 FTNTFGTqclass=IN act=pass
 ```
 
+DNS response (NXDOMAIN). The response carries the resolution outcome, which the
+query record does not. A DGA's signal is *failed* resolution, so this record type
+is what makes REP-016 expressible at all:
+```
+<189>Jul 16 10:34:02 FGT-LAB-01 CEF:0|Fortinet|Fortigate|v7.4.3|54802|dns:dns-response pass|3|deviceExternalId=FGVMSYNTH0000001 FTNTFGTlogid=1501054802 cat=dns:dns-response FTNTFGTsubtype=dns-response FTNTFGTlevel=notice FTNTFGTvd=root FTNTFGTeventtime=1752662042 FTNTFGTpolicyid=7 externalId=13356 src=10.20.30.40 spt=54621 deviceInboundInterface=port2 dst=10.20.0.53 dpt=53 proto=17 FTNTFGTprofile=default FTNTFGTxid=42312 FTNTFGTqname=qv7x2p9k4m.invalid FTNTFGTqtype=A FTNTFGTqtypeval=1 FTNTFGTqclass=IN FTNTFGTrcode=NXDOMAIN act=pass
+```
+Signature ID `54802` is confirmed (section 2.4). `[Unverified]` the extension key
+names `FTNTFGTrcode` and `FTNTFGTipaddr` against a live FortiOS build; both follow
+the section 1.3 rule that non-standard fields take the `FTNTFGT` prefix.
+`FTNTFGTipaddr` is emitted only when the name resolved, so its absence is itself
+the NXDOMAIN signal.
+
 SSL-VPN login success:
 ```
 <189>Jul 16 10:35:22 FGT-LAB-01 CEF:0|Fortinet|Fortigate|v7.4.3|39947|event:vpn ssl-login|3|deviceExternalId=FGVMSYNTH0000001 FTNTFGTlogid=0101039947 cat=event:vpn FTNTFGTsubtype=vpn FTNTFGTlevel=notice FTNTFGTvd=root FTNTFGTeventtime=1752662122 FTNTFGTlogdesc=SSL VPN tunnel up FTNTFGTaction=tunnel-up duser=jsmith src=203.0.113.60 FTNTFGTremip=203.0.113.60 FTNTFGTtunneltype=ssl-tunnel FTNTFGTtunnelid=1846277 FTNTFGTgroup=vpn-users FTNTFGTreason=login-success FTNTFGTmsg=SSL tunnel established

@@ -51,6 +51,7 @@ _LEVEL_TO_SEVERITY: dict[str, int] = {
 LOGID_TRAFFIC_FORWARD = "0000000013"
 LOGID_UTM_IPS = "0419016384"
 LOGID_DNS_QUERY = "1501054803"  # [Unverified] dns-query last-5; dns-response 54802 is confirmed
+LOGID_DNS_RESPONSE = "1501054802"  # confirmed (reference s2.4)
 LOGID_VPN_SUCCESS = "0101039947"  # [Unverified] tunnel-up last-5; login-fail 39426 is confirmed
 LOGID_VPN_FAIL = "0101039426"
 LOGID_EVENT_SYSTEM = "0100032002"
@@ -101,6 +102,8 @@ class FortiGateProfile(VendorProfile):
             return self._traffic_forward(event)
         if key == ("dns", "dns-query"):
             return self._dns_query(event)
+        if key == ("dns", "dns-response"):
+            return self._dns_response(event)
         if key == ("utm", "ips"):
             return self._utm_ips(event)
         if key == ("event", "vpn"):
@@ -213,6 +216,51 @@ class FortiGateProfile(VendorProfile):
         ext["FTNTFGTqclass"] = e.get("qclass", "IN")
         ext["act"] = event.action
         return self._header(LOGID_DNS_QUERY, f"dns:dns-query {event.action}", event.level), ext
+
+    def _dns_response(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
+        """dns:dns-response. Carries the resolution outcome, which dns-query cannot.
+
+        This path exists because a DGA's signal is *failed* resolution: a cluster
+        of NXDOMAIN answers with similar syntactic features. dns-query has no
+        response code, so REP-016 is not expressible without it.
+
+        Field naming: FortiOS non-standard fields take the FTNTFGT prefix
+        (reference s1.3). ``FTNTFGTrcode`` and ``FTNTFGTipaddr`` are
+        [Unverified] against a live build; signature id 54802 is confirmed.
+        """
+
+        e = event.extra
+        ext: dict[str, str] = {}
+        self._common_prefix(
+            ext,
+            logid=LOGID_DNS_RESPONSE,
+            cat="dns:dns-response",
+            subtype="dns-response",
+            level=event.level,
+            eventtime=event.eventtime,
+        )
+        ext["FTNTFGTpolicyid"] = e["policyid"]
+        ext["externalId"] = require(event.session_id, "session_id")
+        ext["src"] = require(event.src, "src")
+        ext["spt"] = require(event.spt, "spt")
+        ext["deviceInboundInterface"] = e.get("src_intf", self.device.inbound_intf)
+        ext["dst"] = require(event.dst, "dst")
+        ext["dpt"] = require(event.dpt, "dpt")
+        ext["proto"] = require(event.proto, "proto")
+        ext["FTNTFGTprofile"] = e.get("profile", "default")
+        ext["FTNTFGTxid"] = e["xid"]
+        ext["FTNTFGTqname"] = e["qname"]
+        ext["FTNTFGTqtype"] = e["qtype"]
+        ext["FTNTFGTqtypeval"] = e["qtypeval"]
+        ext["FTNTFGTqclass"] = e.get("qclass", "IN")
+        ext["FTNTFGTrcode"] = e["rcode"]
+        # A resolved answer only exists when the name resolved. Omitting it on
+        # NXDOMAIN is the point: that absence is what a DGA cluster looks like.
+        if e.get("ipaddr"):
+            ext["FTNTFGTipaddr"] = e["ipaddr"]
+        ext["act"] = event.action
+        name = f"dns:dns-response {event.action}"
+        return self._header(LOGID_DNS_RESPONSE, name, event.level), ext
 
     def _utm_ips(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
         e = event.extra

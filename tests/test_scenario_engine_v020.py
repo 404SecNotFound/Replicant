@@ -44,6 +44,7 @@ NEW_TECHNIQUES = [
     "REP-013",
     "REP-014",
     "REP-015",
+    "REP-016",
     "REP-017",
     "REP-018",
     "REP-019",
@@ -129,13 +130,71 @@ def test_new_techniques_use_only_synthetic_addresses(technique_id: str) -> None:
             ), f"{technique_id} emitted non-synthetic address {addr}"
 
 
-def test_rep016_not_implemented_until_dns_response_path_exists() -> None:
-    """REP-016 is catalogued in the research docs but deliberately unbuildable.
+# -- REP-016 DGA NXDOMAIN cluster ---------------------------------------------
 
-    A DGA technique with no NXDOMAIN in it would be worse than no technique, so
-    the engine refuses rather than approximating.
-    """
-    assert "REP-016" not in {t.id for t in CATALOG.techniques}
+
+def test_rep016_majority_of_answers_are_nxdomain() -> None:
+    """The signal is *failed* resolution, which is why dns-query could not carry it."""
+    preset = CATALOG.by_id("REP-016").params["low"]
+    plan = _plan("REP-016", "low", 1337)
+    dga = [e for e in plan.events if str(e.extra["qname"]).endswith(".invalid")]
+    assert dga
+    nx = [e for e in dga if e.extra["rcode"] == "NXDOMAIN"]
+    ratio = len(nx) / len(dga)
+    assert ratio == pytest.approx(float(preset["nx_ratio"]), abs=0.03)
+
+
+def test_rep016_resolved_answers_carry_an_address_and_nxdomain_does_not() -> None:
+    """The absence of a resolved address IS the NXDOMAIN signal."""
+    plan = _plan("REP-016", "low", 1337)
+    for event in plan.events:
+        if event.extra["rcode"] == "NOERROR":
+            assert event.extra.get("ipaddr"), "a resolved answer must carry an address"
+        else:
+            assert not event.extra.get("ipaddr"), "NXDOMAIN must not carry an address"
+
+
+def test_rep016_many_distinct_second_level_labels_not_subdomains() -> None:
+    """The inversion versus REP-004, which puts many subdomains under one parent."""
+    preset = CATALOG.by_id("REP-016").params["low"]
+    plan = _plan("REP-016", "low", 1337)
+    dga = [str(e.extra["qname"]) for e in plan.events if str(e.extra["qname"]).endswith(".invalid")]
+    labels = {name.split(".", 1)[0] for name in dga}
+    # Distinct registered names, regenerated per epoch.
+    assert len(labels) >= int(preset["domains_per_epoch"])
+    assert {name.split(".", 1)[1] for name in dga} == {"invalid"}
+
+
+def test_rep016_generated_names_can_never_resolve() -> None:
+    """Thousands of unseen names are generated; the reserved TLD is what makes it safe."""
+    plan = _plan("REP-016", "high", 1337)
+    for event in plan.events:
+        qname = str(event.extra["qname"])
+        assert qname.endswith(".invalid") or qname.split(".", 1)[1] in set(ENTITIES.parents)
+
+
+def test_rep016_includes_benign_nxdomain_trickle() -> None:
+    """Without it, a rule alerting on any NXDOMAIN at all would look perfect."""
+    plan = _plan("REP-016", "low", 1337)
+    benign_nx = [
+        e
+        for e in plan.events
+        if e.extra["rcode"] == "NXDOMAIN" and not str(e.extra["qname"]).endswith(".invalid")
+    ]
+    assert benign_nx, "missing benign NXDOMAIN control"
+
+
+def test_rep016_renders_dns_response_on_all_three_vendors() -> None:
+    """The path this technique needed. Verifies the response code reaches the log."""
+    plan = _plan("REP-016", "low", 1337)
+    event = next(e for e in plan.events if e.extra["rcode"] == "NXDOMAIN")
+    for profile, key in (
+        (FortiGateProfile(), "FTNTFGTrcode"),
+        (PaloAltoProfile(), "PanOSDNSResponseCode"),
+        (CheckPointProfile(), "dns_rcode"),
+    ):
+        _, ext = profile.render(event)
+        assert ext[key] == "NXDOMAIN"
 
 
 # -- REP-012 jittered and fleet-aggregate callback ----------------------------

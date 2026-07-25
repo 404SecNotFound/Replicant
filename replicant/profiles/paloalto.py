@@ -97,6 +97,8 @@ class PaloAltoProfile(VendorProfile):
             return self._traffic_forward(event)
         if key == ("dns", "dns-query"):
             return self._dns_query(event)
+        if key == ("dns", "dns-response"):
+            return self._dns_response(event)
         if key == ("utm", "ips"):
             return self._threat_ips(event)
         if key == ("event", "vpn"):
@@ -186,6 +188,42 @@ class PaloAltoProfile(VendorProfile):
         ext["cn1"] = require(event.session_id, "session_id")
         ext["PanOSDNSQuery"] = e["qname"]
         ext["PanOSDNSType"] = e["qtype"]
+        ext["cnt"] = "1"
+        ext["cs6Label"] = "LogProfile"
+        ext["cs6"] = "default"
+        return self._header("end", "TRAFFIC", event.level), ext
+
+    def _dns_response(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
+        """DNS resolution outcome. [Unverified] PanOSDNSResponseCode field name."""
+
+        e = event.extra
+        ext: dict[str, str] = {}
+        ext["rt"] = str(event.eventtime)
+        ext["deviceExternalId"] = self.device.serial
+        ext["src"] = require(event.src, "src")
+        ext["dst"] = require(event.dst, "dst")
+        ext["spt"] = require(event.spt, "spt")
+        ext["dpt"] = require(event.dpt, "dpt")
+        ext["proto"] = _proto(event.proto)
+        ext["act"] = "allow"
+        ext["app"] = "dns"
+        ext["cs1Label"] = "Rule"
+        ext["cs1"] = f"policy-{e['policyid']}"
+        ext["cs3Label"] = "Virtual System"
+        ext["cs3"] = self.device.vsys
+        ext["cs4Label"] = "Source Zone"
+        ext["cs4"] = self.device.src_zone
+        ext["cs5Label"] = "Destination Zone"
+        ext["cs5"] = self.device.dst_zone
+        ext["deviceInboundInterface"] = self.device.inbound_intf
+        ext["deviceOutboundInterface"] = self.device.outbound_intf
+        ext["cn1Label"] = "SessionID"
+        ext["cn1"] = require(event.session_id, "session_id")
+        ext["PanOSDNSQuery"] = e["qname"]
+        ext["PanOSDNSType"] = e["qtype"]
+        ext["PanOSDNSResponseCode"] = e["rcode"]
+        if e.get("ipaddr"):
+            ext["PanOSDNSResolvedAddress"] = e["ipaddr"]
         ext["cnt"] = "1"
         ext["cs6Label"] = "LogProfile"
         ext["cs6"] = "default"

@@ -13,7 +13,7 @@
 # limitations under the License.
 """Byte-for-byte golden tests against docs/fortigate-cef-reference.md.
 
-The reference document is the oracle. This test extracts the seven constructed
+The reference document is the oracle. This test extracts the eight constructed
 sample lines from section 3 of the reference, strips the transport-added syslog
 prefix, and asserts the FortiGate profile + CEF serializer reproduce each CEF
 payload exactly. Reading the lines from the file (rather than transcribing them)
@@ -33,7 +33,7 @@ from replicant.profiles.fortigate import FortiGateProfile
 
 REFERENCE = Path(__file__).resolve().parents[1] / "docs" / "fortigate-cef-reference.md"
 
-# Matches only the seven section-3 golden lines: a numeric syslog PRI, then a
+# Matches only the eight section-3 golden lines: a numeric syslog PRI, then a
 # FortiGate CEF payload. The section-1.4 template lines start with literal
 # "<PRI>" (no digits) and the escaping examples have no prefix, so neither match.
 _GOLDEN_LINE = re.compile(r"^<\d+>.* (CEF:0\|Fortinet\|Fortigate\|.*)$")
@@ -49,7 +49,7 @@ def _golden_payloads() -> list[str]:
 
 
 def _events() -> list[tuple[str, EventRecord]]:
-    """The seven events, in the same order the lines appear in the reference."""
+    """The eight events, in the same order the lines appear in the reference."""
 
     return [
         (
@@ -160,6 +160,32 @@ def _events() -> list[tuple[str, EventRecord]]:
             ),
         ),
         (
+            "dns:dns-response NXDOMAIN",
+            EventRecord(
+                log_type="dns",
+                subtype="dns-response",
+                action="pass",
+                level="notice",
+                eventtime=1752662042,
+                src="10.20.30.40",
+                spt=54621,
+                dst="10.20.0.53",
+                dpt=53,
+                proto=17,
+                session_id=13356,
+                extra={
+                    "policyid": "7",
+                    "profile": "default",
+                    "xid": "42312",
+                    "qname": "qv7x2p9k4m.invalid",
+                    "qtype": "A",
+                    "qtypeval": "1",
+                    "qclass": "IN",
+                    "rcode": "NXDOMAIN",
+                },
+            ),
+        ),
+        (
             "event:vpn ssl-login (success)",
             EventRecord(
                 log_type="event",
@@ -228,8 +254,8 @@ def _events() -> list[tuple[str, EventRecord]]:
     ]
 
 
-def test_reference_has_seven_golden_lines() -> None:
-    assert len(_golden_payloads()) == 7
+def test_reference_has_eight_golden_lines() -> None:
+    assert len(_golden_payloads()) == 8
 
 
 def test_event_fixture_count_matches_reference() -> None:

@@ -292,14 +292,12 @@ _BUILDER_METHOD_NAMES: dict[str, str] = {
     "REP-009": "_plan_ips_spike",
     "REP-010": "_plan_denied_burst",
     "REP-011": "_plan_geovelocity",
-    # v0.2.0 expansion (docs/technique-catalog-expansion-research*.md). REP-016
-    # is absent on purpose: it needs a dns:dns-response render path that does not
-    # exist yet, so asking for it raises NotImplementedError rather than emitting
-    # a DGA pattern with no NXDOMAIN in it.
+    # v0.2.0 expansion (docs/technique-catalog-expansion-research*.md).
     "REP-012": "_plan_jittered_c2",
     "REP-013": "_plan_worm_spread",
     "REP-014": "_plan_cryptomining",
     "REP-015": "_plan_low_throughput_dns_exfil",
+    "REP-016": "_plan_dga_nxdomain",
     "REP-017": "_plan_doh_bypass",
     "REP-018": "_plan_login_chain",
     "REP-019": "_plan_stealth_scan",
@@ -1608,6 +1606,127 @@ class ScenarioEngine:
             f"{qph} queries/hour over {duration_s // 3600}h ({total} exfil queries), "
             f"{len(labels)} unique labels under one parent. Deliberately below "
             "tunnel-rate thresholds. A same-volume benign parent is included."
+        )
+        return events, note, truncated
+
+    # -- REP-016 DGA NXDOMAIN cluster -----------------------------------------
+
+    def _dns_response_record(
+        self,
+        rng: Any,
+        src: str,
+        resolver: str,
+        qname: str,
+        rcode: str,
+        eventtime: int,
+        session: int,
+        ipaddr: str | None = None,
+    ) -> EventRecord:
+        """One dns:dns-response record. The resolution OUTCOME, which a query lacks."""
+
+        extra = {
+            "policyid": "7",
+            "profile": "default",
+            "xid": str(int(rng.integers(0, 65535))),
+            "qname": qname,
+            "qtype": "A",
+            "qtypeval": "1",
+            "qclass": "IN",
+            "rcode": rcode,
+        }
+        if ipaddr is not None:
+            extra["ipaddr"] = ipaddr
+        return EventRecord(
+            log_type="dns",
+            subtype="dns-response",
+            action="pass",
+            level="notice",
+            eventtime=eventtime,
+            src=src,
+            spt=int(rng.integers(1024, 65535)),
+            dst=resolver,
+            dpt=53,
+            proto=17,
+            session_id=session,
+            extra=extra,
+        )
+
+    def _plan_dga_nxdomain(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        domains_per_epoch = int(preset["domains_per_epoch"])
+        epochs = int(preset["epochs"])
+        label_lo, label_hi = (int(v) for v in preset["label_len"])
+        nx_ratio = float(preset["nx_ratio"])
+
+        src = str(rng.choice(entities.internal_hosts))
+        epoch_s = (duration_override_s or 3600) // max(epochs, 1)
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        truncated = False
+        resolved_total = 0
+        for epoch in range(epochs):
+            # The domain set regenerates per epoch, mirroring a time-seeded
+            # generator. Distinct second-level labels, not subdomains of one
+            # parent: that inversion is what separates this from REP-004.
+            labels = high_entropy_labels(rng, domains_per_epoch, label_lo, label_hi)
+            resolved_index = int(domains_per_epoch * nx_ratio)
+            for index, label in enumerate(labels):
+                resolved = index >= resolved_index
+                when = anchor + epoch * epoch_s + int(index * epoch_s / max(domains_per_epoch, 1))
+                events.append(
+                    self._dns_response_record(
+                        rng,
+                        src,
+                        entities.resolver,
+                        # Reserved TLD: thousands of unseen names are generated
+                        # here and none of them can ever resolve.
+                        f"{label}.invalid",
+                        "NOERROR" if resolved else "NXDOMAIN",
+                        when,
+                        session,
+                        # Only the registered rendezvous domain returns an answer.
+                        str(rng.choice(entities.adversary_external)) if resolved else None,
+                    )
+                )
+                resolved_total += int(resolved)
+                session += 1
+                if len(events) >= self.max_events:
+                    truncated = True
+                    break
+            if truncated:
+                break
+
+        # Benign NXDOMAIN trickle: typos and stale records. Without it, a rule
+        # that alerts on any NXDOMAIN at all would look perfect.
+        benign_parent = str(rng.choice(entities.parents))
+        for index in range(min(12, max(self.max_events - len(events), 0))):
+            events.append(
+                self._dns_response_record(
+                    rng,
+                    src,
+                    entities.resolver,
+                    f"{'wpad' if index % 2 else 'isatap'}.{benign_parent}",
+                    "NXDOMAIN",
+                    anchor + index * max(epoch_s // 2, 1),
+                    session,
+                )
+            )
+            session += 1
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"{epochs} epoch(s) of {domains_per_epoch} distinct generated domains, "
+            f"{nx_ratio:.0%} answered NXDOMAIN and {resolved_total} resolved (the "
+            "registered rendezvous domain). A benign NXDOMAIN trickle is included so "
+            "thresholding on NXDOMAIN alone does not look sufficient."
         )
         return events, note, truncated
 
