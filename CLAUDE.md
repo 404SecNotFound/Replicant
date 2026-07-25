@@ -66,11 +66,17 @@ Output convention: command results go to stdout, operator-facing errors go to st
 
 - Phase 1 (complete): pipeline plus three techniques (REP-001, REP-002, REP-004) end to end, loopback CI green. Scope is in `docs/phase1-kickoff-prompt.md`.
 - Phase 1.5 (complete): web UI and embedded terminal over the same Orchestrator.
-- Phase 2 (complete): full catalog (all eleven techniques REP-001..011), entity hardening, TLS transport, REP-008 warm-up baseline, manifests.
-- Phase 3 (complete): Palo Alto and Check Point profiles both done. `replicant/profiles/paloalto.py` + `docs/paloalto-cef-reference.md` and `replicant/profiles/checkpoint.py` + `docs/checkpoint-cef-reference.md` (seven golden lines each, all [Unverified]). Vendor selectable with `--vendor {fortigate,paloalto,checkpoint}`, the Rich menu `[v]` picker, and the web UI selector (canonical id list in `settings.VENDORS`). Check Point emits string CEF severity (Unknown/Low/Medium/High/Very-High), so `CefHeader.severity` is `int | str`.
+- Phase 2 (complete): first full catalog (REP-001..011), entity hardening, TLS transport, REP-008 warm-up baseline, manifests. The catalog is now 24 entries; see the v0.2.0 note below.
+- Phase 3 (complete): Palo Alto and Check Point profiles both done. `replicant/profiles/paloalto.py` + `docs/paloalto-cef-reference.md` and `replicant/profiles/checkpoint.py` + `docs/checkpoint-cef-reference.md` (eight golden lines each, all [Unverified]). Vendor selectable with `--vendor {fortigate,paloalto,checkpoint}`, the Rich menu `[v]` picker, and the web UI selector (canonical id list in `settings.VENDORS`). Check Point emits string CEF severity (Unknown/Low/Medium/High/Very-High), so `CefHeader.severity` is `int | str`.
 - Phase 4 (complete): ATT&CK scenario composition. Three curated chains (SCEN-001/002/003) in `data/scenario-catalog.yaml` compose techniques into one deterministic multi-stage timeline; each run writes a paired manifest and advisory. Driven from `replicant scenario list|show|run` and the Rich menu `[a]`. The advisory is coverage and correlation context only, derived from the composed events with no model involved; humans author the detection design. Web UI scenario support is deliberately deferred, and a test asserts its absence so a partial implementation is caught.
 
-Next up, not started: group the catalog by MITRE tactic in the web UI left rail, then a Docs tab. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
+- v0.2.0 (catalog expansion): 11 techniques to 24 (REP-012..REP-024). Every new entry is anchored to a peer-reviewed paper with measured results. Design record and rejected ideas are in `docs/technique-catalog-expansion-research.md` and `docs/technique-catalog-expansion-research-round2.md`; the per-technique summary is in the CHANGELOG. Added the `dns:dns-response` render path on all three vendors (FortiGate signature 54802 is confirmed, the extension key names are [Unverified]) plus a `scanner_external` entity pool on 192.0.2.0/24 for inbound scanning.
+
+  Two conventions this established, both load-bearing for new techniques:
+  1. `benign_baseline` is a property to **generate**, not just document. A plan that emits only the malicious pattern lets any detection score perfectly. Bilot et al. (USENIX Sec 2025) is the argument; see the CHANGELOG.
+  2. A technique that cannot be expressed honestly is not added. REP-016 was catalogued but left unbuildable until `dns:dns-response` existed, because a DGA entry with no NXDOMAIN in it is worse than no entry.
+
+Next up, not started: group the catalog by MITRE tactic in the web UI left rail, then a Docs tab. At 24 entries the tactic grouping is close to a prerequisite for the menu staying usable, not a cosmetic improvement. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 ## Definition of done for any change
 

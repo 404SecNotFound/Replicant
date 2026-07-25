@@ -1,8 +1,19 @@
 # Technique catalog expansion research, round 2
 
-Status: research proposal. Companion to `technique-catalog-expansion-research.md`
-(round 1). Round 1 proposed REP-012 through REP-020. This round proposes REP-021
-through REP-024.
+Status: **implemented in v0.2.0.** Companion to
+`technique-catalog-expansion-research.md` (round 1). Round 1 proposed REP-012
+through REP-020; this round proposes REP-021 through REP-024. All four now exist
+as catalog entries with engine builders and tests.
+
+The three risks this document flagged as unverified in section 7 were resolved by
+reading the code rather than assuming:
+
+1. **One plan can span two render paths.** `render()` dispatches per record on
+   `(log_type, subtype)`, so REP-017, REP-018 and REP-024 needed no design change.
+2. **Inbound orientation works.** `_traffic_forward` already reads `src_intf` and
+   `dst_intf` from `extra`, so REP-021 reverses the interface pair with no profile
+   change.
+3. **Long durations** are handled by the existing `duration_override_s` path.
 
 Author: RZA. Date: 2026-07-25.
 
@@ -117,10 +128,24 @@ gives an order-of-magnitude anchor for source cardinality.
     safety_notes: "external source addresses are synthetic, drawn from the documentation ranges. No real scanner infrastructure is named"
 ```
 
-Design note: the entity model currently builds outbound flows. Emitting inbound
-requires the interface pair and direction to be reversed. **[Unverified]** whether
-`_traffic_forward` and the entity pools handle an inbound orientation cleanly; I
-have not traced it. This is the one implementation risk in this proposal.
+**Resolved during implementation.** Two corrections to the sketch above:
+
+1. `_traffic_forward` already reads `src_intf` and `dst_intf` from `extra`, so
+   reversing the interface pair needed no profile change. Confirmed in emitted
+   CEF: `src=192.0.2.1 deviceInboundInterface=port1 ... deviceOutboundInterface=port2`.
+2. **The source counts in the sketch above are not achievable and were reduced.**
+   The three IANA documentation ranges hold 762 addresses in total, and two of
+   them are already committed to the adversary and benign pools. A new
+   `scanner_external` pool on `192.0.2.0/24` brings the usable scanner ceiling to
+   500, so the shipped presets are 120 / 300 / 450 rather than 200 / 1200 / 5000.
+   This is a safety constraint, not a tuning limit: the source study observed
+   465,251 unique scanners and Replicant cannot represent that without leaving
+   synthetic space. When the ceiling binds, the run summary says so.
+
+Implementation also exposed a collision worth recording: the Check Point
+profile's default `origin` is `192.0.2.1`, inside the new scanner pool, so a
+perimeter-scan run could have emitted the reporting gateway's own address as a
+scan source. `EntityConfig.scanner_reserve` skips the low addresses of the range.
 
 ### REP-022 Multi-stage IDS alert chain
 

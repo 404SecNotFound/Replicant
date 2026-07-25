@@ -1,7 +1,17 @@
 # Technique catalog expansion research
 
-Status: research proposal. Nothing here is implemented. No catalog entry, engine
-builder, or test has been added as a result of this document.
+Status: **implemented in v0.2.0.** This document was written as a proposal and is
+kept as the design record. All nine proposals here (REP-012 through REP-020) now
+exist as catalog entries with engine builders and tests.
+
+Two things changed between proposal and implementation, both recorded in place
+below rather than quietly edited out:
+
+- REP-013's spread factor was `max(1, fanout // 6)`, which is 1 at the low
+  preset, so the infected population never grew and the technique degenerated
+  into a slow REP-003. Floored at 2.
+- REP-021's source ceiling is smaller than first sketched. See the note in
+  round 2, section 4.
 
 Author: RZA. Date: 2026-07-25.
 
