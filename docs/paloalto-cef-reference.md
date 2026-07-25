@@ -133,6 +133,6 @@ System admin auth failure:
   `(log_type, subtype)` categories; `PaloAltoProfile.render` maps each to the PAN-OS layout above.
   The FortiGate `signature_id` in the catalog is documentation only and is not read by either profile.
 - `event:vpn` with `srccountry` present (REP-011 geovelocity) adds `cs4Label=Source Region cs4=<country>`
-  after `PanOSAuthMethod`; the seven golden lines omit it, so it stays optional.
+  after `PanOSAuthMethod`; the eight golden lines omit it, so it stays optional.
 - Select the vendor at run time with `--vendor paloalto` (default `fortigate`). Same seed plus
   technique yields the same plan for either vendor; only the serialization differs.

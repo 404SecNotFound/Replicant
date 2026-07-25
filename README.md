@@ -158,7 +158,7 @@ replicant run REP-009 --intensity high --vendor paloalto   --to-file ./out/panos
 replicant run REP-009 --intensity high --vendor checkpoint --to-file ./out/checkpoint.log --no-send
 ```
 
-Palo Alto renders to PAN-OS CEF ([`docs/paloalto-cef-reference.md`](docs/paloalto-cef-reference.md)) and Check Point to Log Exporter CEF ([`docs/checkpoint-cef-reference.md`](docs/checkpoint-cef-reference.md)). Both reference docs are `[Unverified]` against a live build and each carries seven golden sample lines that reuse the same synthetic entities as the FortiGate oracle for direct comparison.
+Palo Alto renders to PAN-OS CEF ([`docs/paloalto-cef-reference.md`](docs/paloalto-cef-reference.md)) and Check Point to Log Exporter CEF ([`docs/checkpoint-cef-reference.md`](docs/checkpoint-cef-reference.md)). Both reference docs are `[Unverified]` against a live build and each carries eight golden sample lines that reuse the same synthetic entities as the FortiGate oracle for direct comparison.
 
 Compose several techniques into one ordered, multi-stage attack chain that shares a synthetic through-line (one victim host, one adversary IP), then preview its coverage or emit the merged CEF timeline:
 
@@ -197,6 +197,41 @@ The catalog is the single source of truth for the menu, the CLI, and the engine.
 | REP-009 | IDS/IPS event-rate spike | utm:ips | UC-008 | T1595, T1190 | Implemented |
 | REP-010 | Denied outbound connection burst | traffic:forward | UC-009 | T1071, T1090 | Implemented |
 | REP-011 | VPN geovelocity anomaly | event:vpn | UC-010 | T1078, T1133 | Implemented |
+| REP-012 | Jittered and fleet-aggregate C2 callback | traffic:forward accept | UC-011 | T1071, T1029 | Implemented |
+| REP-013 | Self-propagating malware spread | traffic:forward | UC-012 | T1210, T1021.002, T1046 | Implemented |
+| REP-014 | Cryptomining pool session | traffic:forward accept | UC-013 | T1496 | Implemented |
+| REP-015 | Low-throughput DNS exfiltration | dns:dns-query | UC-014 | T1048.003, T1071.004 | Implemented |
+| REP-016 | DGA NXDOMAIN cluster | dns:dns-response | UC-015 | T1568.002, T1071.004 | Implemented |
+| REP-017 | Encrypted DNS (DoH) policy bypass | traffic:forward + dns:dns-query | UC-016 | T1572, T1071.004 | Implemented |
+| REP-018 | Lateral movement login chain | event:vpn + event:system + traffic:forward | UC-017 | T1021, T1078, T1550 | Implemented |
+| REP-019 | Stealth scan below rate threshold | traffic:forward deny | UC-018 | T1046, T1595.001 | Implemented |
+| REP-020 | First contact with a newly registered domain | dns:dns-query | UC-019 | T1583.001, T1071 | Implemented |
+| REP-021 | Inbound perimeter scan reception | traffic:forward deny (inbound) | UC-020 | T1595.001, T1595.002 | Implemented |
+| REP-022 | Multi-stage IDS alert chain | utm:ips | UC-021 | T1595, T1190, T1071 | Implemented |
+| REP-023 | TLS 1.3 C2 with flow-only signal | traffic:forward accept | UC-022 | T1071.001, T1573.002 | Implemented |
+| REP-024 | Internal host as proxy relay node | traffic:forward | UC-023 | T1090, T1090.001 | Implemented |
+
+REP-012 through REP-024 are each anchored to a peer-reviewed detection paper with
+measured results, so the generated pattern reflects what a published detector
+actually keys on rather than a plausible guess. The anchors, the evidence, and the
+ideas that were considered and rejected are recorded in
+[docs/technique-catalog-expansion-research.md](docs/technique-catalog-expansion-research.md)
+and [round 2](docs/technique-catalog-expansion-research-round2.md).
+
+Several of them are deliberately the hard version of an earlier entry, so the pair
+grades a detection rather than just firing it. REP-001 is a fixed-interval callback
+that any periodicity test catches; REP-012 widens the jitter and spreads a rare
+callback across a fleet so the period exists only in the aggregate. REP-004 is a
+DNS tunnel at 20 to 200 queries per second; REP-015 runs at queries per hour,
+under the thresholds REP-004 trips. REP-002 and REP-003 trip any scan rule;
+REP-019 stays below the threshold on purpose.
+
+Where a detection depends on separating the signal from a look-alike, the plan
+emits the look-alike too. A run that contained only the malicious pattern would let
+any rule score perfectly and teach you nothing, so REP-014 ships a bursty benign
+long session, REP-018 an admin star pattern against its chain, REP-022 unrelated
+alert noise around its ordered chain, and REP-024 a sanctioned proxy with an
+identical traffic shape.
 
 Each technique produces a statistically shaped stream rather than flat constants. REP-001 holds the source, destination, port, and protocol constant while varying byte sizes and session identifiers on a fixed interval with jitter. REP-003 holds one source and one port while sweeping many unique destination hosts, mostly denied. REP-004 emits high-entropy query names under one synthetic parent domain with query types weighted toward TXT and NULL.
 
@@ -208,7 +243,7 @@ All three call the same Orchestrator. Anything the menu can do, `replicant run` 
 
 `replicant list`, `replicant connect`, `replicant run`, and `replicant scenario` cover the full workflow for scripting and CI.
 
-<img src="docs/images/cli-list.png" alt="Output of replicant list: a table of eleven techniques with their IDs, names, detection use cases, log types, and ATT&CK mappings" width="860" />
+<img src="docs/images/cli-list.png" alt="Output of replicant list: a table of techniques with their IDs, names, detection use cases, log types, and ATT&CK mappings" width="860" />
 
 ### Rich terminal menu
 
@@ -288,6 +323,8 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 - **Phase 2 (complete):** all eleven techniques implemented (REP-001 through REP-011), the off-hours weighting used by REP-005, TLS syslog transport, and a warm-up baseline for REP-008 whose boundary is recorded in the run manifest.
 - **Phase 3 (complete):** multi-vendor. Palo Alto (PAN-OS) and Check Point (Log Exporter) profiles join FortiGate, each with an `[Unverified]` reference doc and byte-for-byte golden lines. Select the vendor with `--vendor {fortigate,paloalto,checkpoint}`, in the Rich menu (`[v]`), or in the web UI; one technique catalog and one scenario engine drive every vendor, only the serialization differs.
 - **Phase 4 (complete):** ATT&CK scenario composition. Curated scenarios compose the existing techniques into one deterministic, multi-stage CEF timeline with a shared synthetic through-line, plus an advisory coverage document that maps the chain to ATT&CK tactics and flags gaps. Any AI assistance stays advisory while a human authors the detection design. Driven from `replicant scenario` (list/show/run) and the Rich menu `[a]`.
+- **Catalog expansion (complete):** the catalog grew from 11 techniques to 24 (REP-012 through REP-024), each anchored to a peer-reviewed detection paper with measured results rather than to a plausible guess. Added the `dns:dns-response` render path on all three vendors, which also makes fast-flux and DNS TTL techniques possible later, and a dedicated inbound-scanner entity pool. Several new entries are the graded, harder counterpart of an existing one, and techniques whose detection depends on separating a signal from a look-alike now emit the look-alike as well.
+- **Next:** group the catalog by MITRE tactic in the web UI left rail, then a docs tab. At 24 entries the grouping is closer to a prerequisite for a usable menu than to a cosmetic improvement.
 
 ## Prior art and positioning
 
