@@ -328,6 +328,332 @@ techniques:
     references: ["UC-010 GeoIP + user normalisation prereq", "fortigate-cef-reference: T1078/T1133"]
     safety_notes: "source IPs and countries are synthetic tags"
 
+  # ---------------------------------------------------------------------------
+  # v0.2.0 expansion. Every entry below is anchored to a peer-reviewed paper with
+  # measured results; see docs/technique-catalog-expansion-research.md (round 1)
+  # and docs/technique-catalog-expansion-research-round2.md (round 2).
+  #
+  # The benign_baseline field is treated as a correctness requirement here, not a
+  # nicety. Bilot et al. (USENIX Security 2025) found eight state-of-the-art
+  # provenance IDS not deployment-ready despite near-perfect published results.
+  # A technique that emits only the malicious pattern makes any detection score
+  # perfectly and teaches the operator nothing.
+  # ---------------------------------------------------------------------------
+
+  - id: REP-012
+    name: "Jittered and fleet-aggregate C2 callback"
+    ndr_rule: "NDR-C2-011"
+    ndr_uc: "UC-011"
+    attack:
+      tactics: ["TA0011 Command and Control"]
+      techniques: ["T1071", "T1029"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["dst", "dpt", "proto"]     # src is deliberately NOT held
+    cef_fields_varied: ["src", "rt", "out", "in", "externalId"]
+    params:
+      low:    { mode: "jitter", hosts: 1,  interval_s: 300,  jitter_pct: 50,  duration_min: 240, out_bytes: [200, 1500] }
+      medium: { mode: "fleet",  hosts: 12, interval_s: 1800, jitter_pct: 80,  duration_min: 480, out_bytes: [200, 1500] }
+      high:   { mode: "fleet",  hosts: 40, interval_s: 3600, jitter_pct: 100, duration_min: 720, out_bytes: [400, 2000] }
+    distributions:
+      interval: "jitter mode holds one src and widens jitter until per-host periodicity is weak. fleet mode gives each src a rare callback with an offset phase, so the period is only visible in the aggregate across src"
+      out_bytes: "log-normal, low variance, same profile as REP-001"
+      dpt_choices: [443, 8443]
+    benign_baseline: "a benign periodic destination (software update check) is emitted alongside, because both source papers name legitimate periodic software as the dominant false positive"
+    references: ["BAYWATCH DSN 2016", "Zhang et al. ACSAC 2023 aggregation-based beaconing detection"]
+    safety_notes: "one synthetic external destination from 203.0.113.0/24"
+
+  - id: REP-013
+    name: "Self-propagating malware spread (worm-like)"
+    ndr_rule: "NDR-LATERAL-012"
+    ndr_uc: "UC-012"
+    attack:
+      tactics: ["TA0008 Lateral Movement", "TA0007 Discovery"]
+      techniques: ["T1210", "T1021.002", "T1046"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"          # mixed with deny
+    cef_fields_held: ["dpt"]
+    cef_fields_varied: ["src", "dst", "act", "rt", "externalId"]
+    params:
+      low:    { seed_hosts: 1, generations: 3, fanout: 8,  port: 445,  gen_gap_s: 120 }
+      medium: { seed_hosts: 1, generations: 5, fanout: 12, port: 445,  gen_gap_s: 60 }
+      high:   { seed_hosts: 2, generations: 6, fanout: 20, port: 3389, gen_gap_s: 30 }
+    distributions:
+      growth: "each infected source probes fanout targets; a fixed fraction accept and become sources in the next generation, so the count of DISTINCT sources on the port grows geometrically"
+      action_mix: "majority deny (target absent or not vulnerable), minority accept (successful spread)"
+      port_choices: [445, 3389, 22, 23]
+    benign_baseline: "east-west SMB is normal, but from a small stable set of server sources; the signal is a growing source population, not the traffic itself"
+    references: ["PORTFILER IEEE CNS 2021"]
+    safety_notes: "nothing propagates. The generation count is arithmetic in a loop and every address is synthetic internal space. No code executes"
+
+  - id: REP-014
+    name: "Cryptomining pool session"
+    ndr_rule: "NDR-IMPACT-013"
+    ndr_uc: "UC-013"
+    attack:
+      tactics: ["TA0040 Impact"]
+      techniques: ["T1496"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["src", "dst", "dpt", "proto"]
+    cef_fields_varied: ["rt", "out", "in", "FTNTFGTduration", "externalId"]
+    params:
+      low:    { sessions: 1, session_min: 120, share_interval_s: 60, dpt: 3333 }
+      medium: { sessions: 3, session_min: 480, share_interval_s: 30, dpt: 14444 }
+      high:   { sessions: 6, session_min: 720, share_interval_s: 10, dpt: 443 }
+    distributions:
+      duration: "single sessions lasting hours, far above the per-host session duration norm"
+      byte_ratio: "in:out close to 1:1, both small and steady. No large transfer at any point, which is what separates it from exfiltration"
+      dpt_choices: [3333, 4444, 5555, 7777, 14444, 443]
+    benign_baseline: "a long-lived business session is emitted alongside, bursty in bytes rather than metronomic. MineShark had to auto-filter over 99.3% of false alarms, which is why this baseline is required"
+    references: ["MineShark NDSS 2025", "MineHunter ACSAC 2021", "CJ-Sniffer RAID 2022"]
+    safety_notes: "pool destinations are synthetic documentation-range IPs. Never substitute a real mining pool hostname or address, even as a label"
+
+  - id: REP-015
+    name: "Low-throughput DNS exfiltration"
+    ndr_rule: "NDR-EXFIL-014"
+    ndr_uc: "UC-014"
+    attack:
+      tactics: ["TA0010 Exfiltration", "TA0011 Command and Control"]
+      techniques: ["T1048.003", "T1071.004"]
+    fortigate:
+      log_type: "dns"
+      subtype: "dns-query"
+      signature_id: "54803"    # [Unverified] same caveat as REP-004
+      action: "pass"
+    cef_fields_held: ["src", "dst", "dpt", "proto"]
+    cef_fields_varied: ["FTNTFGTqname", "FTNTFGTqtype", "rt", "FTNTFGTxid"]
+    params:
+      low:    { qph: 2,  duration_h: 72, label_len: [12, 20], unique_labels: 144 }
+      medium: { qph: 6,  duration_h: 48, label_len: [16, 28], unique_labels: 288 }
+      high:   { qph: 20, duration_h: 24, label_len: [20, 34], unique_labels: 480 }
+    distributions:
+      rate: "queries per HOUR, not per second. Deliberately below the tunnel-rate thresholds REP-004 trips"
+      qname: "shorter, lower-entropy labels than REP-004, consistent with encoded record fields rather than a file transfer"
+      qtype: "weighted to A and AAAA rather than TXT, because the query itself is the channel"
+      parent_domain: "one synthetic parent, stable for the whole run"
+    benign_baseline: "a benign parent with a comparable total query count but low unique-label cardinality, so query rate alone cannot separate them"
+    references: ["Nadler, Aminov, Shabtai, Computers & Security 80 (2019) 36-53"]
+    safety_notes: "parents stay non-resolvable synthetic. Runs are long (up to 72h of simulated time); the duration is stated in the run summary"
+
+  - id: REP-017
+    name: "Encrypted DNS (DoH) policy bypass"
+    ndr_rule: "NDR-C2-016"
+    ndr_uc: "UC-016"
+    attack:
+      tactics: ["TA0011 Command and Control", "TA0005 Defense Evasion"]
+      techniques: ["T1572", "T1071.004"]
+    fortigate:
+      log_type: "traffic"      # emits a dns:dns-query baseline phase too
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["src", "dpt", "proto"]
+    cef_fields_varied: ["dst", "rt", "out", "in", "externalId"]
+    params:
+      low:    { baseline_min: 120, switch_at_min: 60, doh_sessions: 20,  resolvers: 1 }
+      medium: { baseline_min: 240, switch_at_min: 90, doh_sessions: 80,  resolvers: 2 }
+      high:   { baseline_min: 240, switch_at_min: 60, doh_sessions: 200, resolvers: 3 }
+    distributions:
+      phase_1: "normal dns:dns-query volume from the host to the internal resolver on 53"
+      phase_2: "resolver queries stop entirely; repeated small TLS sessions to synthetic DoH resolver addresses on 443 begin"
+      byte_profile: "small request, small response, high session count, consistent with query-response carried over HTTPS"
+    benign_baseline: "the pre-switch phase IS the baseline. The detection has to notice an absence, which is the failure mode this technique exists to expose"
+    references: ["CIRA-CIC-DoHBrw-2020 corpus and derived detection literature"]
+    safety_notes: "DoH resolver addresses MUST stay synthetic (203.0.113.0/24). Never use the real public resolver addresses the source corpus was built on, even as labels"
+
+  - id: REP-018
+    name: "Lateral movement login chain"
+    ndr_rule: "NDR-LATERAL-017"
+    ndr_uc: "UC-017"
+    attack:
+      tactics: ["TA0008 Lateral Movement", "TA0006 Credential Access"]
+      techniques: ["T1021", "T1078", "T1550"]
+    fortigate:
+      log_type: "event"
+      subtype: "vpn"           # plus traffic:forward east-west legs
+      signature_id: "39947"    # [Unverified] same caveat as REP-011
+      action: "tunnel-up"
+    cef_fields_held: []
+    cef_fields_varied: ["duser", "src", "dst", "rt"]
+    params:
+      low:    { path_len: 3, users: 2, switch_at_hop: 2, window_min: 60 }
+      medium: { path_len: 5, users: 3, switch_at_hop: 3, window_min: 45 }
+      high:   { path_len: 7, users: 4, switch_at_hop: 2, window_min: 30 }
+    distributions:
+      path: "a login into hop 1, then each hop becomes the source of the login into the next. Strictly ordered, never overlapping"
+      user_switch: "duser changes at switch_at_hop, modelling credential theft partway along the path (the causal-user change Hopper keys on)"
+      timing: "hops separated by minutes within window_min"
+    benign_baseline: "an admin star pattern is emitted alongside: one workstation logging into several hosts. Same login count, different shape. Separating star from chain is the detection"
+    references: ["Hopper, USENIX Security 2021", "LMDetect 2024", "Euler NDSS 2022"]
+    safety_notes: "usernames from the synthetic directory pool, same as REP-007. No authentication is attempted against anything"
+
+  - id: REP-019
+    name: "Stealth scan below rate threshold"
+    ndr_rule: "NDR-RECON-018"
+    ndr_uc: "UC-018"
+    attack:
+      tactics: ["TA0007 Discovery", "TA0043 Reconnaissance"]
+      techniques: ["T1046", "T1595.001"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "deny"
+    cef_fields_held: []
+    cef_fields_varied: ["src", "dst", "dpt", "rt", "externalId"]
+    params:
+      low:    { probes_per_dst: 1, gap_s: [300, 900], src_pool: 4,  total_probes: 200,  order: "random" }
+      medium: { probes_per_dst: 1, gap_s: [120, 600], src_pool: 8,  total_probes: 600,  order: "random" }
+      high:   { probes_per_dst: 2, gap_s: [60, 300],  src_pool: 16, total_probes: 1500, order: "random" }
+    distributions:
+      gap: "minutes between probes, so no rate window accumulates enough events to trip a threshold"
+      src_rotation: "probes spread across src_pool to keep per-source counts under per-source thresholds"
+      order: "randomized destination and port order, defeating sequential-sweep signatures"
+    benign_baseline: "sparse policy denies look nearly identical. Separating them needs long-window aggregation across the whole source pool, which is exactly what TRW-style detectors do not do by default"
+    references: ["Jung et al., Fast Portscan Detection Using Sequential Hypothesis Testing, IEEE S&P 2004"]
+    safety_notes: "synthetic targets only. Long by design; the span is stated in the run summary"
+
+  - id: REP-020
+    name: "First contact with a newly registered domain"
+    ndr_rule: "NDR-C2-019"
+    ndr_uc: "UC-019"
+    attack:
+      tactics: ["TA0011 Command and Control", "TA0042 Resource Development"]
+      techniques: ["T1583.001", "T1071"]
+    fortigate:
+      log_type: "dns"
+      subtype: "dns-query"
+      signature_id: "54803"    # [Unverified]
+      action: "pass"
+    cef_fields_held: ["dst", "dpt"]
+    cef_fields_varied: ["src", "FTNTFGTqname", "rt", "FTNTFGTxid"]
+    params:
+      low:    { baseline_domains: 200, novel_domains: 1, hosts: 1, window_min: 60 }
+      medium: { baseline_domains: 500, novel_domains: 3, hosts: 3, window_min: 30 }
+      high:   { baseline_domains: 800, novel_domains: 8, hosts: 8, window_min: 15 }
+    distributions:
+      baseline: "a stable set of synthetic domains queried repeatedly across hosts, establishing organizational normal"
+      novel: "domains never queried before by any host, low query count, contacted by few hosts"
+    benign_baseline: "the baseline_domains phase IS the baseline. Novelty is organization-wide, unlike REP-008 which is novel per host"
+    references: ["PREDATOR, Hao et al., CCS 2016"]
+    safety_notes: "novel domains use reserved TLDs. Replicant performs no registration and no WHOIS lookup, and resolves nothing"
+
+  - id: REP-021
+    name: "Inbound perimeter scan reception"
+    ndr_rule: "NDR-RECON-020"
+    ndr_uc: "UC-020"
+    attack:
+      tactics: ["TA0043 Reconnaissance"]
+      techniques: ["T1595.001", "T1595.002"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "deny"
+    cef_fields_held: ["dst"]              # the perimeter address
+    cef_fields_varied: ["src", "dpt", "rt", "externalId"]
+    params:
+      low:    { unique_src: 120, duration_min: 60, campaigns: 2, aggressive_probes: 40 }
+      medium: { unique_src: 300, duration_min: 60, campaigns: 5, aggressive_probes: 120 }
+      high:   { unique_src: 500, duration_min: 30, campaigns: 9, aggressive_probes: 300 }
+    distributions:
+      src: "many distinct external sources, heavy-tailed: a few campaign sources send aggressive_probes each, a long tail sends one or two probes"
+      pattern: "steady low-rate background plus short aggressive campaigns overlaid, the two populations the IMC study separates"
+      direction: "INBOUND. The interface pair is reversed relative to every other traffic technique"
+      port_choices: [22, 23, 80, 443, 445, 1433, 3306, 3389, 5900, 8080]
+    benign_baseline: "this technique largely IS the baseline of a real perimeter. Its value is as a false-positive source for outbound scan rules, so it is designed to be run alongside REP-002 and REP-003"
+    references: ["Have you SYN me? Characterizing Ten Years of Internet Scanning, IMC 2024"]
+    safety_notes: "source cardinality is capped by the size of the IANA documentation ranges, which is a safety constraint and not a tuning limit. The source study observed 465,251 unique scanners; 500 is the honest ceiling here. No real scanner infrastructure is named"
+
+  - id: REP-022
+    name: "Multi-stage IDS alert chain (kill-chain ordered)"
+    ndr_rule: "NDR-CORR-021"
+    ndr_uc: "UC-021"
+    attack:
+      tactics: ["TA0043 Reconnaissance", "TA0001 Initial Access", "TA0011 Command and Control"]
+      techniques: ["T1595", "T1190", "T1071"]
+    fortigate:
+      log_type: "utm"
+      subtype: "ips"
+      signature_id: "16384"
+      action: "reset"
+    cef_fields_held: ["src", "dst"]       # the entity pair the chain is about
+    cef_fields_varied: ["FTNTFGTattack", "FTNTFGTattackid", "rt", "act", "FTNTFGTseverity"]
+    params:
+      low:    { stages: 3, hits_per_stage: [2, 5],  stage_gap_s: [120, 600], noise_alerts: 20 }
+      medium: { stages: 4, hits_per_stage: [3, 12], stage_gap_s: [60, 300],  noise_alerts: 120 }
+      high:   { stages: 5, hits_per_stage: [5, 25], stage_gap_s: [30, 180],  noise_alerts: 500 }
+    distributions:
+      stage_order: "recon, then exploit attempt, then post-exploitation or C2. Strictly ordered in time and never interleaved out of order, which is what a correlation rule keys on"
+      severity: "ascending across stages, so a severity-weighted rule sees escalation"
+      noise_alerts: "unrelated single alerts on other entity pairs, interleaved through the whole window"
+    benign_baseline: "noise_alerts IS the baseline. A rule that fires on any N alerts in a window fires on the noise too. AACT reported 61% of real SOC alerts were closable, so a clean chain would badly overstate a rule's quality"
+    references: ["Wilkens et al., Multi-Stage Attack Detection via Kill Chain State Machines", "ALERTPRO Computers & Security 2023", "AACT Turcotte et al. 2025"]
+    safety_notes: "attack names and signature ids are labels only, identical to REP-009. No exploit text and no payloads are ever emitted"
+
+  - id: REP-023
+    name: "TLS 1.3 C2 with flow-only signal"
+    ndr_rule: "NDR-C2-022"
+    ndr_uc: "UC-022"
+    attack:
+      tactics: ["TA0011 Command and Control"]
+      techniques: ["T1071.001", "T1573.002"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["src", "dst", "dpt", "proto"]      # dpt always 443
+    cef_fields_varied: ["rt", "out", "in", "externalId", "FTNTFGTduration"]
+    params:
+      low:    { sessions: 40,  interval_s: 180, out_bytes: [900, 1400],  in_bytes: [400, 900] }
+      medium: { sessions: 120, interval_s: 90,  out_bytes: [1100, 1600], in_bytes: [500, 1100] }
+      high:   { sessions: 300, interval_s: 45,  out_bytes: [1200, 1800], in_bytes: [600, 1300] }
+    distributions:
+      dpt: "always 443, indistinguishable from browsing on port alone"
+      byte_profile: "the distinguishing feature is LOW variance, not high volume. Browsing to 443 has wildly variable transfer sizes; this does not"
+      duration: "short and consistent per session, unlike a browsing session that holds open"
+      handshake: "no handshake-derived field is emitted at all. A detection that needs JA3 or a cipher suite gets nothing, which is the point of the technique"
+    benign_baseline: "concurrent browsing to 443 to other destinations with high byte variance and varied durations, so neither port nor destination count can separate them"
+    references: ["Extending C2 Traffic Detection Methodologies: From TLS 1.2 to TLS 1.3-enabled Malware, RAID 2024"]
+    safety_notes: "one synthetic external destination. Replicant negotiates no TLS for this technique; the --transport tls option is a separate concern (it encrypts the syslog channel to the collector)"
+
+  - id: REP-024
+    name: "Internal host as proxy relay node"
+    ndr_rule: "NDR-C2-023"
+    ndr_uc: "UC-023"
+    attack:
+      tactics: ["TA0011 Command and Control"]
+      techniques: ["T1090", "T1090.001"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: []                   # the relay host appears as dst inbound and src outbound
+    cef_fields_varied: ["src", "dst", "dpt", "rt", "out", "in", "externalId"]
+    params:
+      low:    { relay_pairs: 30,  lag_ms: [20, 200],  duration_min: 60, clients: 5 }
+      medium: { relay_pairs: 150, lag_ms: [10, 500],  duration_min: 60, clients: 25 }
+      high:   { relay_pairs: 600, lag_ms: [5, 1500],  duration_min: 30, clients: 80 }
+    distributions:
+      pairing: "each relayed request is an inbound session to the relay host followed within lag_ms by an outbound session from that host, with correlated byte volumes"
+      byte_correlation: "outbound out_bytes approximately equals inbound in_bytes, because the host is forwarding rather than originating"
+      lag: "jittered, and wide at the high preset, per the adversarially-robust framing of the source paper (naive fixed-window timing correlation is evadable)"
+    benign_baseline: "a sanctioned proxy host doing the same thing is emitted alongside. The pattern is identical; only the asset role differs. This technique tests whether a detection uses role or only pattern"
+    references: ["Beyond RTT: An Adversarially Robust Two-Tiered Approach for Residential Proxy Detection, NDSS"]
+    safety_notes: "Replicant relays nothing. Both halves of every pair are fabricated records. The only socket opened is to the operator's collector"
+
 # NOTES
 # 1. Signature IDs marked [Unverified] must be confirmed against a live FortiOS
 #    build before the pack is customer-facing. The CEF reference file records
