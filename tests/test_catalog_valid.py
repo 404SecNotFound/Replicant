@@ -31,8 +31,11 @@ def test_catalog_loads() -> None:
     assert CATALOG.timezone == "UTC+04:00"
 
 
-def test_catalog_has_eleven_techniques() -> None:
-    assert len(CATALOG.techniques) == 11
+def test_catalog_technique_count() -> None:
+    # 11 original + 12 from the v0.2.0 expansion. REP-016 is intentionally not
+    # here yet: it needs a dns:dns-response render path (see the round 1 research
+    # doc), and a DGA entry with no NXDOMAIN in it would be worse than no entry.
+    assert len(CATALOG.techniques) == 23
 
 
 def test_ids_and_uc_unique() -> None:

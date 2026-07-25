@@ -78,6 +78,10 @@ class EntityConfig:
     sweep_subnet: str = "10.50.0.0/16"
     adversary_subnet: str = "203.0.113.0/24"
     benign_subnet: str = "198.51.100.0/24"
+    # Inbound scanner sources (REP-021). Uses the third IANA documentation range,
+    # which no other pool draws from, so a perimeter-scan run does not collide
+    # with the adversary or benign external pools.
+    scanner_subnet: str = "192.0.2.0/24"
     resolver: str = "10.20.0.53"
     c2_ports: tuple[int, ...] = (443, 8443, 8080, 53)
     scan_ports: tuple[int, ...] = (445, 3389, 22, 23, 80)
@@ -103,6 +107,9 @@ class EntityModel:
     parents: list[str]
     users: list[str]
     countries: dict[str, str] = field(default_factory=dict)
+    # Inbound scanner sources. Defaulted rather than required so existing direct
+    # constructions of EntityModel keep working.
+    scanner_external: list[str] = field(default_factory=list)
 
     @classmethod
     def build(cls, config: EntityConfig | None = None) -> EntityModel:
@@ -130,6 +137,7 @@ class EntityModel:
             parents=list(cfg.parents),
             users=list(cfg.users),
             countries=countries,
+            scanner_external=_hosts(cfg.scanner_subnet, cfg.external_limit),
         )
 
     def summary(self) -> dict[str, object]:

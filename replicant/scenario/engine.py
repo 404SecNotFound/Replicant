@@ -19,8 +19,9 @@ same (seed, technique, params) yields the same plan (blueprint s12). Event times
 are ``anchor_epoch + deterministic offset`` so ``--to-file`` output is byte
 identical across runs with the same seed.
 
-All eleven catalog techniques (REP-001 through REP-011) have registered builders.
-A technique id with no builder raises NotImplementedError.
+Every catalog technique has a registered builder except REP-016, which needs a
+``dns:dns-response`` render path that does not exist yet. A technique id with no
+builder raises NotImplementedError rather than emitting an approximation of it.
 """
 
 from __future__ import annotations
@@ -203,6 +204,44 @@ _IPS_SIGNATURES: tuple[tuple[str, str], ...] = (
     ("Joomla.Core.Session.Remote.Code.Execution", "34321"),
 )
 
+# Kill-chain stage groups for REP-022. Attack names and ids here are synthetic
+# LABELS, exactly as for _IPS_SIGNATURES and REP-009: Replicant emits no exploit
+# text and generates no attack. The stage grouping is what a correlation rule
+# keys on, so the ordering matters and the specific names do not.
+# [Unverified] the recon and C2 entries are plausible-looking rather than
+# confirmed FortiGate signature ids; confirm before customer-facing use.
+_IPS_STAGES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
+    (
+        "recon",
+        "warning",
+        (("TCP.Port.Scan", "11279"), ("HTTP.Unix.Shell.IFS.Remote.Code.Execution", "34884")),
+    ),
+    (
+        "exploit",
+        "alert",
+        (
+            ("Apache.Log4j.Error.Log.Remote.Code.Execution", "51006"),
+            ("PHPUnit.Eval.Stdin.Remote.Code.Execution", "44035"),
+        ),
+    ),
+    (
+        "post-exploit",
+        "alert",
+        (("Web.Server.Password.Files.Access", "12688"), ("Generic.Web.Shell.Access", "40312")),
+    ),
+    (
+        "c2",
+        "critical",
+        (("Botnet.C2.Generic.Callback", "16384"), ("Suspicious.Outbound.Tunnel.Traffic", "22515")),
+    ),
+    (
+        "exfil",
+        "critical",
+        (("HTTP.Large.Outbound.Transfer", "18443"),),
+    ),
+)
+
+
 _IPS_REQUESTS: tuple[str, ...] = (
     "/struts2/index.action",
     "/index.php?option=login",
@@ -253,6 +292,22 @@ _BUILDER_METHOD_NAMES: dict[str, str] = {
     "REP-009": "_plan_ips_spike",
     "REP-010": "_plan_denied_burst",
     "REP-011": "_plan_geovelocity",
+    # v0.2.0 expansion (docs/technique-catalog-expansion-research*.md). REP-016
+    # is absent on purpose: it needs a dns:dns-response render path that does not
+    # exist yet, so asking for it raises NotImplementedError rather than emitting
+    # a DGA pattern with no NXDOMAIN in it.
+    "REP-012": "_plan_jittered_c2",
+    "REP-013": "_plan_worm_spread",
+    "REP-014": "_plan_cryptomining",
+    "REP-015": "_plan_low_throughput_dns_exfil",
+    "REP-017": "_plan_doh_bypass",
+    "REP-018": "_plan_login_chain",
+    "REP-019": "_plan_stealth_scan",
+    "REP-020": "_plan_newly_registered_domain",
+    "REP-021": "_plan_inbound_scan",
+    "REP-022": "_plan_ids_alert_chain",
+    "REP-023": "_plan_tls13_c2",
+    "REP-024": "_plan_proxy_relay",
 }
 
 
@@ -1087,3 +1142,1245 @@ class ScenarioEngine:
             )
             session += 1
         return events, None, truncated
+
+    # =========================================================================
+    # v0.2.0 expansion. Research anchors per technique are in the catalog entry
+    # and in docs/technique-catalog-expansion-research*.md.
+    #
+    # Shared convention: where a technique's detection depends on separating the
+    # signal from a look-alike, the planner emits the look-alike too. That is a
+    # correctness requirement, not decoration. A plan containing only the
+    # malicious pattern lets any rule score perfectly (round 2 doc, section 2).
+    # =========================================================================
+
+    def _dns_query_record(
+        self,
+        rng: Any,
+        src: str,
+        resolver: str,
+        qname: str,
+        qtype: str,
+        eventtime: int,
+        session: int,
+    ) -> EventRecord:
+        """One dns:dns-query record. Shared by the DNS-carried techniques."""
+
+        qtypevals = {"A": "1", "AAAA": "28", "TXT": "16", "NULL": "10", "CNAME": "5"}
+        return EventRecord(
+            log_type="dns",
+            subtype="dns-query",
+            action="pass",
+            level="notice",
+            eventtime=eventtime,
+            src=src,
+            spt=int(rng.integers(1024, 65535)),
+            dst=resolver,
+            dpt=53,
+            proto=17,
+            session_id=session,
+            extra={
+                "policyid": "7",
+                "profile": "default",
+                "xid": str(int(rng.integers(0, 65535))),
+                "qname": qname,
+                "qtype": qtype,
+                "qtypeval": qtypevals[qtype],
+                "qclass": "IN",
+            },
+        )
+
+    def _steady_accept(
+        self,
+        rng: Any,
+        src: str,
+        dst: str,
+        dpt: int,
+        eventtime: int,
+        session: int,
+        out_b: int,
+        in_b: int,
+        duration: int,
+        *,
+        inbound: bool = False,
+    ) -> EventRecord:
+        """A traffic:forward accept with caller-controlled byte and duration shape.
+
+        ``inbound=True`` reverses the interface pair, which is what makes an
+        internet-to-perimeter record distinguishable from an egress record.
+        """
+
+        service, app = port_service(dpt)
+        extra = {
+            "policyid": "7",
+            "service": service,
+            "app": app,
+            "trandisp": "snat" if not inbound else "dnat",
+            "duration": str(duration),
+            "sentpkt": str(max(1, out_b // 1400)),
+            "rcvdpkt": str(max(1, in_b // 1400)),
+        }
+        if inbound:
+            extra["src_intf"] = "port1"  # WAN
+            extra["dst_intf"] = "port2"  # LAN
+        return EventRecord(
+            log_type="traffic",
+            subtype="forward",
+            action="accept",
+            level="notice",
+            eventtime=eventtime,
+            src=src,
+            spt=int(rng.integers(1024, 65535)),
+            dst=dst,
+            dpt=dpt,
+            proto=6,
+            session_id=session,
+            out_bytes=out_b,
+            in_bytes=in_b,
+            extra=extra,
+        )
+
+    def _deny_probe(
+        self,
+        rng: Any,
+        src: str,
+        dst: str,
+        dpt: int,
+        eventtime: int,
+        session: int,
+        *,
+        inbound: bool = False,
+    ) -> EventRecord:
+        """A denied probe record, the unit of every scan technique."""
+
+        service, app = port_service(dpt)
+        extra = _scan_traffic_extra(False, service, app)
+        if inbound:
+            extra["src_intf"] = "port1"
+            extra["dst_intf"] = "port2"
+        return EventRecord(
+            log_type="traffic",
+            subtype="forward",
+            action="deny",
+            level="warning",
+            eventtime=eventtime,
+            src=src,
+            spt=int(rng.integers(1024, 65535)),
+            dst=dst,
+            dpt=dpt,
+            proto=6,
+            session_id=session,
+            out_bytes=0,
+            in_bytes=0,
+            extra=extra,
+        )
+
+    # -- REP-012 jittered and fleet-aggregate C2 callback ----------------------
+
+    def _plan_jittered_c2(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        mode = str(preset["mode"])
+        hosts = int(preset["hosts"])
+        interval_s = float(preset["interval_s"])
+        jitter_pct = float(preset["jitter_pct"])
+        duration_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["duration_min"]) * 60
+        )
+        out_low, out_high = (int(v) for v in preset["out_bytes"])
+        dpt_choices = list(technique.distributions.get("dpt_choices") or entities.c2_ports)
+
+        pool = entities.internal_hosts
+        srcs = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(hosts, len(pool)))]
+        dst = str(rng.choice(entities.adversary_external))
+        dpt = int(rng.choice(dpt_choices))
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        truncated = False
+        # In fleet mode each host is given a phase offset so that no single host
+        # looks periodic over a short window, but the arrivals seen at the shared
+        # destination are. That is the effect the ACSAC 2023 study measured.
+        for index, src in enumerate(srcs):
+            offset = (index * interval_s / max(len(srcs), 1)) if mode == "fleet" else 0.0
+            while offset <= duration_s:
+                out_b = lognormal_bytes(rng, out_low, out_high)
+                in_b = max(out_b, lognormal_bytes(rng, out_low, out_high))
+                events.append(
+                    self._steady_accept(
+                        rng,
+                        src,
+                        dst,
+                        dpt,
+                        anchor + int(offset),
+                        session,
+                        out_b,
+                        in_b,
+                        int(rng.integers(1, 180)),
+                    )
+                )
+                session += 1
+                if len(events) >= self.max_events:
+                    truncated = True
+                    break
+                offset += jittered_interval(rng, interval_s, jitter_pct)
+            if truncated:
+                break
+
+        # Benign periodic destination. Both source papers name legitimate
+        # periodic software as the dominant false positive, so a plan without one
+        # overstates how well a periodicity test performs.
+        benign_src = str(rng.choice(pool))
+        benign_dst = str(rng.choice(entities.benign_external))
+        benign_offset = 0.0
+        while benign_offset <= duration_s and len(events) < self.max_events:
+            events.append(
+                self._steady_accept(
+                    rng,
+                    benign_src,
+                    benign_dst,
+                    443,
+                    anchor + int(benign_offset),
+                    session,
+                    int(rng.integers(400, 1200)),
+                    int(rng.integers(2_000, 40_000)),
+                    int(rng.integers(1, 20)),
+                )
+            )
+            session += 1
+            benign_offset += 1800.0  # update-check cadence, no jitter
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"mode={mode}: {len(srcs)} source(s) to one destination, jitter "
+            f"{jitter_pct:.0f}%. A benign periodic destination is included as a "
+            "false-positive control."
+        )
+        return events, note, truncated
+
+    # -- REP-013 self-propagating malware spread ------------------------------
+
+    def _plan_worm_spread(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        seed_hosts = int(preset["seed_hosts"])
+        generations = int(preset["generations"])
+        fanout = int(preset["fanout"])
+        port = int(preset["port"])
+        gen_gap_s = int(preset["gen_gap_s"])
+
+        targets = entities.internal_targets
+        pool = entities.internal_hosts
+        infected = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(seed_hosts, len(pool)))]
+        # A fixed fraction of probes land, so the infected population grows
+        # geometrically. PORTFILER's signal is the count of DISTINCT sources on a
+        # port per window, not the probe volume, so growth is the whole point.
+        # Floor of 2, not 1: at 1 the population would stay flat and the
+        # technique would degenerate into a slow version of REP-003.
+        landed_per_source = max(2, fanout // 6)
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        truncated = False
+        for generation in range(generations):
+            gen_start = anchor + generation * gen_gap_s
+            probes = max(len(infected) * fanout, 1)
+            next_infected: list[str] = []
+            for host_index, source in enumerate(infected):
+                picks = unique_ints(rng, 0, len(targets) - 1, min(fanout, len(targets)))
+                for probe_index, target_index in enumerate(picks):
+                    dst = targets[target_index]
+                    landed = probe_index < landed_per_source
+                    when = gen_start + int((host_index * fanout + probe_index) * gen_gap_s / probes)
+                    if landed:
+                        events.append(
+                            self._steady_accept(
+                                rng, source, dst, port, when, session, 1200, 3400, 4
+                            )
+                        )
+                        if dst not in next_infected and dst not in infected:
+                            next_infected.append(dst)
+                    else:
+                        events.append(self._deny_probe(rng, source, dst, port, when, session))
+                    session += 1
+                    if len(events) >= self.max_events:
+                        truncated = True
+                        break
+                if truncated:
+                    break
+            if truncated:
+                break
+            if next_infected:
+                infected = next_infected
+
+        # Benign east-west baseline: a small stable set of server sources on the
+        # same port. Same protocol, same port, non-growing source population.
+        for server_index in range(3):
+            server = pool[(server_index + 1) % len(pool)]
+            for step in range(4):
+                if len(events) >= self.max_events:
+                    break
+                dst = targets[(server_index * 4 + step) % len(targets)]
+                when = anchor + step * gen_gap_s
+                events.append(
+                    self._steady_accept(rng, server, dst, port, when, session, 2400, 8800, 30)
+                )
+                session += 1
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"{generations} generation(s) from {seed_hosts} seed host(s) on port {port}; "
+            "distinct source count grows per generation. A stable server baseline on "
+            "the same port is included as a false-positive control."
+        )
+        return events, note, truncated
+
+    # -- REP-014 cryptomining pool session ------------------------------------
+
+    def _plan_cryptomining(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        sessions = int(preset["sessions"])
+        session_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["session_min"]) * 60
+        )
+        share_interval_s = int(preset["share_interval_s"])
+        dpt = int(preset["dpt"])
+
+        src = str(rng.choice(entities.internal_hosts))
+        dst = str(rng.choice(entities.adversary_external))
+        shares = max(session_s // max(share_interval_s, 1), 1)
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        truncated = False
+        for pool_session in range(sessions):
+            start = anchor + pool_session * session_s
+            for share in range(shares):
+                # Job in, share out: both small, roughly symmetric, and steady.
+                # The distinguishing shape versus exfiltration is the ratio, and
+                # versus a callback it is the single long-lived session id.
+                out_b = int(rng.integers(180, 420))
+                in_b = int(out_b * float(rng.uniform(0.85, 1.20)))
+                events.append(
+                    self._steady_accept(
+                        rng,
+                        src,
+                        dst,
+                        dpt,
+                        start + share * share_interval_s,
+                        session,
+                        out_b,
+                        in_b,
+                        (share + 1) * share_interval_s,  # duration grows within the session
+                    )
+                )
+                if len(events) >= self.max_events:
+                    truncated = True
+                    break
+            session += 1
+            if truncated:
+                break
+
+        # Benign long-lived session: same duration profile, bursty bytes.
+        # MineShark had to auto-filter over 99.3% of its alarms, which is the
+        # argument for including this.
+        benign_dst = str(rng.choice(entities.benign_external))
+        for step in range(min(12, shares)):
+            if len(events) >= self.max_events:
+                break
+            events.append(
+                self._steady_accept(
+                    rng,
+                    src,
+                    benign_dst,
+                    443,
+                    anchor + step * share_interval_s * 4,
+                    session,
+                    int(rng.integers(200, 90_000)),  # bursty, unlike the miner
+                    int(rng.integers(200, 400_000)),
+                    (step + 1) * share_interval_s * 4,
+                )
+            )
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"{sessions} pool session(s) of {session_s // 60} min, one exchange every "
+            f"{share_interval_s}s on port {dpt}. A bursty long-lived benign session is "
+            "included as a false-positive control."
+        )
+        return events, note, truncated
+
+    # -- REP-015 low-throughput DNS exfiltration ------------------------------
+
+    def _plan_low_throughput_dns_exfil(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        qph = int(preset["qph"])
+        duration_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["duration_h"]) * 3600
+        )
+        label_lo, label_hi = (int(v) for v in preset["label_len"])
+        unique_labels = int(preset["unique_labels"])
+
+        total = max(qph * duration_s // 3600, 1)
+        truncated = False
+        if total > self.max_events:
+            total = self.max_events
+            truncated = True
+
+        src = str(rng.choice(entities.internal_hosts))
+        parent = str(rng.choice(entities.parents))
+        labels = high_entropy_labels(rng, min(unique_labels, total), label_lo, label_hi)
+        gap_s = 3600.0 / max(qph, 1)
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        # Weighted to A and AAAA, not TXT: the query name itself is the channel,
+        # so the record type does not need to carry a payload. That is what makes
+        # this class invisible to a TXT-oriented tunnel rule.
+        qtypes = ["A", "AAAA"]
+        weights = [0.75, 0.25]
+        for index in range(total):
+            qname = f"{labels[index % len(labels)]}.{parent}"
+            events.append(
+                self._dns_query_record(
+                    rng,
+                    src,
+                    entities.resolver,
+                    qname,
+                    weighted_choice(rng, qtypes, weights),
+                    anchor + int(index * gap_s),
+                    session,
+                )
+            )
+            session += 1
+
+        # Benign parent with a comparable query count but low unique-label
+        # cardinality, so per-minute rate cannot separate the two.
+        benign_parent = str(rng.choice([p for p in entities.parents if p != parent] or [parent]))
+        benign_labels = ["www", "mail", "api", "cdn", "vpn"]
+        for index in range(min(total, self.max_events - len(events))):
+            qname = f"{benign_labels[index % len(benign_labels)]}.{benign_parent}"
+            events.append(
+                self._dns_query_record(
+                    rng,
+                    src,
+                    entities.resolver,
+                    qname,
+                    "A",
+                    anchor + int(index * gap_s) + 7,
+                    session,
+                )
+            )
+            session += 1
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"{qph} queries/hour over {duration_s // 3600}h ({total} exfil queries), "
+            f"{len(labels)} unique labels under one parent. Deliberately below "
+            "tunnel-rate thresholds. A same-volume benign parent is included."
+        )
+        return events, note, truncated
+
+    # -- REP-017 encrypted DNS (DoH) policy bypass ----------------------------
+
+    def _plan_doh_bypass(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        total_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["baseline_min"]) * 60
+        )
+        switch_s = min(int(preset["switch_at_min"]) * 60, total_s)
+        doh_sessions = int(preset["doh_sessions"])
+        resolvers = int(preset["resolvers"])
+
+        src = str(rng.choice(entities.internal_hosts))
+        pool = entities.adversary_external
+        doh_hosts = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(resolvers, len(pool)))]
+        benign_labels = ["www", "mail", "api", "cdn", "updates", "portal"]
+        parent = str(rng.choice(entities.parents))
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        truncated = False
+
+        # Phase 1: ordinary resolver traffic. This is the baseline, and the
+        # detection has to notice when it STOPS.
+        query_gap_s = 10
+        for index in range(max(switch_s // query_gap_s, 1)):
+            qname = f"{benign_labels[index % len(benign_labels)]}.{parent}"
+            events.append(
+                self._dns_query_record(
+                    rng, src, entities.resolver, qname, "A", anchor + index * query_gap_s, session
+                )
+            )
+            session += 1
+            if len(events) >= self.max_events:
+                truncated = True
+                break
+
+        # Phase 2: resolver traffic ceases; small repeated TLS sessions to the
+        # synthetic DoH resolvers begin. No dns:dns-query record after switch_s.
+        phase2_s = max(total_s - switch_s, 1)
+        for index in range(doh_sessions):
+            if len(events) >= self.max_events:
+                truncated = True
+                break
+            events.append(
+                self._steady_accept(
+                    rng,
+                    src,
+                    doh_hosts[index % len(doh_hosts)],
+                    443,
+                    anchor + switch_s + int(index * phase2_s / max(doh_sessions, 1)),
+                    session,
+                    int(rng.integers(120, 480)),  # query out
+                    int(rng.integers(200, 900)),  # answer in
+                    int(rng.integers(1, 4)),
+                )
+            )
+            session += 1
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"Warm-up: normal resolver queries for the first {switch_s // 60} min. "
+            f"At +{switch_s // 60} min resolver traffic stops and {doh_sessions} DoH "
+            f"session(s) to {len(doh_hosts)} synthetic resolver(s) on 443 begin. The "
+            "detection signal is the absence of port 53 traffic, not its presence."
+        )
+        return events, note, truncated
+
+    # -- REP-018 lateral movement login chain ---------------------------------
+
+    def _plan_login_chain(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        path_len = int(preset["path_len"])
+        user_count = int(preset["users"])
+        switch_at_hop = int(preset["switch_at_hop"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+
+        pool = entities.internal_hosts
+        hops = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(path_len, len(pool)))]
+        user_pool = entities.users
+        users = [
+            user_pool[i]
+            for i in unique_ints(rng, 0, len(user_pool) - 1, min(user_count, len(user_pool)))
+        ]
+        entry_src = str(rng.choice(entities.adversary_external))
+        admin_ports = [3389, 445, 22]
+        hop_gap_s = window_s / max(path_len, 1)
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(1_000_000, 9_999_999))
+        truncated = False
+
+        # Hop 1 is remote access into the estate: an SSL-VPN tunnel-up.
+        events.append(
+            EventRecord(
+                log_type="event",
+                subtype="vpn",
+                action="tunnel-up",
+                level="notice",
+                eventtime=anchor,
+                duser=users[0],
+                src=entry_src,
+                session_id=session,
+                extra={
+                    "logdesc": "SSL VPN tunnel up",
+                    "fgt_action": "tunnel-up",
+                    "remip": entry_src,
+                    "srccountry": entities.countries.get(entry_src, "Wadiya"),
+                    "tunneltype": "ssl-tunnel",
+                    "tunnelid": str(int(rng.integers(1_000_000, 9_999_999))),
+                    "group": "vpn-users",
+                    "reason": "login-success",
+                    "msg": "SSL tunnel established",
+                },
+            )
+        )
+        session += 1
+
+        # Each subsequent hop: an authenticated login recorded on the system log,
+        # plus the east-west traffic leg. The causal user changes at
+        # switch_at_hop, which is the credential-switch signal Hopper keys on.
+        for hop in range(1, len(hops)):
+            if len(events) + 2 > self.max_events:
+                truncated = True
+                break
+            user = users[min(hop // max(switch_at_hop, 1), len(users) - 1)]
+            source = hops[hop - 1]
+            target = hops[hop]
+            when = anchor + int(hop * hop_gap_s)
+            dpt = admin_ports[hop % len(admin_ports)]
+            events.append(
+                EventRecord(
+                    log_type="event",
+                    subtype="system",
+                    action="login",
+                    level="notice",
+                    eventtime=when,
+                    duser=user,
+                    src=source,
+                    session_id=session,
+                    extra={
+                        "logdesc": "Admin login successful",
+                        "fgt_action": "login",
+                        "status": "success",
+                        "ui": f"ssh({source})",
+                        "method": "ssh",
+                        "reason": "none",
+                        "msg": f"Administrator {user} logged in successfully from {source}",
+                    },
+                )
+            )
+            session += 1
+            events.append(
+                self._steady_accept(rng, source, target, dpt, when + 2, session, 4200, 12_800, 60)
+            )
+            session += 1
+
+        # Benign star: one workstation logging into several hosts. Same login
+        # count, same ports, different shape. Chain versus star IS the detection.
+        star_src = pool[(len(pool) - 1)]
+        for index in range(1, len(hops)):
+            if len(events) + 2 > self.max_events:
+                truncated = True
+                break
+            target = hops[(index + 1) % len(hops)]
+            when = anchor + int(index * hop_gap_s) + 5
+            events.append(
+                EventRecord(
+                    log_type="event",
+                    subtype="system",
+                    action="login",
+                    level="notice",
+                    eventtime=when,
+                    duser=users[0],
+                    src=star_src,
+                    session_id=session,
+                    extra={
+                        "logdesc": "Admin login successful",
+                        "fgt_action": "login",
+                        "status": "success",
+                        "ui": f"ssh({star_src})",
+                        "method": "ssh",
+                        "reason": "none",
+                        "msg": f"Administrator {users[0]} logged in successfully from {star_src}",
+                    },
+                )
+            )
+            session += 1
+            events.append(
+                self._steady_accept(
+                    rng, star_src, target, 3389, when + 2, session, 3900, 11_400, 45
+                )
+            )
+            session += 1
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"Chain of {len(hops)} hops with {len(users)} user(s), credential switch at "
+            f"hop {switch_at_hop}. A benign admin star pattern with the same login count "
+            "is included; separating chain from star is the detection."
+        )
+        return events, note, truncated
+
+    # -- REP-019 stealth scan below rate threshold ----------------------------
+
+    def _plan_stealth_scan(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        probes_per_dst = int(preset["probes_per_dst"])
+        gap_lo, gap_hi = (float(v) for v in preset["gap_s"])
+        src_pool_size = int(preset["src_pool"])
+        total_probes = int(preset["total_probes"])
+
+        truncated = False
+        if total_probes > self.max_events:
+            total_probes = self.max_events
+            truncated = True
+
+        pool = entities.internal_hosts
+        sources = [
+            pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(src_pool_size, len(pool)))
+        ]
+        targets = entities.internal_targets
+        ports = list(entities.scan_ports) + [1433, 3306, 8080, 5900]
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        elapsed = 0.0
+        for index in range(total_probes):
+            # Source rotation keeps per-source counts under per-source
+            # thresholds; the long gap keeps any rate window from filling. TRW
+            # converges on a small number of attempts FROM ONE SOURCE, so
+            # spreading the walk across a pool is the evasion.
+            src = sources[index % len(sources)]
+            dst = targets[int(rng.integers(0, len(targets)))]
+            dpt = int(rng.choice(ports))
+            for _ in range(probes_per_dst):
+                events.append(self._deny_probe(rng, src, dst, dpt, anchor + int(elapsed), session))
+                session += 1
+                if len(events) >= self.max_events:
+                    truncated = True
+                    break
+            if truncated:
+                break
+            elapsed += float(rng.uniform(gap_lo, gap_hi))
+
+        # Sparse benign policy denies from an unrelated host, at a similar rate.
+        benign_src = pool[len(pool) - 1]
+        for index in range(min(20, max(self.max_events - len(events), 0))):
+            events.append(
+                self._deny_probe(
+                    rng,
+                    benign_src,
+                    targets[index % len(targets)],
+                    445,
+                    anchor + int(index * (elapsed / 20 if elapsed else 600)),
+                    session,
+                )
+            )
+            session += 1
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"{total_probes} probes across {len(sources)} rotating sources over "
+            f"{int(elapsed) // 60} min. Per-source and per-window counts are held below "
+            "classic threshold detectors by design."
+        )
+        return events, note, truncated
+
+    # -- REP-020 first contact with a newly registered domain -----------------
+
+    def _plan_newly_registered_domain(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        baseline_domains = int(preset["baseline_domains"])
+        novel_domains = int(preset["novel_domains"])
+        hosts = int(preset["hosts"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+
+        pool = entities.internal_hosts
+        srcs = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(hosts, len(pool)))]
+        parent = str(rng.choice(entities.parents))
+        # Organizational normal: a stable, repeatedly queried domain set.
+        known = [f"{label}.{parent}" for label in high_entropy_labels(rng, baseline_domains, 5, 9)]
+        # First-contact domains: never queried by any host before. Reserved-TLD
+        # parents guarantee they cannot resolve even by accident.
+        novel = [f"{label}.invalid" for label in high_entropy_labels(rng, novel_domains, 8, 14)]
+
+        truncated = False
+        baseline_events = min(baseline_domains, max(self.max_events - novel_domains, 1))
+        if baseline_events < baseline_domains:
+            truncated = True
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        baseline_span_s = max(window_s - 300, 60)
+        for index in range(baseline_events):
+            events.append(
+                self._dns_query_record(
+                    rng,
+                    srcs[index % len(srcs)],
+                    entities.resolver,
+                    known[index % len(known)],
+                    "A",
+                    anchor + int(index * baseline_span_s / max(baseline_events, 1)),
+                    session,
+                )
+            )
+            session += 1
+
+        novel_start = anchor + baseline_span_s + 1
+        for index, qname in enumerate(novel):
+            events.append(
+                self._dns_query_record(
+                    rng,
+                    srcs[index % len(srcs)],
+                    entities.resolver,
+                    qname,
+                    "A",
+                    novel_start + index * 30,
+                    session,
+                )
+            )
+            session += 1
+
+        note = (
+            f"Baseline: {len(known)} known domains queried by {len(srcs)} host(s) "
+            f"({baseline_events} events). First contact begins at event {baseline_events} "
+            f"with {len(novel)} never-before-queried domain(s). Novelty is "
+            "organization-wide, unlike REP-008 which is novel per host."
+        )
+        return events, note, truncated
+
+    # -- REP-021 inbound perimeter scan reception -----------------------------
+
+    def _plan_inbound_scan(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        unique_src = int(preset["unique_src"])
+        duration_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["duration_min"]) * 60
+        )
+        campaigns = int(preset["campaigns"])
+        aggressive_probes = int(preset["aggressive_probes"])
+
+        # Scanner sources come from the dedicated documentation range first, then
+        # the adversary pool. The ceiling is the size of those ranges, which is a
+        # safety constraint: the IMC study saw 465,251 unique scanners and this
+        # cannot represent that without leaving synthetic space.
+        available = list(entities.scanner_external) + list(entities.adversary_external)
+        sources = available[: min(unique_src, len(available))]
+        capped = len(sources) < unique_src
+        ports = list(technique.distributions.get("port_choices") or entities.scan_ports)
+        perimeter = str(rng.choice(entities.internal_targets))
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        truncated = False
+
+        # Long tail: one or two probes each, the background radiation population.
+        for index, src in enumerate(sources):
+            for _ in range(int(rng.integers(1, 3))):
+                events.append(
+                    self._deny_probe(
+                        rng,
+                        src,
+                        perimeter,
+                        int(rng.choice(ports)),
+                        anchor + int(index * duration_s / max(len(sources), 1)),
+                        session,
+                        inbound=True,
+                    )
+                )
+                session += 1
+                if len(events) >= self.max_events:
+                    truncated = True
+                    break
+            if truncated:
+                break
+
+        # Aggressive campaigns: a few sources contributing most of the packets.
+        for campaign in range(min(campaigns, len(sources))):
+            src = sources[campaign]
+            for probe in range(aggressive_probes):
+                if len(events) >= self.max_events:
+                    truncated = True
+                    break
+                events.append(
+                    self._deny_probe(
+                        rng,
+                        src,
+                        perimeter,
+                        int(rng.choice(ports)),
+                        anchor + int(probe * duration_s / max(aggressive_probes, 1)),
+                        session,
+                        inbound=True,
+                    )
+                )
+                session += 1
+            if truncated:
+                break
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"{len(sources)} unique inbound sources against one perimeter address, "
+            f"{min(campaigns, len(sources))} aggressive campaign(s) of {aggressive_probes} "
+            "probes. Interface pair is reversed (inbound)."
+        )
+        if capped:
+            note += (
+                f" Source count capped at {len(sources)} (requested {unique_src}) by the "
+                "size of the synthetic documentation ranges."
+            )
+        return events, note, truncated
+
+    # -- REP-022 multi-stage IDS alert chain ----------------------------------
+
+    def _plan_ids_alert_chain(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        stages = min(int(preset["stages"]), len(_IPS_STAGES))
+        hits_lo, hits_hi = (int(v) for v in preset["hits_per_stage"])
+        gap_lo, gap_hi = (int(v) for v in preset["stage_gap_s"])
+        noise_alerts = int(preset["noise_alerts"])
+
+        chain_src = str(rng.choice(entities.adversary_external))
+        chain_dst = str(rng.choice(entities.internal_targets))
+        severities = ["low", "medium", "high", "critical", "critical"]
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(100, 9999))
+        truncated = False
+        elapsed = 0
+        for stage_index in range(stages):
+            stage_name, level, signatures = _IPS_STAGES[stage_index]
+            hits = int(rng.integers(hits_lo, hits_hi + 1))
+            for hit in range(hits):
+                attack, attackid = signatures[hit % len(signatures)]
+                events.append(
+                    EventRecord(
+                        log_type="utm",
+                        subtype="ips",
+                        action="reset" if stage_index < stages - 1 else "block",
+                        level=level,
+                        eventtime=anchor + elapsed,
+                        src=chain_src,
+                        spt=int(rng.integers(1024, 65535)),
+                        dst=chain_dst,
+                        dpt=443,
+                        proto=6,
+                        session_id=session,
+                        extra={
+                            "eventtype": "signature",
+                            "ips_severity": severities[min(stage_index, len(severities) - 1)],
+                            "service": "HTTPS",
+                            "policyid": "7",
+                            "attack": attack,
+                            "attackid": attackid,
+                            "hostname": chain_dst,
+                            "request": _IPS_REQUESTS[hit % len(_IPS_REQUESTS)],
+                            "direction": "incoming",
+                            "profile": "default",
+                            "cnt": "1",
+                            # Engine-internal marker, NOT rendered: the vendor
+                            # profiles map a fixed key set and drop this one.
+                            # That is deliberate. Real FortiOS has no "stage"
+                            # field, so emitting one would make the record
+                            # unrealistic and would also hand the answer to the
+                            # detection under test. In the emitted telemetry the
+                            # chain is carried by attack-name order, ascending
+                            # severity, and the held src/dst pair. See
+                            # test_rep022_chain_is_recoverable_from_rendered_cef.
+                            "stage": stage_name,
+                            "msg": f"applications3A {attack}",
+                        },
+                    )
+                )
+                session += 1
+                elapsed += max(1, (gap_lo + gap_hi) // (2 * max(hits, 1)))
+                if len(events) >= self.max_events:
+                    truncated = True
+                    break
+            if truncated:
+                break
+            elapsed += int(rng.integers(gap_lo, gap_hi + 1))
+
+        # Unrelated alert noise on other entity pairs, spread across the whole
+        # window. A rule that fires on any N alerts in a window fires on this.
+        window = max(elapsed, 1)
+        for index in range(noise_alerts):
+            if len(events) >= self.max_events:
+                truncated = True
+                break
+            attack, attackid = _IPS_SIGNATURES[int(rng.integers(0, len(_IPS_SIGNATURES)))]
+            target_pool = entities.internal_targets
+            noise_dst = str(rng.choice(target_pool))
+            if noise_dst == chain_dst:  # keep the noise off the chain's pair
+                noise_dst = target_pool[(target_pool.index(noise_dst) + 1) % len(target_pool)]
+            events.append(
+                EventRecord(
+                    log_type="utm",
+                    subtype="ips",
+                    action="reset",
+                    level="warning",
+                    eventtime=anchor + int(index * window / max(noise_alerts, 1)),
+                    src=str(rng.choice(entities.adversary_external)),
+                    spt=int(rng.integers(1024, 65535)),
+                    dst=noise_dst,
+                    dpt=443,
+                    proto=6,
+                    session_id=session,
+                    extra={
+                        "eventtype": "signature",
+                        "ips_severity": "low",
+                        "service": "HTTPS",
+                        "policyid": "7",
+                        "attack": attack,
+                        "attackid": attackid,
+                        "hostname": noise_dst,
+                        "request": _IPS_REQUESTS[index % len(_IPS_REQUESTS)],
+                        "direction": "incoming",
+                        "profile": "default",
+                        "cnt": "1",
+                        "msg": f"applications3A {attack}",
+                    },
+                )
+            )
+            session += 1
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"{stages}-stage ordered chain on one src/dst pair, interleaved with "
+            f"{noise_alerts} unrelated alerts. Stage order and the shared entity pair "
+            "are the correlation signal; the noise is what makes it non-trivial."
+        )
+        return events, note, truncated
+
+    # -- REP-023 TLS 1.3 C2 with flow-only signal -----------------------------
+
+    def _plan_tls13_c2(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        sessions = int(preset["sessions"])
+        interval_s = int(preset["interval_s"])
+        out_lo, out_hi = (int(v) for v in preset["out_bytes"])
+        in_lo, in_hi = (int(v) for v in preset["in_bytes"])
+
+        truncated = False
+        if sessions > self.max_events:
+            sessions = self.max_events
+            truncated = True
+
+        src = str(rng.choice(entities.internal_hosts))
+        dst = str(rng.choice(entities.adversary_external))
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        for index in range(sessions):
+            # Low variance is the whole signal. No handshake-derived field is
+            # emitted, so a JA3 or cipher-suite rule has nothing to match: that
+            # is the condition TLS 1.3 creates, per the RAID 2024 result.
+            events.append(
+                self._steady_accept(
+                    rng,
+                    src,
+                    dst,
+                    443,
+                    anchor + index * interval_s,
+                    session,
+                    lognormal_bytes(rng, out_lo, out_hi),
+                    lognormal_bytes(rng, in_lo, in_hi),
+                    int(rng.integers(2, 6)),
+                )
+            )
+            session += 1
+
+        # Concurrent browsing to 443: high byte variance, varied durations.
+        for index in range(min(sessions, max(self.max_events - len(events), 0))):
+            events.append(
+                self._forward_accept(
+                    technique,
+                    rng,
+                    src,
+                    str(rng.choice(entities.benign_external)),
+                    443,
+                    anchor + index * interval_s + 11,
+                    session,
+                )
+            )
+            session += 1
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"{sessions} session(s) to one destination on 443 every {interval_s}s with "
+            "narrow byte variance and no handshake metadata. Concurrent high-variance "
+            "browsing to 443 is included, so neither port nor destination count separates them."
+        )
+        return events, note, truncated
+
+    # -- REP-024 internal host as proxy relay ---------------------------------
+
+    def _plan_proxy_relay(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        relay_pairs = int(preset["relay_pairs"])
+        lag_lo, lag_hi = (int(v) for v in preset["lag_ms"])
+        duration_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["duration_min"]) * 60
+        )
+        clients = int(preset["clients"])
+
+        relay = str(rng.choice(entities.internal_hosts))
+        client_pool = entities.adversary_external
+        client_list = [
+            client_pool[i]
+            for i in unique_ints(rng, 0, len(client_pool) - 1, min(clients, len(client_pool)))
+        ]
+        upstream = entities.benign_external
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        truncated = False
+        gap_s = duration_s / max(relay_pairs, 1)
+
+        for pair in range(relay_pairs):
+            if len(events) + 2 > self.max_events:
+                truncated = True
+                break
+            when = anchor + int(pair * gap_s)
+            request_b = int(rng.integers(400, 2_400))
+            response_b = int(rng.integers(1_200, 48_000))
+            # Inbound leg: an external client reaches the relay host.
+            events.append(
+                self._steady_accept(
+                    rng,
+                    client_list[pair % len(client_list)],
+                    relay,
+                    8080,
+                    when,
+                    session,
+                    request_b,
+                    response_b,
+                    int(rng.integers(1, 30)),
+                    inbound=True,
+                )
+            )
+            session += 1
+            # Outbound leg: the relay forwards it. Byte volumes track the inbound
+            # leg because the host is forwarding rather than originating, which is
+            # the gateway-versus-relayed distinction in the source dataset.
+            lag_s = max(1, int(rng.integers(lag_lo, lag_hi + 1)) // 1000)
+            events.append(
+                self._steady_accept(
+                    rng,
+                    relay,
+                    str(rng.choice(upstream)),
+                    443,
+                    when + lag_s,
+                    session,
+                    int(request_b * float(rng.uniform(0.97, 1.03))),
+                    int(response_b * float(rng.uniform(0.97, 1.03))),
+                    int(rng.integers(1, 30)),
+                )
+            )
+            session += 1
+
+        # A sanctioned proxy host producing the same pairing. Identical pattern,
+        # different asset role. Tests whether a detection uses role or pattern.
+        sanctioned = entities.internal_hosts[len(entities.internal_hosts) - 1]
+        for pair in range(min(20, max((self.max_events - len(events)) // 2, 0))):
+            when = anchor + int(pair * gap_s) + 3
+            request_b = int(rng.integers(400, 2_400))
+            response_b = int(rng.integers(1_200, 48_000))
+            events.append(
+                self._steady_accept(
+                    rng,
+                    client_list[pair % len(client_list)],
+                    sanctioned,
+                    8080,
+                    when,
+                    session,
+                    request_b,
+                    response_b,
+                    int(rng.integers(1, 30)),
+                    inbound=True,
+                )
+            )
+            session += 1
+            events.append(
+                self._steady_accept(
+                    rng,
+                    sanctioned,
+                    str(rng.choice(upstream)),
+                    443,
+                    when + 1,
+                    session,
+                    request_b,
+                    response_b,
+                    int(rng.integers(1, 30)),
+                )
+            )
+            session += 1
+
+        events.sort(key=lambda e: e.eventtime)
+        note = (
+            f"{relay_pairs} relayed request(s) through one host from {len(client_list)} "
+            "external client(s): each inbound session is followed by a byte-correlated "
+            "outbound session. A sanctioned proxy with the same pattern is included."
+        )
+        return events, note, truncated
