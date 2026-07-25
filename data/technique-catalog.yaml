@@ -445,6 +445,32 @@ techniques:
     references: ["Nadler, Aminov, Shabtai, Computers & Security 80 (2019) 36-53"]
     safety_notes: "parents stay non-resolvable synthetic. Runs are long (up to 72h of simulated time); the duration is stated in the run summary"
 
+  - id: REP-016
+    name: "DGA NXDOMAIN cluster"
+    ndr_rule: "NDR-C2-015"
+    ndr_uc: "UC-015"
+    attack:
+      tactics: ["TA0011 Command and Control"]
+      techniques: ["T1568.002", "T1071.004"]
+    fortigate:
+      log_type: "dns"
+      subtype: "dns-response"
+      signature_id: "54802"    # confirmed (fortigate-cef-reference s2.4)
+      action: "pass"
+    cef_fields_held: ["src", "dst", "dpt"]
+    cef_fields_varied: ["FTNTFGTqname", "FTNTFGTrcode", "rt", "FTNTFGTxid"]
+    params:
+      low:    { domains_per_epoch: 50,  epochs: 4, label_len: [8, 12], nx_ratio: 0.95 }
+      medium: { domains_per_epoch: 200, epochs: 6, label_len: [7, 16], nx_ratio: 0.97 }
+      high:   { domains_per_epoch: 800, epochs: 8, label_len: [6, 20], nx_ratio: 0.99 }
+    distributions:
+      qname: "many DISTINCT second-level labels with an algorithmic character distribution. This is the inverse of REP-004, which puts many subdomains under one parent"
+      rcode: "NXDOMAIN for nx_ratio of responses; NOERROR for the small remainder, representing the one registered rendezvous domain the operator actually stood up"
+      epochs: "the domain set regenerates each epoch, mirroring a time-seeded generator"
+    benign_baseline: "normal hosts produce a low steady NXDOMAIN rate from typos and stale records. A benign NXDOMAIN trickle is emitted so the detection cannot simply threshold on any NXDOMAIN at all"
+    references: ["Pleiades USENIX Security 2012", "Woodbridge et al. 2016 arXiv:1611.00791"]
+    safety_notes: "every generated label sits under the reserved .invalid TLD, so no generated name can resolve even by accident. This must not be relaxed to a realistic-looking TLD: the technique generates thousands of unseen domain strings and non-resolvability is what makes that safe"
+
   - id: REP-017
     name: "Encrypted DNS (DoH) policy bypass"
     ndr_rule: "NDR-C2-016"
@@ -565,7 +591,7 @@ techniques:
     params:
       low:    { unique_src: 120, duration_min: 60, campaigns: 2, aggressive_probes: 40 }
       medium: { unique_src: 300, duration_min: 60, campaigns: 5, aggressive_probes: 120 }
-      high:   { unique_src: 500, duration_min: 30, campaigns: 9, aggressive_probes: 300 }
+      high:   { unique_src: 450, duration_min: 30, campaigns: 9, aggressive_probes: 300 }
     distributions:
       src: "many distinct external sources, heavy-tailed: a few campaign sources send aggressive_probes each, a long tail sends one or two probes"
       pattern: "steady low-rate background plus short aggressive campaigns overlaid, the two populations the IMC study separates"
@@ -573,7 +599,7 @@ techniques:
       port_choices: [22, 23, 80, 443, 445, 1433, 3306, 3389, 5900, 8080]
     benign_baseline: "this technique largely IS the baseline of a real perimeter. Its value is as a false-positive source for outbound scan rules, so it is designed to be run alongside REP-002 and REP-003"
     references: ["Have you SYN me? Characterizing Ten Years of Internet Scanning, IMC 2024"]
-    safety_notes: "source cardinality is capped by the size of the IANA documentation ranges, which is a safety constraint and not a tuning limit. The source study observed 465,251 unique scanners; 500 is the honest ceiling here. No real scanner infrastructure is named"
+    safety_notes: "source cardinality is capped by the size of the IANA documentation ranges, which is a safety constraint and not a tuning limit. The source study observed 465,251 unique scanners; the ceiling here is 500 usable addresses and the presets stay under it. No real scanner infrastructure is named"
 
   - id: REP-022
     name: "Multi-stage IDS alert chain (kill-chain ordered)"

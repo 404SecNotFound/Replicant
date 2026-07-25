@@ -82,6 +82,11 @@ class EntityConfig:
     # which no other pool draws from, so a perimeter-scan run does not collide
     # with the adversary or benign external pools.
     scanner_subnet: str = "192.0.2.0/24"
+    # The synthetic vendor device identities also live low in this range: the
+    # Check Point profile's default `origin` is 192.0.2.1. Skipping the first few
+    # addresses keeps a scan source from ever being the reporting firewall's own
+    # address, which would be nonsense in a log.
+    scanner_reserve: int = 8
     resolver: str = "10.20.0.53"
     c2_ports: tuple[int, ...] = (443, 8443, 8080, 53)
     scan_ports: tuple[int, ...] = (445, 3389, 22, 23, 80)
@@ -137,7 +142,9 @@ class EntityModel:
             parents=list(cfg.parents),
             users=list(cfg.users),
             countries=countries,
-            scanner_external=_hosts(cfg.scanner_subnet, cfg.external_limit),
+            scanner_external=_hosts(cfg.scanner_subnet, cfg.external_limit + cfg.scanner_reserve)[
+                cfg.scanner_reserve :
+            ],
         )
 
     def summary(self) -> dict[str, object]:
@@ -149,6 +156,7 @@ class EntityModel:
             "sweep_hosts": len(self.sweep_hosts),
             "adversary_external": len(self.adversary_external),
             "benign_external": len(self.benign_external),
+            "scanner_external": len(self.scanner_external),
             "resolver": self.resolver,
             "parents": self.parents,
             "user_pool": len(self.users),

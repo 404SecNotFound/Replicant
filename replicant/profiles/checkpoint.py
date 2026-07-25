@@ -120,6 +120,8 @@ class CheckPointProfile(VendorProfile):
             return self._traffic_forward(event)
         if key == ("dns", "dns-query"):
             return self._dns_query(event)
+        if key == ("dns", "dns-response"):
+            return self._dns_response(event)
         if key == ("utm", "ips"):
             return self._threat_ips(event)
         if key == ("event", "vpn"):
@@ -208,6 +210,35 @@ class CheckPointProfile(VendorProfile):
         ext["app"] = "dns"
         ext["service_id"] = "domain-udp"
         ext["destinationDnsDomain"] = e["qname"]
+        ext["cs2Label"] = "Rule Name"
+        ext["cs2"] = f"policy-{e['policyid']}"
+        ext["inzone"] = self.device.inzone
+        ext["outzone"] = self.device.inzone if _is_internal(dst) else self.device.outzone
+        ext["layer_name"] = self.device.layer_name
+        ext["product"] = self.device.product_fw
+        ext["origin"] = self.device.origin
+        return self._header(self.device.product_fw, "Log", "domain-udp", _SEV_UNKNOWN), ext
+
+    def _dns_response(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
+        """DNS resolution outcome. [Unverified] dns_rcode field name."""
+
+        e = event.extra
+        dst = require(event.dst, "dst")
+        ext: dict[str, str] = {}
+        ext["act"] = "Accept"
+        ext["deviceDirection"] = self._direction(event.dst)
+        ext["rt"] = self._rt(event.eventtime)
+        ext["src"] = require(event.src, "src")
+        ext["dst"] = dst
+        ext["spt"] = require(event.spt, "spt")
+        ext["dpt"] = require(event.dpt, "dpt")
+        ext["proto"] = require(event.proto, "proto")
+        ext["app"] = "dns"
+        ext["service_id"] = "domain-udp"
+        ext["destinationDnsDomain"] = e["qname"]
+        ext["dns_rcode"] = e["rcode"]
+        if e.get("ipaddr"):
+            ext["dns_resolved_addr"] = e["ipaddr"]
         ext["cs2Label"] = "Rule Name"
         ext["cs2"] = f"policy-{e['policyid']}"
         ext["inzone"] = self.device.inzone

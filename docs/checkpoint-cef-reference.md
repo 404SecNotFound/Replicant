@@ -141,6 +141,20 @@ DNS query (firewall connection, app dns):
 <189>Jul 16 10:34:01 CP-LAB-GW-01 CEF:0|Check Point|VPN-1 & FireWall-1|Check Point|Log|domain-udp|Unknown|act=Accept deviceDirection=0 rt=1752662041000 src=10.20.30.40 dst=10.20.0.53 spt=54621 dpt=53 proto=17 app=dns service_id=domain-udp destinationDnsDomain=updates.example.net cs2Label=Rule Name cs2=policy-7 inzone=Internal outzone=Internal layer_name=Network product=VPN-1 & FireWall-1 origin=192.0.2.1
 ```
 
+DNS response (NXDOMAIN). Carries the resolution outcome, which the query record
+does not; this is what makes the DGA technique (REP-016) expressible:
+```
+<189>Jul 16 10:34:02 CP-LAB-GW-01 CEF:0|Check Point|VPN-1 & FireWall-1|Check Point|Log|domain-udp|Unknown|act=Accept deviceDirection=0 rt=1752662042000 src=10.20.30.40 dst=10.20.0.53 spt=54621 dpt=53 proto=17 app=dns service_id=domain-udp destinationDnsDomain=qv7x2p9k4m.invalid dns_rcode=NXDOMAIN cs2Label=Rule Name cs2=policy-7 inzone=Internal outzone=Internal layer_name=Network product=VPN-1 & FireWall-1 origin=192.0.2.1
+```
+`[Unverified]` the extension key names `dns_rcode` and `dns_resolved_addr`.
+`dns_resolved_addr` is emitted only when the name resolved, so its absence is
+itself the NXDOMAIN signal.
+
+Note `origin=192.0.2.1`: this synthetic device address sits in the same
+documentation range as the REP-021 inbound scanner pool, so the entity model
+reserves the low addresses of that range (`EntityConfig.scanner_reserve`) to keep
+a scan source from ever being the reporting gateway's own address.
+
 Mobile Access / VPN login success:
 ```
 <189>Jul 16 10:35:22 CP-LAB-GW-01 CEF:0|Check Point|Mobile Access|Check Point|Log|Log|Unknown|act=Accept rt=1752662122000 src=203.0.113.60 duser=jsmith suser=jsmith auth_status=Successful Login cs3Label=User Group cs3=vpn-users cs5Label=Auth Method cs5=ssl-tunnel cn1Label=Tunnel ID cn1=1846277 reason=login-success msg=SSL tunnel established product=Mobile Access origin=192.0.2.1

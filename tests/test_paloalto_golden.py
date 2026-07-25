@@ -13,7 +13,7 @@
 # limitations under the License.
 """Byte-for-byte golden tests against docs/paloalto-cef-reference.md.
 
-The reference document is the oracle. This builds the same seven events used by the
+The reference document is the oracle. This builds the same eight events used by the
 FortiGate golden test and asserts the PaloAltoProfile + CEF serializer reproduce each
 PAN-OS CEF payload from Section 3 exactly.
 """
@@ -44,7 +44,7 @@ def _golden_payloads() -> list[str]:
 
 
 def _events() -> list[tuple[str, EventRecord]]:
-    """The seven events, same values as the FortiGate golden test, in reference order."""
+    """The eight events, same values as the FortiGate golden test, in reference order."""
 
     return [
         (
@@ -155,6 +155,32 @@ def _events() -> list[tuple[str, EventRecord]]:
             ),
         ),
         (
+            "dns:dns-response NXDOMAIN",
+            EventRecord(
+                log_type="dns",
+                subtype="dns-response",
+                action="pass",
+                level="notice",
+                eventtime=1752662042,
+                src="10.20.30.40",
+                spt=54621,
+                dst="10.20.0.53",
+                dpt=53,
+                proto=17,
+                session_id=13356,
+                extra={
+                    "policyid": "7",
+                    "profile": "default",
+                    "xid": "42312",
+                    "qname": "qv7x2p9k4m.invalid",
+                    "qtype": "A",
+                    "qtypeval": "1",
+                    "qclass": "IN",
+                    "rcode": "NXDOMAIN",
+                },
+            ),
+        ),
+        (
             "event:vpn success",
             EventRecord(
                 log_type="event",
@@ -223,8 +249,8 @@ def _events() -> list[tuple[str, EventRecord]]:
     ]
 
 
-def test_reference_has_seven_golden_lines() -> None:
-    assert len(_golden_payloads()) == 7
+def test_reference_has_eight_golden_lines() -> None:
+    assert len(_golden_payloads()) == 8
 
 
 def test_event_fixture_count_matches_reference() -> None:

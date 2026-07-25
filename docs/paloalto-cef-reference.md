@@ -101,6 +101,15 @@ DNS query (traffic, app dns):
 <189>Jul 16 10:34:01 PA-LAB-01 CEF:0|Palo Alto Networks|PAN-OS|11.1.2|end|TRAFFIC|3|rt=1752662041 deviceExternalId=007051000054321 src=10.20.30.40 dst=10.20.0.53 spt=54621 dpt=53 proto=udp act=allow app=dns cs1Label=Rule cs1=policy-7 cs3Label=Virtual System cs3=vsys1 cs4Label=Source Zone cs4=trust cs5Label=Destination Zone cs5=untrust deviceInboundInterface=ethernet1/2 deviceOutboundInterface=ethernet1/1 cn1Label=SessionID cn1=13355 PanOSDNSQuery=updates.example.net PanOSDNSType=A cnt=1 cs6Label=LogProfile cs6=default
 ```
 
+DNS response (NXDOMAIN). Carries the resolution outcome, which the query record
+does not; this is what makes the DGA technique (REP-016) expressible:
+```
+<189>Jul 16 10:34:02 PA-LAB-01 CEF:0|Palo Alto Networks|PAN-OS|11.1.2|end|TRAFFIC|3|rt=1752662042 deviceExternalId=007051000054321 src=10.20.30.40 dst=10.20.0.53 spt=54621 dpt=53 proto=udp act=allow app=dns cs1Label=Rule cs1=policy-7 cs3Label=Virtual System cs3=vsys1 cs4Label=Source Zone cs4=trust cs5Label=Destination Zone cs5=untrust deviceInboundInterface=ethernet1/2 deviceOutboundInterface=ethernet1/1 cn1Label=SessionID cn1=13356 PanOSDNSQuery=qv7x2p9k4m.invalid PanOSDNSType=A PanOSDNSResponseCode=NXDOMAIN cnt=1 cs6Label=LogProfile cs6=default
+```
+`[Unverified]` the extension key names `PanOSDNSResponseCode` and
+`PanOSDNSResolvedAddress`. `PanOSDNSResolvedAddress` is emitted only when the name
+resolved, so its absence is itself the NXDOMAIN signal.
+
 GlobalProtect login success:
 ```
 <189>Jul 16 10:35:22 PA-LAB-01 CEF:0|Palo Alto Networks|PAN-OS|11.1.2|globalprotect|GLOBALPROTECT|3|rt=1752662122 deviceExternalId=007051000054321 duser=jsmith suser=jsmith src=203.0.113.60 act=allow PanOSEventID=gateway-auth-succ PanOSStage=login PanOSAuthMethod=ssl-tunnel cs3Label=Virtual System cs3=vsys1 cn1Label=TunnelID cn1=1846277 cs2Label=Group cs2=vpn-users reason=login-success msg=SSL tunnel established
