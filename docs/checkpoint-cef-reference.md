@@ -177,7 +177,7 @@ System admin auth failure:
 - The same technique catalog and scenario engine drive this profile. Techniques emit vendor-neutral
   `(log_type, subtype)` categories; `CheckPointProfile.render` maps each to the Check Point layout above.
   The FortiGate `signature_id` in the catalog is documentation only and is not read by any profile.
-- `event:vpn` with `srccountry` present (REP-011 geovelocity) is not represented in the seven golden
+- `event:vpn` with `srccountry` present (REP-011 geovelocity) is not represented in the eight golden
   lines; if added, a Source Region custom field would follow `auth_status`, matching how the FortiGate
   and PAN-OS profiles gate the same optional GeoIP tag.
 - Select the vendor at run time with `--vendor checkpoint` (default `fortigate`). Same seed plus
