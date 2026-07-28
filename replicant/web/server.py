@@ -17,15 +17,23 @@ Exposes the same capabilities as the CLI and menu by calling the Orchestrator:
 browse the catalog, send a test log, run a technique with a live event stream and
 a stop control, and open the real terminal menu over a websocket PTY bridge.
 
-Safety: the server binds to loopback only, every API and websocket call requires a
-per-session token, and a middleware rejects requests whose Host header is not
-localhost (a DNS-rebinding guard). Web runs use the same fail-closed Orchestrator,
-eps cap, and manifest as the CLI.
+Access: the server binds loopback by default but any local address is allowed, so the
+controls do not assume a local-only listener. Every API and websocket call requires
+the persistent token, accepted as a Bearer header, an ``X-Replicant-Token`` header, a
+query parameter, or an httpOnly ``SameSite=Strict`` session cookie. A middleware
+rejects any Host that is not the bind address, loopback, or an explicitly allowed
+name (the DNS-rebinding guard). Because the cookie is the only credential a browser
+attaches by itself, a cookie-authenticated write must also carry a matching Origin.
+The terminal websocket repeats all of that inline: websocket scopes never traverse
+HTTP middleware, and it is off by default whenever the bind is not loopback.
+
+Web runs use the same fail-closed Orchestrator, eps cap, and manifest as the CLI.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import functools
 import ipaddress
 import json
@@ -33,28 +41,157 @@ import os
 import queue
 import secrets
 import socket
+import sys
 import threading
 import webbrowser
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.requests import HTTPConnection
 from starlette.websockets import WebSocket
 
 from replicant import __version__
-from replicant.config.settings import VENDORS, Settings
+from replicant.config.settings import (
+    VENDORS,
+    WEB_DEFAULT_PORT,
+    Settings,
+    load_or_create_web_token,
+)
 from replicant.core.models import Catalog, CollectorProfile, Intensity, RunRequest, Transport
 from replicant.core.orchestrator import Orchestrator, effective_identity
 from replicant.scenario.engine import implemented_technique_ids
 from replicant.web.pty_bridge import bridge_terminal
 from replicant.web.runner import RunInProgressError, RunManager
 
-_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
+
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+_WILDCARD_BINDS = frozenset({"0.0.0.0", "::"})
+
+# Set on the first authenticated load so the token does not have to live in the
+# URL bar for the rest of the session.
+SESSION_COOKIE = "replicant_session"
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _normalize_host(value: str) -> str:
+    """Fold a host to one comparable form: lower-cased, IPv6 brackets stripped."""
+    text = value.strip().lower()
+    if text.startswith("[") and text.endswith("]"):
+        return text[1:-1]
+    return text
+
+
+def _hostname_of(header_value: str) -> str:
+    """Strip the optional ``:port`` from a Host or Origin authority.
+
+    A bare ``rsplit(":", 1)`` truncates an unbracketed IPv6 literal to its own
+    prefix, so bracketed forms are handled first and an unbracketed value is only
+    split when it carries exactly one colon.
+    """
+    text = header_value.strip()
+    if text.startswith("["):
+        end = text.find("]")
+        return text if end == -1 else text[: end + 1]
+    if text.count(":") == 1:
+        return text.rsplit(":", 1)[0]
+    return text
+
+
+def _is_ip_literal(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _authority_of(origin: str) -> str:
+    """Reduce an Origin (``scheme://host:port``) to the authority the Host guard reads."""
+    _, separator, rest = origin.partition("://")
+    return rest if separator else origin
+
+
+def is_loopback(host: str) -> bool:
+    """True when a bind address reaches only this machine.
+
+    Replaces the old ``_require_loopback``, which refused any other address
+    outright. Remote hosting is now supported, so this is no longer a gate: it
+    decides the two defaults that depend on exposure, the terminal tab and whether
+    ``--no-auth`` needs an explicit acknowledgement.
+    """
+    normalized = _normalize_host(host)
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+@dataclass(frozen=True)
+class AccessPolicy:
+    """Who may reach this server, decided once at bind time.
+
+    The Host guard used to hardcode localhost, which made ``--host`` unusable: an
+    operator who bound to a routable address then had to defeat their own
+    DNS-rebinding check to open the page. The allowlist now follows the address the
+    server was actually told to bind, plus loopback, plus anything named with
+    ``--allowed-host``.
+    """
+
+    allowed_hosts: frozenset[str] = LOOPBACK_HOSTS
+    wildcard_bind: bool = False
+    terminal_enabled: bool = True
+    require_auth: bool = True
+
+    @classmethod
+    def for_bind(
+        cls,
+        host: str,
+        extra: Iterable[str] = (),
+        *,
+        enable_terminal: bool = False,
+    ) -> AccessPolicy:
+        """Derive the policy from the address the operator asked to bind.
+
+        ``enable_terminal`` is the ``--enable-terminal`` flag, so False means "use
+        the default for this bind" rather than "off": the terminal is on for
+        loopback either way, and the flag is what turns it back on elsewhere.
+        """
+        normalized = _normalize_host(host)
+        wildcard = normalized in _WILDCARD_BINDS
+        allowed = set(LOOPBACK_HOSTS)
+        if not wildcard:
+            allowed.add(normalized)
+        allowed.update(_normalize_host(value) for value in extra if value.strip())
+        return cls(
+            allowed_hosts=frozenset(allowed),
+            wildcard_bind=wildcard,
+            terminal_enabled=is_loopback(host) or enable_terminal,
+        )
+
+    def allows_host(self, header_value: str) -> bool:
+        """Accept a Host (or Origin authority) header value.
+
+        On a wildcard bind the machine's own addresses cannot be enumerated without
+        probing the network, so any IP *literal* is accepted: DNS rebinding needs a
+        hostname whose resolution the attacker controls, and a literal has none. A
+        hostname still has to be named explicitly with ``--allowed-host``.
+        """
+        name = _normalize_host(_hostname_of(header_value))
+        if not name:  # HTTP/1.0 client with no Host header; nothing to rebind
+            return True
+        if name in self.allowed_hosts:
+            return True
+        return self.wildcard_bind and _is_ip_literal(name)
 
 
 class CollectorBody(BaseModel):
@@ -106,7 +243,13 @@ def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
     return out
 
 
-def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
+def create_app(
+    catalog: Catalog,
+    settings: Settings,
+    token: str,
+    policy: AccessPolicy | None = None,
+) -> FastAPI:
+    policy = policy or AccessPolicy()
     app = FastAPI(title="Replicant", version=__version__, docs_url=None, redoc_url=None)
     manager = RunManager(catalog, settings)
     base_orchestrator = Orchestrator(catalog, settings)
@@ -128,18 +271,76 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
             return base_orchestrator
         return Orchestrator(catalog, settings.model_copy(update={"vendor": resolved}))
 
-    def require_token(
-        token_q: str | None = Query(default=None, alias="token"),
-        token_h: str | None = Header(default=None, alias="x-replicant-token"),
-    ) -> None:
-        if not secrets.compare_digest(token, token_q or token_h or ""):
+    def _authenticated_source(request: HTTPConnection) -> str | None:
+        """Return which credential authenticated this request, or None.
+
+        Explicit sources are checked before the cookie, because the source decides
+        whether the CSRF rule applies: a request that carried a header or query
+        token proved intent, while a cookie is attached by the browser whether the
+        page meant it or not.
+
+        Each candidate is skipped when empty. ``compare_digest("", "")`` is true,
+        so an absent credential must never reach the comparison.
+        """
+        scheme, _, bearer = (request.headers.get("authorization") or "").partition(" ")
+        candidates = (
+            ("header", bearer.strip() if scheme.lower() == "bearer" else ""),
+            ("header", request.headers.get("x-replicant-token") or ""),
+            ("query", request.query_params.get("token") or ""),
+            ("cookie", request.cookies.get(SESSION_COOKIE) or ""),
+        )
+        for source, supplied in candidates:
+            if supplied and secrets.compare_digest(token, supplied):
+                return source
+        return None
+
+    def _origin_ok(connection: HTTPConnection, *, required: bool) -> bool:
+        """Validate the Origin header. ``required`` rejects its absence outright."""
+        origin = connection.headers.get("origin") or ""
+        if not origin:
+            return not required
+        return policy.allows_host(_authority_of(origin))
+
+    def require_token(request: Request) -> None:
+        if not policy.require_auth:
+            return
+        source = _authenticated_source(request)
+        if source is None:
             raise HTTPException(status_code=401, detail="invalid or missing token")
+        if source == "cookie" and request.method not in _SAFE_METHODS:
+            # The cookie is the only ambient credential here, so it is the only one
+            # a cross-site page can spend. SameSite=Strict already blocks that in a
+            # current browser; this covers the ones that do not honour it. Browsers
+            # send Origin on every non-GET, so its absence here is not the SPA.
+            if not _origin_ok(request, required=True):
+                raise HTTPException(status_code=403, detail="cross-origin write rejected")
 
     @app.middleware("http")
-    async def _localhost_only(request: Request, call_next: Any) -> Any:
-        hostname = (request.headers.get("host") or "").rsplit(":", 1)[0]
-        if hostname and hostname not in _ALLOWED_HOSTS:
-            return JSONResponse(status_code=403, content={"detail": "non-local host rejected"})
+    async def _session_cookie(request: Request, call_next: Any) -> Any:
+        """Promote an explicit token to a session cookie once it has worked.
+
+        This lives in middleware rather than a route because ``StaticFiles`` is
+        mounted at ``/``: the page the operator actually opens is served by the
+        mount, so no handler in this module ever sees it.
+        """
+        source = _authenticated_source(request)
+        response = await call_next(request)
+        if source is not None and source != "cookie" and response.status_code < 400:
+            response.set_cookie(
+                SESSION_COOKIE,
+                token,
+                httponly=True,
+                samesite="strict",
+                path="/",
+            )
+        return response
+
+    @app.middleware("http")
+    async def _host_guard(request: Request, call_next: Any) -> Any:
+        # Registered last, so it is the outermost layer: a rejected Host never
+        # reaches the cookie logic or a route.
+        if not policy.allows_host(request.headers.get("host") or ""):
+            return JSONResponse(status_code=403, content={"detail": "host not allowed"})
         return await call_next(request)
 
     @app.get("/api/health")
@@ -201,6 +402,7 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
             "accepted_as": accepted_as,
             "vendor": settings.vendor,
             "vendors": list(VENDORS),
+            "terminal_enabled": policy.terminal_enabled,
         }
 
     @app.post("/api/connect/test", dependencies=[Depends(require_token)])
@@ -306,8 +508,21 @@ def create_app(catalog: Catalog, settings: Settings, token: str) -> FastAPI:
 
     @app.websocket("/ws/terminal")
     async def terminal(websocket: WebSocket) -> None:
-        supplied = websocket.query_params.get("token", "")
-        if not secrets.compare_digest(token, supplied):
+        # Every check the /api routes get from middleware and dependencies is
+        # repeated here by hand. A websocket scope never traverses HTTP
+        # middleware, so the Host guard above does not cover this endpoint. That
+        # was invisible while the bind was loopback-only and is not any more.
+        if not policy.terminal_enabled:
+            await websocket.close(code=1008)
+            return
+        if not policy.allows_host(websocket.headers.get("host") or ""):
+            await websocket.close(code=1008)
+            return
+        source = _authenticated_source(websocket)
+        if source is None:
+            await websocket.close(code=1008)
+            return
+        if not _origin_ok(websocket, required=source == "cookie"):
             await websocket.close(code=1008)
             return
         if os.name != "posix":
@@ -336,56 +551,151 @@ def _mount_frontend(app: FastAPI) -> None:
         )
 
 
-_LOOPBACK_HOSTNAMES = {"localhost"}
+def check_unauthenticated_exposure(host: str, *, no_auth: bool, acknowledged: bool) -> None:
+    """Refuse ``--no-auth`` on an address other machines can reach.
 
-
-def _require_loopback(host: str) -> None:
-    """Reject any bind address that is not loopback.
-
-    The web UI prints "(loopback only)" and its safety model assumes a local-only
-    listener, but the bind address was used verbatim, so ``--host 0.0.0.0`` exposed
-    the socket on every interface while still claiming loopback. Remote hosting is
-    not a supported mode: it would need origin checks, TLS, and a stronger auth
-    model than a per-session token, so a non-loopback host is refused outright.
+    Turning auth off on loopback is a convenience. Turning it off on a routable
+    address publishes an unauthenticated run trigger, and the embedded terminal
+    with it, to everything that can route to the host. That needs a deliberate
+    second flag, not a default.
     """
-    if host in _LOOPBACK_HOSTNAMES:
+    if not no_auth or acknowledged or is_loopback(host):
         return
+    raise ValueError(
+        f"--no-auth refused: {host} is reachable from other machines, which would expose "
+        "an unauthenticated run trigger and the embedded terminal. Pass "
+        "--i-understand-this-is-unauthenticated to override, or drop --no-auth."
+    )
+
+
+def bind_socket(host: str, port: int) -> socket.socket:
+    """Bind the listening socket, failing loudly when the fixed port is taken.
+
+    The port is fixed so the URL stays predictable across restarts. Falling back to
+    a different port on a conflict would quietly undo that, so a conflict is an
+    error naming both the port and the flag that changes it.
+    """
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    sock = socket.socket(family, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        raise ValueError(
-            f"web server host must be loopback (127.0.0.1, ::1, or localhost); got {host!r}"
-        ) from None
-    if not address.is_loopback:
-        raise ValueError(
-            f"web server host must be loopback; {host!r} would expose the UI on that interface"
+        sock.bind((host, port))
+    except OSError as exc:
+        sock.close()
+        raise OSError(
+            f"cannot bind {host}:{port} ({exc.strerror or exc}). "
+            f"Free port {port} or choose another with --port."
+        ) from exc
+    return sock
+
+
+def display_available(platform: str, env: Mapping[str, str]) -> bool:
+    """Whether opening a browser could possibly work.
+
+    On a headless Linux host ``webbrowser.open`` shells out to ``gio``, which
+    printed "Operation not supported" over the startup banner on every run. There
+    is no display to open into, so do not try.
+    """
+    if platform.startswith("darwin") or platform.startswith("win"):
+        return True
+    return bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"))
+
+
+def display_url(host: str, port: int, token: str | None) -> str:
+    """A URL someone can actually open.
+
+    A wildcard bind has no address of its own, and ``http://0.0.0.0:9787`` is not
+    openable, so the loopback form is printed and the all-interfaces fact is stated
+    separately rather than being smuggled into a broken link.
+    """
+    display_host = "127.0.0.1" if _normalize_host(host) in _WILDCARD_BINDS else host
+    if ":" in display_host and not display_host.startswith("["):
+        display_host = f"[{display_host}]"
+    return f"http://{display_host}:{port}/" + (f"?token={token}" if token else "")
+
+
+def _no_auth_warning(host: str, port: int) -> list[str]:
+    return [
+        "",
+        "  ####################################################################",
+        "  #  AUTHENTICATION IS DISABLED (--no-auth)                          #",
+        f"  #  Anyone who can reach {host}:{port} can start runs against your",
+        "  #  collector with no credential of any kind.",
+        "  #  The embedded terminal, when enabled, is a real shell-adjacent PTY",
+        "  #  and is exposed on the same terms.",
+        "  ####################################################################",
+        "",
+    ]
+
+
+def startup_lines(
+    host: str,
+    port: int,
+    *,
+    token: str | None,
+    token_state: str,
+    terminal: bool,
+) -> list[str]:
+    """The startup banner: URL, then token state, then terminal state."""
+    wildcard = _normalize_host(host) in _WILDCARD_BINDS
+    url = display_url(host, port, token)
+    bind = f"{host}:{port}" + (" (all interfaces)" if wildcard else "")
+    lines = [
+        "Replicant web UI",
+        f"  URL      : {url}",
+        f"  bind     : {bind}",
+        f"  token    : {token_state}",
+        f"  terminal : {'enabled' if terminal else 'disabled (--enable-terminal to allow)'}",
+        "  stop     : Ctrl-C",
+    ]
+    if wildcard:
+        lines.insert(
+            2, f"  remote   : http://<this host's address>:{port}/ from the rest of the segment"
         )
+    return lines
 
 
 def serve(
     catalog: Catalog,
     settings: Settings,
     host: str = "127.0.0.1",
+    port: int = WEB_DEFAULT_PORT,
     open_browser: bool = True,
+    allowed_hosts: Iterable[str] = (),
+    no_auth: bool = False,
+    acknowledged_unauthenticated: bool = False,
+    rotate_token: bool = False,
+    enable_terminal: bool = False,
 ) -> None:
-    """Start the web server on a random loopback port and print its URL."""
+    """Start the web server on a fixed port and print how to reach it."""
 
-    _require_loopback(host)
-    token = secrets.token_urlsafe(16)
-    app = create_app(catalog, settings, token)
+    check_unauthenticated_exposure(host, no_auth=no_auth, acknowledged=acknowledged_unauthenticated)
 
-    family = socket.AF_INET6 if ":" in host else socket.AF_INET
-    sock = socket.socket(family, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((host, 0))
-    port = sock.getsockname()[1]
-    url = f"http://{host}:{port}/?token={token}"
+    if no_auth:
+        token, token_state = "", "disabled (--no-auth)"
+        for line in _no_auth_warning(host, port):
+            print(line, flush=True)
+    else:
+        token, token_state = load_or_create_web_token(rotate=rotate_token)
 
-    print("Replicant web UI", flush=True)
-    print(f"  URL   : {url}", flush=True)
-    print(f"  bind  : {host}:{port} (loopback only)", flush=True)
-    print("  stop  : Ctrl-C", flush=True)
-    if open_browser:
+    policy = AccessPolicy.for_bind(host, allowed_hosts, enable_terminal=enable_terminal)
+    policy = dataclasses.replace(policy, require_auth=not no_auth)
+    app = create_app(catalog, settings, token, policy)
+
+    sock = bind_socket(host, port)
+    bound_port = int(sock.getsockname()[1])
+
+    for line in startup_lines(
+        host,
+        bound_port,
+        token=token or None,
+        token_state=token_state,
+        terminal=policy.terminal_enabled,
+    ):
+        print(line, flush=True)
+
+    if open_browser and display_available(sys.platform, os.environ):
+        url = display_url(host, bound_port, token or None)
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
 
     # Force the stdlib asyncio loop rather than uvloop: the terminal bridge relies

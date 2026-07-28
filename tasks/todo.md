@@ -1,3 +1,84 @@
+# Web UI access + navigation (in progress, 2026-07-28, branch: feat/webui-access)
+
+Source: `tasks/webui-access-and-nav-spec.md` (DJR, 2026-07-28). Plan approved 2026-07-28.
+Split into two stacked PRs. Every change test-first. Branch off `main` (edac9fe), 443 tests green.
+
+Decisions taken at plan time: fixed port **9787**; httpOnly `SameSite=Strict` cookie **plus**
+an Origin check on cookie-authenticated non-GET requests; `marked` lazy-loaded for the Docs tab.
+
+## PR A - serving and access (spec items 1-6, 12, 13)
+
+- [x] A1. **Token persists to disk.** DONE. `WEB_DEFAULT_PORT`, `web_token_path()`,
+      `load_or_create_web_token(rotate=...)`, `_write_secret` in `config/settings.py`.
+      `0600` file in a `0700` dir; a blank file is treated as absent, because
+      `compare_digest("", "")` is true. 6 tests.
+- [x] A2. **Host allowlist follows the bind address.** DONE. `AccessPolicy` replaces
+      `_ALLOWED_HOSTS`. On a wildcard bind any IP-literal Host is accepted; hostnames
+      still need `--allowed-host`. 6 tests.
+- [x] A3. **Auth accepts four sources.** DONE. Bearer, `X-Replicant-Token`, `?token=`,
+      `replicant_session` cookie. Explicit sources are checked first, because the
+      source decides whether the CSRF rule applies. 6 tests.
+- [x] A4. **Cookie set by middleware, not a route.** DONE. Confirmed necessary: a test
+      asserts the SPA document (served by the `StaticFiles` mount) sets it. 3 tests.
+- [x] A5. **CSRF check scoped to cookie auth.** DONE. Cookie-authenticated non-GET needs
+      a matching `Origin`; a missing `Origin` is refused. Header/query auth exempt so
+      curl and the CLI keep working. 5 tests.
+- [x] A6. **Terminal tab gated.** DONE, and the websocket gap was real: the three
+      RED tests for foreign Host and foreign Origin printed DID NOT RAISE before the
+      fix, proving websockets never traversed the Host middleware. 7 tests.
+- [x] A7. **`serve()` rewrite.** DONE. `check_unauthenticated_exposure`, `bind_socket`,
+      `display_url`, `startup_lines`, `display_available` are all separately testable.
+      The wildcard banner prints an openable loopback URL plus the all-interfaces fact
+      rather than a fake `http://0.0.0.0/`. 13 tests.
+- [x] A8. **CLI flags** on the `web` subparser, threaded to `serve()`, with `OSError` and
+      `ValueError` reported on stderr and exit 1. 5 tests.
+- [x] A9. **Token leaves the URL bar.** DONE. `urlWithoutToken` + `history.replaceState`
+      in `main.tsx`. Terminal tab hidden when the server disables it. 6 vitest tests.
+- [x] A10. **Tests** (spec item 12). DONE. `tests/test_web_access.py`, 53 tests. The two
+      `_require_loopback` tests were rewritten to `is_loopback` as the predicate the new
+      defaults key off, exactly as the plan predicted.
+- [x] A11. **Docs** (spec item 13). DONE. README Quick Start, the safety-model paragraph,
+      `scripts/replicant-web.service`, CHANGELOG `[Unreleased]`, server module docstring.
+      **[Unverified]: the systemd unit has never been started by a real systemd.** Docker
+      daemon was off this session. Verify with `systemd-analyze verify
+      scripts/replicant-web.service` plus one real `systemctl enable --now` in a
+      container before this ships. `ProtectHome=read-only` already caught one defect at
+      authoring time (it would have blocked the first token write), which is exactly the
+      class of thing only a real start finds.
+- [x] A12. **Honesty fixes.** DONE in `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`.
+
+### PR A verification record (2026-07-28)
+
+496 Python tests (443 before), 23 frontend (17 before), black/ruff/mypy clean,
+`npm run build` clean with xterm still code-split.
+
+Live runs against a real server, not the TestClient:
+- 12/12 checks on a loopback bind: 401 with no credential, 200 on Bearer, `Set-Cookie`
+  with `HttpOnly` and `SameSite=Strict` on both the API and the SPA document,
+  cookie-only GET 200, cookie POST with a foreign `Origin` 403, cookie POST with no
+  `Origin` 403, foreign `Host` 403, terminal enabled.
+- 4/4 checks on `--host 0.0.0.0`: terminal reported disabled, reachable from the
+  machine's LAN address with an IP-literal Host, hostname Host still 403.
+- `--no-auth --host 10.20.0.50` refused with exit 1 and the message on stderr.
+- The `EADDRINUSE` path verified itself unplanned: **8787 was already held on this Mac
+  by `mpe_studio.api`.** The refusal message named the port and `--port`, as designed.
+  See the open question on the port default.
+
+## PR B - navigation (spec items 7-11), stacked on A
+
+- [ ] B1. Group the left rail by ATT&CK tactic, collapsible, count per group.
+- [ ] B2. Filter box over id, name, `ndr_uc`, and ATT&CK technique id.
+- [ ] B3. Toggle filters for vendor applicability and log type.
+- [ ] B4. Docs tab. `docs/` does NOT ship in a wheel (no `MANIFEST.in`; `pyproject.toml:46-50`
+      packages `replicant*` only), so it inherits `FRONTEND_DIST`'s editable-install-only
+      constraint. Degrade with a message, do not 500.
+- [ ] B5. `--anchor` control in the run form. Model side already exists; this is wiring.
+- [ ] B6. CHAIN-16 in `tasks/uat-plan.md` greps for the literal string `scenario`, so a Docs
+      tab that lists `phase4-scenario-composition-design.md` makes it read as failed with no
+      feature added. Re-express it as "these five routes 404".
+
+---
+
 # Safety-hardening before public flip (in progress, 2026-07-22, branch: fix/safety-hardening)
 
 Source: accurate code review pasted 2026-07-22. Scope: safety-truth blockers only;

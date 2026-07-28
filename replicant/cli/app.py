@@ -33,6 +33,7 @@ from rich.table import Table
 from replicant import __version__
 from replicant.config.settings import (
     VENDORS,
+    WEB_DEFAULT_PORT,
     Settings,
     load_profiles,
     load_settings,
@@ -102,9 +103,44 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="print the technique catalog")
     sub.add_parser("menu", help="launch the interactive Rich menu")
 
-    web = sub.add_parser("web", help="launch the web UI on a random loopback port")
+    web = sub.add_parser("web", help=f"launch the web UI on port {WEB_DEFAULT_PORT}")
     web.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     web.add_argument("--host", default="127.0.0.1", help="bind address (loopback by default)")
+    web.add_argument(
+        "--port",
+        type=int,
+        default=WEB_DEFAULT_PORT,
+        help=f"listening port (default {WEB_DEFAULT_PORT}); a busy port is an error, "
+        "not a reason to pick another",
+    )
+    web.add_argument(
+        "--allowed-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help="additional Host header value to accept; repeatable. The bind address "
+        "and localhost are always accepted",
+    )
+    web.add_argument(
+        "--rotate-token",
+        action="store_true",
+        help="mint a new persistent token, invalidating the previous URL",
+    )
+    web.add_argument(
+        "--no-auth",
+        action="store_true",
+        help="serve without a token (loopback only unless acknowledged)",
+    )
+    web.add_argument(
+        "--i-understand-this-is-unauthenticated",
+        action="store_true",
+        help="required to combine --no-auth with a bind address other machines can reach",
+    )
+    web.add_argument(
+        "--enable-terminal",
+        action="store_true",
+        help="keep the embedded terminal tab on a non-loopback bind (off by default there)",
+    )
 
     connect = sub.add_parser("connect", help="configure a collector and optionally send a test log")
     connect.add_argument("--host", required=True, help="collector IP or hostname")
@@ -433,7 +469,24 @@ def main(argv: list[str] | None = None) -> int:
                 "[red]web dependencies missing[/red]. Install them with: " "pip install -e '.[web]'"
             )
             return 1
-        serve(catalog, settings, host=args.host, open_browser=not args.no_browser)
+        try:
+            serve(
+                catalog,
+                settings,
+                host=args.host,
+                port=args.port,
+                open_browser=not args.no_browser,
+                allowed_hosts=args.allowed_host,
+                no_auth=args.no_auth,
+                acknowledged_unauthenticated=args.i_understand_this_is_unauthenticated,
+                rotate_token=args.rotate_token,
+                enable_terminal=args.enable_terminal,
+            )
+        except (OSError, ValueError) as exc:
+            # A refused bind and a refused exposure are both operator errors, not
+            # crashes. Report them on stderr and exit non-zero.
+            _fail(f"[red]web server did not start[/red]: {exc}")
+            return 1
         return 0
     parser.print_help()
     return 1
