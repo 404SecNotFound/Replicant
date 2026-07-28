@@ -4,7 +4,7 @@ All notable changes to Replicant are recorded here. Format follows [Keep a Chang
 
 Claims that have not been validated against a live vendor build or a real host are marked `[Unverified]`, and stay marked until they are.
 
-## [Unreleased] - 0.2.0
+## [0.2.0] - 2026-07-26
 
 Catalog expansion: 11 techniques to 24. Every new entry is anchored to a
 peer-reviewed paper with measured results, and the anchors plus the feasibility

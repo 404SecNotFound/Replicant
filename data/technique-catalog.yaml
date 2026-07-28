@@ -2,7 +2,9 @@
 # Project: Replicant (github.com/404SecNotFound/Replicant)
 # Author: RZA
 # Timezone for all timestamps produced at runtime: UTC+04:00 (Dubai)
-# Status: seed catalog for Phase 1 and Phase 2.
+# Status: 24 techniques. REP-001..011 are the original catalog; REP-012..024
+# were added in v0.2.0 and are each anchored to a peer-reviewed detection paper
+# with measured results (see docs/technique-catalog-expansion-research*.md).
 #
 # PURPOSE
 # This file is the single source of truth for the interactive TTP menu and the
@@ -41,7 +43,7 @@
 # safety. "high" is still synthetic text to one collector. Duration and rate are
 # always operator-overridable from the menu or CLI flags.
 
-version: 0.1.0
+version: 0.2.0
 vendor_profile: fortigate
 timezone: "UTC+04:00"
 default_entities_ref: entities.default   # defined in the entity model, not here
