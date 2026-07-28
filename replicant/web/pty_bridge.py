@@ -25,6 +25,7 @@ back as raw text frames. POSIX only (uses ``pty``); the server guards this.
 from __future__ import annotations
 
 import asyncio
+import codecs
 import fcntl
 import json
 import os
@@ -37,6 +38,20 @@ import termios
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 _CHILD_ARGV = [sys.executable, "-m", "replicant.cli.app", "menu"]
+
+
+def utf8_stream_decoder() -> codecs.IncrementalDecoder:
+    """A decoder that carries a partial multi-byte sequence across PTY reads.
+
+    ``os.read`` returns whatever bytes are available, so a chunk boundary can
+    land in the middle of a UTF-8 sequence. Decoding each chunk on its own with
+    ``errors="replace"`` turns those split bytes into U+FFFD permanently, which
+    showed up as corrupted box-drawing characters in the menu's table borders
+    once the catalog grew large enough to straddle a read boundary. An
+    incremental decoder holds the incomplete tail until the rest arrives.
+    """
+
+    return codecs.getincrementaldecoder("utf-8")("replace")
 
 
 def _set_winsize(fd: int, rows: int, cols: int) -> None:
@@ -103,13 +118,19 @@ async def bridge_terminal(websocket: WebSocket) -> None:
     loop.add_reader(master_fd, on_readable)
 
     async def pump_output() -> None:
+        # One decoder for the whole connection, so a multi-byte character split
+        # across two reads is reassembled rather than replaced.
+        decoder = utf8_stream_decoder()
         while not closing.is_set() or not out_queue.empty():
             try:
                 data = await asyncio.wait_for(out_queue.get(), timeout=0.25)
             except TimeoutError:
                 continue
+            text = decoder.decode(data)
+            if not text:  # chunk ended mid-sequence; wait for the remainder
+                continue
             try:
-                await websocket.send_text(data.decode("utf-8", "replace"))
+                await websocket.send_text(text)
             except Exception:  # pragma: no cover - client vanished mid-send
                 closing.set()
                 return
