@@ -202,6 +202,21 @@ def _connect_flow(orchestrator: Orchestrator, console: Console) -> CollectorProf
     return profile
 
 
+def _key_hint(catalog: Catalog) -> str:
+    """The key legend under the menu table.
+
+    The technique range is derived from the catalog rather than written out.
+    It was hardcoded as ``[1-11]`` and silently became wrong when the catalog
+    grew to 24, contradicting the selection validator in the menu loop, which
+    has always bounded on ``len(catalog.techniques)``.
+    """
+
+    return (
+        rf"  [dim]\[1-{len(catalog.techniques)}] technique   \[a] scenario   "
+        r"\[c] connection   \[v] vendor   \[s] seed   \[q] quit[/dim]"
+    )
+
+
 def _main_table(
     catalog: Catalog, collector: CollectorProfile | None, seed: int, vendor: str
 ) -> Table:
@@ -288,10 +303,7 @@ def run_menu(catalog: Catalog, settings: Settings, console: Console) -> int:
 
     while True:
         console.print(_main_table(catalog, collector, seed, settings.vendor))
-        console.print(
-            r"  [dim][1-11] technique   \[a] scenario   \[c] connection   "
-            r"\[v] vendor   \[s] seed   \[q] quit[/dim]"
-        )
+        console.print(_key_hint(catalog))
         choice = Prompt.ask("Select").strip().lower()
         if choice == "q":
             console.print("Replicant offline.")

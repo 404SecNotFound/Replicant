@@ -21,7 +21,13 @@ from unittest.mock import patch
 import pytest
 from rich.console import Console
 
-from replicant.cli.menu import _pick_saved_profile, _pick_scenario, _pick_vendor, _vendor_label
+from replicant.cli.menu import (
+    _key_hint,
+    _pick_saved_profile,
+    _pick_scenario,
+    _pick_vendor,
+    _vendor_label,
+)
 from replicant.core.models import CollectorProfile, load_catalog, load_scenario_catalog
 
 
@@ -30,6 +36,18 @@ def _profiles() -> dict[str, CollectorProfile]:
         "prod": CollectorProfile(name="prod", host="10.0.0.5", port=514, transport="udp"),
         "lab": CollectorProfile(name="lab", host="10.0.0.6", port=6514, transport="tls"),
     }
+
+
+def test_key_hint_range_tracks_the_catalog_size() -> None:
+    """The hint said [1-11] while the catalog held 24, so it lied to the operator.
+
+    It must be derived, because the selection validator bounds on
+    len(catalog.techniques) and the two silently disagreed.
+    """
+    catalog = load_catalog(Path(__file__).resolve().parents[1] / "data" / "technique-catalog.yaml")
+    hint = _key_hint(catalog)
+    assert rf"\[1-{len(catalog.techniques)}] technique" in hint
+    assert "[1-11]" not in hint
 
 
 def test_pick_saved_profile_returns_selection_by_sorted_index() -> None:
