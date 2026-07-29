@@ -135,6 +135,14 @@ Live runs against a real server, not the TestClient:
       correct check. Now asserts five candidate routes 404 plus no scenario control in
       the UI, and `App.test.tsx` pins the UI half automatically.
 
+### RESOLVED 2026-07-29, DJR: leave the vendor filter out
+
+Decision recorded in `tasks/webui-access-and-nav-spec.md` next to item 9 itself,
+with the evidence and the one-grep test for re-opening it. The original question
+and options are kept below as the record of how it was decided.
+
+---
+
 ### Open question for DJR: the vendor filter in spec item 9
 
 Spec item 9 asks for "toggle filters for vendor applicability and log type". The log
