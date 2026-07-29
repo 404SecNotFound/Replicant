@@ -19,6 +19,12 @@
 interface Props {
   eps: number;
   cap: number;
+  // Whether the cap is actually governing this run. The events-per-second cap is
+  // only enforced where there is an emitter to throttle, so a dry run or a
+  // file-only run is not limited at all. Printing "cap 2000" next to a measured
+  // rate ten times that is a true number under a false label, which reads as the
+  // cap being broken.
+  capApplies: boolean;
   samples: number[];
   pct: number;
   running: boolean;
@@ -36,7 +42,18 @@ const H = 76;
 const TOP = 14;
 const BOTTOM = 66;
 
-export function SignalReadout({ eps, cap, samples, pct, running, count, total, elapsedLabel, windowSeconds }: Props) {
+export function SignalReadout({
+  eps,
+  cap,
+  capApplies,
+  samples,
+  pct,
+  running,
+  count,
+  total,
+  elapsedLabel,
+  windowSeconds,
+}: Props) {
   const scale = Math.max(cap * 0.25, ...samples, 1);
   const span = W * 0.66; // the emitted portion; the rest is the projection lane
   const pts =
@@ -65,7 +82,17 @@ export function SignalReadout({ eps, cap, samples, pct, running, count, total, e
             </span>
           )}
         </div>
-        <span className="font-mono text-[11px] text-text-3">cap {cap} · window {windowSeconds}s</span>
+        <span
+          className="font-mono text-[11px] text-text-3"
+          title={
+            capApplies
+              ? `Sends are held to ${cap} events per second.`
+              : "The events-per-second cap governs sending. This run has no collector, " +
+                "so nothing throttles it and the rate can exceed the configured cap."
+          }
+        >
+          {capApplies ? `cap ${cap}` : "uncapped"} · window {windowSeconds}s
+        </span>
       </div>
 
       <svg className="block h-[76px] w-full" viewBox="0 0 900 76" preserveAspectRatio="none">

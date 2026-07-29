@@ -110,6 +110,15 @@ The left rail was a flat list of 24. Part 2 of the same spec.
 
 ### Fixed
 
+- **The run readout claimed a cap that was not being applied.** It printed
+  `cap 2000` on every run, including runs with no collector. The events-per-second
+  cap is only enforced where there is an emitter to throttle, so a dry run or a
+  file-only run is not limited at all, and the readout sat next to a measured rate
+  an order of magnitude above the number it displayed. The figure was right and the
+  label was false, which reads as the cap being broken. It now shows `uncapped` when
+  no collector is attached, with a tooltip saying why, and `cap N` only when sends
+  are actually governed by it. The value is frozen when a run starts, so toggling
+  the destination mid-run cannot relabel a run already in flight.
 - No `webbrowser.open` attempt when there is no display, which printed a `gio`
   "Operation not supported" error over the startup banner on every headless start.
 - **UAT case CHAIN-16 could not pass.** It asserted the web UI has no scenario
