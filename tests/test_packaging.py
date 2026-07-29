@@ -30,6 +30,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
+import replicant
 from replicant import resources
 from replicant.cli.app import _find_catalog
 from replicant.config.settings import Settings
@@ -84,6 +85,20 @@ def test_an_explicit_catalog_override_still_wins(tmp_path: Path, monkeypatch) ->
     monkeypatch.chdir(tmp_path)
 
     assert _find_catalog(Settings(catalog_path=str(custom))) == custom
+
+
+def test_the_version_is_stated_once() -> None:
+    # Two files have to say the same thing: pyproject.toml is what the wheel is
+    # stamped with, replicant.__version__ is what `--version` and every manifest
+    # report. Nothing forced them to agree, so a release could ship an artifact
+    # whose metadata and self-report disagreed, and the manifests written by that
+    # run would attribute events to a version that was never released.
+    declared = tomllib.loads(PYPROJECT.read_text())["project"]["version"]
+
+    assert replicant.__version__ == declared, (
+        f"replicant.__version__ is {replicant.__version__!r} but pyproject.toml "
+        f"declares {declared!r}; bump both"
+    )
 
 
 def test_docs_are_deliberately_not_packaged() -> None:

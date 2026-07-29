@@ -4,6 +4,57 @@ All notable changes to Replicant are recorded here. Format follows [Keep a Chang
 
 Claims that have not been validated against a live vendor build or a real host are marked `[Unverified]`, and stay marked until they are.
 
+## [0.3.1] - 2026-07-29
+
+A packaging fix. Nothing changes for anyone running from a git clone, which is how
+0.3.0 was tested and how CI runs. Everything in 0.3.0 still applies.
+
+### Fixed: a wheel install produced a tool that could not run
+
+`pip install` of the 0.3.0 artifact succeeded and `replicant --version` printed
+`0.3.0`. Every other command then failed with `catalog not found`, and the web UI
+served its "build the frontend" placeholder instead of the real interface.
+
+Everything Replicant needs at run time lived **outside** the package and was reached
+by repository-relative paths. `pyproject.toml` packages `replicant*` and there is no
+`MANIFEST.in`, so the wheel contained 40 entries: the Python modules and `py.typed`,
+no catalogs and no built frontend. It was also dependent on the working directory,
+because the CLI fell back to `Path.cwd()`. That is why it went unnoticed. From a
+checkout it worked and from anywhere else it did not, and every test imports from the
+source tree, so the suite stayed green while the artifact was unusable.
+
+- `data/` moved to `replicant/data/`, and the frontend build output moved to
+  `replicant/webui_dist/` (vite `outDir`). Both now sit inside the package.
+- `replicant/resources.py` is the single place that knows where runtime files live.
+  Anything resolving a repository-relative path is now a defect.
+- `package-data` covers the catalogs, the built UI, and its fonts.
+- Catalog resolution prefers the packaged copy over working-directory guesses, so
+  behaviour no longer depends on where you stand. An explicit `catalog_path` setting
+  still wins.
+- `docs/` is deliberately **not** packaged. It is documentation, it is large, and a
+  second copy inside the package would drift from the first.
+
+This closes the "the built wheel is not yet self-contained" limitation recorded
+under 0.1.0.
+
+### Added: guards, because unit tests structurally could not catch this
+
+- `tests/test_packaging.py` asserts that runtime files resolve inside the package,
+  that `package-data` actually covers them (moving a file and leaving the glob
+  behind produces the same broken wheel), and that the catalog resolves from an
+  empty working directory.
+- A `wheel` CI job builds the frontend, builds a wheel, installs it into a clean
+  virtualenv, and runs it from an unrelated directory. A test that imports from the
+  source tree cannot fail the way a wheel fails, so the check lives where the
+  consequence lands.
+- The version is asserted to be single-sourced: `replicant.__version__` and the
+  `version` in `pyproject.toml` have to agree. They are two files that must say the
+  same thing, which is the same drift risk in miniature.
+
+Verified from a clean virtualenv outside the repository, in a directory containing
+no `data/`: `replicant list` shows 24 techniques, a run writes 36000 CEF lines,
+`replicant scenario list` works, and the web UI serves the real single-page app.
+
 ## [0.3.0] - 2026-07-29
 
 The web UI becomes something you can actually reach and navigate. No change to the
@@ -480,4 +531,7 @@ This project uses MITRE ATT&CK. Copyright 2026 The MITRE Corporation. Reproduced
 
 Licensed under the Apache License 2.0. Third-party notices are in [`NOTICE`](NOTICE).
 
+[0.3.1]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.3.1
+[0.3.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.3.0
+[0.2.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.2.0
 [0.1.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.1.0
