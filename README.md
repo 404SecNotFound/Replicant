@@ -267,7 +267,13 @@ replicant web --host 0.0.0.0 --no-browser
 
 The access token is printed on startup, persists in `~/.config/replicant/web-token` so the URL survives a restart, and is exchanged for an httpOnly `SameSite=Strict` session cookie on first load, so it does not stay in the address bar. Rotate it with `--rotate-token`. Add a hostname the UI should answer to with `--allowed-host`, repeatable.
 
-The Terminal tab is a real pseudo-terminal, so it is **off by default** whenever the bind address is not loopback. `--enable-terminal` turns it back on. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
+The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser. Because it is a real PTY, it is **off by default** whenever the bind address is not loopback; `--enable-terminal` turns it back on. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
+
+At 24 techniques the left rail is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, and ATT&CK technique id at the same time, so whichever identifier your detection backlog happens to use will find the entry. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
+
+The **Docs** tab renders the reference material in `docs/` in the browser: the three vendor CEF references and the two catalog expansion research notes. Those files ship with the repository rather than the installed package, so the tab is populated from a git checkout or an editable install and says so plainly if they are absent.
+
+The run form exposes the event-time anchor as a visible control, `now` or `fixed`, defaulting to `now` for a live send and `fixed` for file output, and warns before the run if a live send is about to go out with a fixed anchor. See [Event times, and when to override the anchor](#event-times-and-when-to-override-the-anchor) for why that matters.
 
 To run it as a service, `scripts/replicant-web.service` is a systemd unit template. Edit the user and the two paths at the top, then:
 
@@ -283,7 +289,7 @@ A run streams live CEF while it emits, with the delivered rate plotted against y
 
 <img src="docs/images/webui-run.png" alt="A live run in the web UI: 2271 events per second against a 2000 cap, a waveform of the delivered rate, progress at 29900 of 108000 events, and streaming CEF output" width="900" />
 
-The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser:
+The Terminal tab, when enabled, runs the Rich menu inside the browser:
 
 <img src="docs/images/webui-terminal.png" alt="The embedded terminal tab running the Rich menu, showing the technique table and the technique, scenario, connection, vendor, seed, and quit prompts" width="900" />
 
@@ -327,10 +333,13 @@ replicant scenario run SCEN-001 --anchor now --host 10.20.0.50 --port 514
 
 `--anchor` accepts `now`, an epoch, or an ISO-8601 timestamp (a naive value is read as UTC). Sending with an anchor more than two days from now prints a warning naming the drift, so this cannot bite you silently. Leave the anchor alone for `--to-file` artifacts and regression comparisons, where byte-identical output is the point.
 
+The web UI exposes the same choice as an **Anchor** control in the run form, defaulting to `now` for a live send and `fixed` for file output, and shows the consequence before you start the run rather than after.
+
 The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP, TCP, and TLS transport, catalog validation, the orchestrator end-to-end, and the web API.
 
 ```bash
-./.venv/bin/pytest          # 249 tests
+./.venv/bin/pytest          # 516 tests
+(cd webui && npm test)      # 64 frontend tests
 ./.venv/bin/black --check replicant tests
 ./.venv/bin/ruff check replicant tests
 ./.venv/bin/mypy replicant
@@ -346,7 +355,8 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 - **Phase 3 (complete):** multi-vendor. Palo Alto (PAN-OS) and Check Point (Log Exporter) profiles join FortiGate, each with an `[Unverified]` reference doc and byte-for-byte golden lines. Select the vendor with `--vendor {fortigate,paloalto,checkpoint}`, in the Rich menu (`[v]`), or in the web UI; one technique catalog and one scenario engine drive every vendor, only the serialization differs.
 - **Phase 4 (complete):** ATT&CK scenario composition. Curated scenarios compose the existing techniques into one deterministic, multi-stage CEF timeline with a shared synthetic through-line, plus an advisory coverage document that maps the chain to ATT&CK tactics and flags gaps. Any AI assistance stays advisory while a human authors the detection design. Driven from `replicant scenario` (list/show/run) and the Rich menu `[a]`.
 - **Catalog expansion (complete):** the catalog grew from 11 techniques to 24 (REP-012 through REP-024), each anchored to a peer-reviewed detection paper with measured results rather than to a plausible guess. Added the `dns:dns-response` render path on all three vendors, which also makes fast-flux and DNS TTL techniques possible later, and a dedicated inbound-scanner entity pool. Several new entries are the graded, harder counterpart of an existing one, and techniques whose detection depends on separating a signal from a look-alike now emit the look-alike as well.
-- **Next:** group the catalog by MITRE tactic in the web UI left rail, then a docs tab. At 24 entries the grouping is closer to a prerequisite for a usable menu than to a cosmetic improvement.
+- **Web UI access and navigation (complete):** the UI serves on a fixed port and can bind an address the rest of the segment can reach, with a persistent token, an httpOnly session cookie, a Host allowlist that follows the bind address, and the embedded terminal off by default once the bind is not loopback. The left rail is grouped by ATT&CK tactic with a filter box and log-type toggles, a Docs tab renders the vendor CEF references in the browser, and the event-time anchor is a visible control in the run form.
+- **Next:** a light theme and a responsive layout for the web UI, and a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output.
 
 ## Prior art and positioning
 
