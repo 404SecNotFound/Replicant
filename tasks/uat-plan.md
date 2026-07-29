@@ -187,7 +187,7 @@ Note the CLI/menu asymmetry recorded as OBS-005: `scenario run` takes `--to-file
 | CHAIN-13 | FR-2 | Vendor selection applies to scenarios | `scenario run SCEN-001 --vendor checkpoint --to-file f --no-send` | Every line renders `CEF:0\|Check Point\|…`; repeat for `paloalto` | |
 | CHAIN-14 | SR-4 | eps cap governs the whole chain | `scenario run SCEN-003 --rate 50` to a loopback receiver | Delivered rate ≤ 50/s measured across the full chain, not reset per stage | |
 | CHAIN-15 | SR-2 | Entities synthetic across every stage | Scan a full scenario `--to-file` output | All IPs in RFC1918/documentation ranges; usernames and DNS names synthetic. Multi-stage chains reuse entities across techniques, so this is not covered by CORE-06 | |
-| CHAIN-16 | — | Web UI scenario surface absent, no regression | `GET /api/catalog`, `GET /api/config`; grep the built SPA | No scenario endpoints or UI. Asserts the documented deferral (OBS-006), not a feature | |
+| CHAIN-16 | — | Web UI scenario surface absent, no regression | With the server running, request `/api/scenarios`, `/api/scenarios/SCEN-001`, `/api/scenario/list`, `/api/runs/scenario`, `/ws/scenario`. In the UI, confirm there is no scenario control in the left rail, the run form, or the Docs tab | All five routes 404. No scenario control anywhere in the UI. Asserts the documented deferral (OBS-006), not a feature | |
 
 ## 10. Suite G — Linux installer (DJR-driven, requires a Linux host)
 
@@ -238,7 +238,7 @@ Round 1 recon surfaced 5 issues. All five were re-verified against `main` @ `0af
 | OBS-C | Info | Low | `scenario show` writes its unknown-id error to stdout, not stderr | `replicant/cli/app.py:296-297` | Exit code is correct (1) and CHAIN-04 does not specify a stream, so this is not a failure. It is inconsistent with INST-02, which requires usage on stderr. Consistency decision, not a defect. |
 | OBS-D | Info | Medium | Suite F has no guard against a concurrent session holding the working tree | `tasks/uat-plan.md` §2 | During execution another session edited `README.md` inside the measurement window, which nearly produced a false FAIL on CHAIN-03, the one case whose entire purpose is proving nothing is written. Added to the entry criteria. |
 | OBS-005 | Info | — | Menu scenario path cannot write to a file and has no intensity override | `replicant/cli/menu.py:126-132` | Not a defect. `_run_scenario` hardcodes `to_file=None`; the CLI is a strict superset of the menu, which is the direction the CLAUDE.md parity rule requires (anything the menu does, `replicant` does headless). Recorded so it is not re-raised as a bug. |
-| OBS-006 | Info | — | Web UI has no scenario surface at all | `webui/src`, `replicant/web/server.py` | Deferred fast-follow per `docs/phase4-scenario-composition-design.md` §13. Grep for `scenario` across both returns zero hits. CHAIN-16 asserts the absence so a later partial implementation is caught. |
+| OBS-006 | Info | — | Web UI has no scenario surface at all | `webui/src`, `replicant/web/server.py` | Deferred fast-follow per `docs/phase4-scenario-composition-design.md` §13. **CHAIN-16 revised 2026-07-29.** It previously read "grep for `scenario` returns zero hits", which was never a correct test and is now demonstrably wrong: `replicant/web/server.py` imports `replicant.scenario.engine` for `implemented_technique_ids`, so the grep already returns a hit with no scenario feature present. CHAIN-16 now asserts the thing it actually meant, that the candidate routes 404 and no scenario control exists in the UI. |
 
 ## 12. Defect management
 

@@ -34,6 +34,12 @@ const TerminalView = lazy(() =>
   import("@/components/TerminalView").then((m) => ({ default: m.TerminalView })),
 );
 
+// Same treatment for the Docs tab: `marked` is only fetched if the operator opens
+// it, so the Emitter view's first paint is unchanged.
+const DocsView = lazy(() =>
+  import("@/components/DocsView").then((m) => ({ default: m.DocsView })),
+);
+
 const MARK = (
   <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
     <rect x="1.2" y="1.2" width="19.6" height="19.6" rx="5.4" className="stroke-muted-foreground" strokeWidth="1.3" opacity="0.5" />
@@ -47,6 +53,8 @@ const MARK = (
   </svg>
 );
 
+type Tab = "emitter" | "docs" | "terminal";
+
 export default function App() {
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [config, setConfig] = useState<ConfigResponse | null>(null);
@@ -54,7 +62,7 @@ export default function App() {
   const [collector, setCollector] = useState<Collector | null>(null);
   const [vendor, setVendor] = useState("fortigate");
   const [selected, setSelected] = useState<Technique | null>(null);
-  const [tab, setTab] = useState<"emitter" | "terminal">("emitter");
+  const [tab, setTab] = useState<Tab>("emitter");
   const [dark, setDark] = useState(true);
 
   useEffect(() => {
@@ -95,7 +103,7 @@ export default function App() {
     );
   }
 
-  const navItem = (id: "emitter" | "terminal", label: string) => (
+  const navItem = (id: Tab, label: string) => (
     <button
       onClick={() => setTab(id)}
       className={cn(
@@ -122,6 +130,7 @@ export default function App() {
         </div>
         <nav className="flex gap-6">
           {navItem("emitter", "Emitter")}
+          {navItem("docs", "Docs")}
           {/* The server refuses the terminal websocket on a non-loopback bind, so
               showing the tab there would offer a control that can only fail. */}
           {config.terminal_enabled && navItem("terminal", "Terminal")}
@@ -175,8 +184,21 @@ export default function App() {
               collector={collector}
               vendor={vendor}
               epsCap={config.eps_cap}
+              anchorEpoch={config.anchor_epoch}
             />
           </main>
+        </div>
+      ) : tab === "docs" ? (
+        <div className="min-h-0 flex-1">
+          <Suspense
+            fallback={
+              <div className="grid h-full place-items-center text-sm text-muted-foreground">
+                Loading docs…
+              </div>
+            }
+          >
+            <DocsView />
+          </Suspense>
         </div>
       ) : (
         <div className="min-h-0 flex-1 p-4">

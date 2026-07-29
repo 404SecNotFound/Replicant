@@ -4,6 +4,55 @@ Patterns worth not repeating. Append after any correction or review finding.
 
 ---
 
+## Check the premise of a spec item before building it
+
+**2026-07-29, web UI navigation.** The spec asked for "toggle filters for vendor
+applicability and log type". Log type splits the catalog five ways and is useful.
+Vendor applicability splits it **zero** ways: all three profiles implement all six
+render paths, the catalog uses five, so every one of the 24 techniques applies to
+every one of the 3 vendors. The control could never exclude a single entry.
+
+It would have taken twenty minutes to build and would have looked, to an operator,
+exactly like a working filter. This is the same failure as a test that cannot fail,
+moved into the UI: a control whose output cannot change is decoration, and it is
+worse than nothing because it invites the operator to trust it.
+
+**Rule:** before implementing a filter, a toggle, a grouping, or a badge, run the
+data through it and count. If the result is one bucket, the control is inert. Say so
+and hand the decision back rather than shipping a surface that implies a distinction
+the data does not contain.
+
+**Corollary:** the same query answers the design question. `action` was the only
+other axis that splits the catalog (6 values); `benign_baseline` and `implemented`
+are uniform across all 24 and would have been equally inert. Measuring once ruled out
+two more bad options for free.
+
+---
+
+## Pick-a-value decisions get measured, not reasoned about
+
+**2026-07-29, fixed web port.** Choosing the default port, I reasoned about
+collisions from memory: 8787 is RStudio Server's default, otherwise it looked fine,
+and it was what the spec suggested. The first real start failed instantly with
+`Address already in use`. `lsof` showed DJR's own `mpe_studio.api` had been holding
+127.0.0.1:8787 for nearly three days, on the very machine the tool is developed on.
+
+The whole value of a fixed port is that the URL stays predictable. A default that
+collides on the author's own box does not have that property, and no amount of
+reasoning about likelihood would have found it. One `lsof` would have.
+
+**Rule:** when picking a constant that has to coexist with an environment you do not
+control (a port, a path, a filename, an env var, a config key), query the environment
+before choosing. It is one command, and the alternative is discovering the conflict
+from a user.
+
+**Corollary:** the failure path validated itself for free here. Because the code was
+already written to refuse a busy port with a message naming the port and the flag,
+the collision produced a correct, actionable error instead of a confusing one. Build
+the loud-failure path before you need it and the accident becomes a test.
+
+---
+
 ## A test that cannot fail is worse than no test
 
 **2026-07-20, Phase 4 review.** `test_events_sorted_by_eventtime` did this:

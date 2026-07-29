@@ -62,10 +62,45 @@ origin check, and the transport is plain HTTP. That refusal is now gone, so:
   UI on a management segment or behind a TLS-terminating proxy named with
   `--allowed-host`.
 
+### Added: the web UI is navigable at 24 techniques
+
+The left rail was a flat list of 24. Part 2 of the same spec.
+
+- **Grouped by ATT&CK tactic**, collapsible, with a count per group. A technique
+  mapped to several tactics appears under each. The order is the kill chain, stated
+  explicitly in `webui/src/lib/catalogView.ts`, because it is neither alphabetical
+  nor numeric: Reconnaissance is the first tactic and carries the highest number
+  (TA0043), and Exfiltration (TA0010) follows Command and Control (TA0011).
+- **A filter box** matching technique id, name, use case id, and ATT&CK technique id
+  at once, since an engineer arriving from a detection backlog has whichever
+  identifier their ticket carried. Groups that empty out disappear.
+- **Log-type toggles** for the five render paths the catalog uses.
+- **A Docs tab** serving the three vendor CEF references and the two catalog
+  expansion research notes from a fixed allowlist. The requested id is a dictionary
+  key, never a path fragment, so traversal resolves to nothing. Rendered with
+  `marked` (MIT), lazy-loaded the same way xterm already is, so the Emitter view's
+  first paint is unchanged. `docs/` ships with the repository rather than the
+  package, so on a non-editable install the tab says so instead of failing.
+- **An anchor control in the run form**, `now` or `fixed`, defaulting to `now` for a
+  live send and `fixed` for file output, with a notice before the run when a live
+  send is about to go out with a fixed anchor. `POST /api/runs` now accepts
+  `anchor` and returns the resolved `anchor_epoch` and an `anchor_warning`. The web
+  path previously had no way to set the anchor at all, so a live send from the UI
+  always carried the deterministic default: the CEF `eventtime` sits at the anchor
+  while the syslog header is stamped at send time, and on a SIEM that keys on parsed
+  event time no recent-window rule fires. That is indistinguishable from a broken
+  detection, which is the exact ambiguity this project exists to remove.
+
 ### Fixed
 
 - No `webbrowser.open` attempt when there is no display, which printed a `gio`
   "Operation not supported" error over the startup banner on every headless start.
+- **UAT case CHAIN-16 could not pass.** It asserted the web UI has no scenario
+  surface by grepping `replicant/web/server.py` for the literal string `scenario`,
+  expecting zero hits. That file imports `replicant.scenario.engine` for
+  `implemented_technique_ids`, so the grep already returned a hit with no scenario
+  feature present. Re-expressed as what it meant: five candidate routes 404 and no
+  scenario control exists in the UI.
 
 ### Docs
 
