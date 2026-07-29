@@ -47,7 +47,22 @@ replicant = "replicant.cli.app:main"
 include = ["replicant*"]
 
 [tool.setuptools.package-data]
-replicant = ["py.typed"]
+# Everything the tool needs at run time must be inside the package, or a wheel
+# installs a binary that reports its version and then cannot do anything. The
+# catalogs used to sit in a top-level data/ directory reached by a repository
+# path, so `pip install` produced exactly that.
+#
+# webui_dist is written by `npm run build` (see webui/vite.config.ts). It is a
+# build artifact, so it is gitignored and simply absent when the frontend has not
+# been built; the server serves a page explaining how to build it. Build the
+# frontend BEFORE building a wheel if you want the UI in it.
+replicant = [
+    "py.typed",
+    "data/*.yaml",
+    "webui_dist/*",
+    "webui_dist/assets/*",
+    "webui_dist/fonts/*",
+]
 
 [tool.black]
 line-length = 100

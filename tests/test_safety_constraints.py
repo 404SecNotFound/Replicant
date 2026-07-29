@@ -38,7 +38,9 @@ from replicant.core.models import (
 from replicant.entities.model import EntityModel
 from replicant.scenario.engine import ScenarioEngine, implemented_technique_ids
 
-CATALOG = load_catalog(Path(__file__).resolve().parents[1] / "data" / "technique-catalog.yaml")
+CATALOG = load_catalog(
+    Path(__file__).resolve().parents[1] / "replicant" / "data" / "technique-catalog.yaml"
+)
 ENTITIES = EntityModel.build()
 
 

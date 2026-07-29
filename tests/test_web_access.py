@@ -50,7 +50,9 @@ from replicant.web.server import (  # noqa: E402
 )
 
 TOKEN = "test-token"
-CATALOG = load_catalog(Path(__file__).resolve().parents[1] / "data" / "technique-catalog.yaml")
+CATALOG = load_catalog(
+    Path(__file__).resolve().parents[1] / "replicant" / "data" / "technique-catalog.yaml"
+)
 
 
 def make_client(

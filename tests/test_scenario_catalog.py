@@ -24,8 +24,8 @@ from replicant.core.models import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-TECH = load_catalog(ROOT / "data" / "technique-catalog.yaml")
-SCEN_PATH = ROOT / "data" / "scenario-catalog.yaml"
+TECH = load_catalog(ROOT / "replicant" / "data" / "technique-catalog.yaml")
+SCEN_PATH = ROOT / "replicant" / "data" / "scenario-catalog.yaml"
 
 
 def test_scenario_catalog_loads_and_validates() -> None:

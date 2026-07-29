@@ -708,8 +708,11 @@ build_frontend() {
   fi
   run_cmd_in "$webui" npm run build || die "$EX_BUILD" "npm run build failed"
 
-  if (( ! DRY_RUN )) && [[ ! -f "$webui/dist/index.html" ]]; then
-    die "$EX_BUILD" "build finished but $webui/dist/index.html is missing"
+  # Vite writes into the Python package (webui/vite.config.ts), so the built UI
+  # ships in a wheel instead of being stranded outside it.
+  local dist="$REPO_ROOT/replicant/webui_dist"
+  if (( ! DRY_RUN )) && [[ ! -f "$dist/index.html" ]]; then
+    die "$EX_BUILD" "build finished but $dist/index.html is missing"
   fi
   if (( DRY_RUN )); then
     info "would build frontend"
@@ -816,7 +819,7 @@ with open(out, "a") as fh:
 
 # Start the web server for real and prove three things the build check cannot:
 # that it binds, that it serves the built frontend, and that the API refuses an
-# unauthenticated request. Verifying that webui/dist/index.html exists only proves
+# unauthenticated request. Verifying that the built index.html exists only proves
 # a file was written; it says nothing about whether the server starts.
 verify_web() {
   local py="$1" bin="$2"

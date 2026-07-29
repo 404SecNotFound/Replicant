@@ -30,7 +30,9 @@ from replicant.web.server import DOC_PAGES, create_app  # noqa: E402
 
 TOKEN = "test-token"
 HEADERS = {"x-replicant-token": TOKEN}
-CATALOG = load_catalog(Path(__file__).resolve().parents[1] / "data" / "technique-catalog.yaml")
+CATALOG = load_catalog(
+    Path(__file__).resolve().parents[1] / "replicant" / "data" / "technique-catalog.yaml"
+)
 
 
 @pytest.fixture()
@@ -96,7 +98,8 @@ def test_a_missing_docs_directory_degrades_instead_of_crashing(
 ) -> None:
     # docs/ lives outside the `replicant` package and is not in the wheel
     # (pyproject packages `replicant*` only, and there is no MANIFEST.in), exactly
-    # like webui/dist. On a non-editable install the directory is simply absent.
+    # unlike the catalogs and the built frontend, which now live inside the
+    # package. On a non-editable install docs/ is simply absent.
     monkeypatch.setattr(server_mod, "DOCS_DIR", tmp_path / "absent")
 
     index = client.get("/api/docs", headers=HEADERS).json()

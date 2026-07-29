@@ -22,7 +22,7 @@ from pydantic import ValidationError
 
 from replicant.core.models import Catalog, load_catalog
 
-CATALOG_PATH = Path(__file__).resolve().parents[1] / "data" / "technique-catalog.yaml"
+CATALOG_PATH = Path(__file__).resolve().parents[1] / "replicant" / "data" / "technique-catalog.yaml"
 CATALOG = load_catalog(CATALOG_PATH)
 
 

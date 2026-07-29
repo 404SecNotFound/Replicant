@@ -51,16 +51,31 @@ from replicant.core.models import (
     load_scenario_catalog,
 )
 from replicant.core.orchestrator import Orchestrator
+from replicant.resources import TECHNIQUE_CATALOG
 from replicant.scenario.advisory import build_advisory
 from replicant.scenario.composer import compose
 
 
 def _find_catalog(settings: Settings) -> Path | None:
-    candidates = [
-        Path(settings.catalog_path),
-        Path.cwd() / settings.catalog_path,
-        Path(__file__).resolve().parents[2] / settings.catalog_path,
-    ]
+    """Locate the technique catalog, preferring the copy that ships in the package.
+
+    The packaged catalog comes first so the tool behaves identically wherever it is
+    run from. It used to come last, behind two repository-relative guesses, which
+    made the CLI cwd-dependent: fine from a checkout, "catalog not found" anywhere
+    else, and absent from a wheel entirely.
+
+    An operator who points ``catalog_path`` at their own file still wins, since an
+    explicit override is checked before the default.
+    """
+    configured = settings.catalog_path
+    relative = [Path(configured), Path.cwd() / configured]
+    overridden = configured != Settings().catalog_path
+    # An explicit override wins; otherwise the packaged catalog does. The relative
+    # guesses stay at the end either way so a checkout that edits the catalog in
+    # place still behaves, but they no longer decide the outcome.
+    candidates = (
+        (relative + [TECHNIQUE_CATALOG]) if overridden else ([TECHNIQUE_CATALOG] + relative)
+    )
     for candidate in candidates:
         if candidate.exists():
             return candidate
@@ -83,7 +98,10 @@ def _fail(message: str) -> None:
 def _load_catalog(settings: Settings, console: Console) -> Catalog | None:
     path = _find_catalog(settings)
     if path is None:
-        _fail(f"[red]catalog not found[/red]: {settings.catalog_path}")
+        _fail(
+            f"[red]catalog not found[/red]: tried the packaged catalog at "
+            f"{TECHNIQUE_CATALOG} and {settings.catalog_path!r}"
+        )
         return None
     try:
         return load_catalog(path)
