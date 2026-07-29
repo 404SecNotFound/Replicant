@@ -44,6 +44,13 @@ readonly MIN_PY_MAJOR=3
 readonly MIN_PY_MINOR=11
 readonly MIN_NODE_MAJOR=18
 
+# Fallback only. The real value is WEB_DEFAULT_PORT in replicant/config/settings.py
+# and is read from the installed package at report time, so this is used solely if
+# that import fails. Printing a port the tool does not serve on is worse than
+# printing nothing, so the two must not drift.
+readonly WEB_PORT_FALLBACK=9787
+WEB_PORT="$WEB_PORT_FALLBACK"
+
 NO_WEB=0
 DEV=0
 ASSUME_YES=0
@@ -67,6 +74,8 @@ TMP_FILES=()
 # verify_install) so cleanup_tmp can reap it if the script exits before that
 # function's own wait does, e.g. on SIGTERM.
 LISTENER_PID=""
+# Same reasoning for the web check's server.
+WEB_PID=""
 
 if [[ -t 1 && -t 2 && -z "${NO_COLOR:-}" ]]; then
   readonly C_RESET=$'\033[0m'
@@ -106,6 +115,13 @@ cleanup_tmp() {
   # relied on the `|| true` catching only B's failure would be wrong.
   if [[ -n "$LISTENER_PID" ]]; then
     kill "$LISTENER_PID" 2>/dev/null || true
+  fi
+  # The web check's server has to be reaped here, not by a RETURN trap in the
+  # function: every failure path there calls die, which exits, and exit does not
+  # fire RETURN. Leaving a listener bound after a failed install is the kind of
+  # mess that gets blamed on the next thing to touch that port.
+  if [[ -n "$WEB_PID" ]]; then
+    kill "$WEB_PID" 2>/dev/null || true
   fi
   if (( ${#TMP_FILES[@]} )); then
     rm -f "${TMP_FILES[@]}"
@@ -712,6 +728,9 @@ verify_install() {
     info "would run: $bin list"
     info "would run: $bin run REP-001 --no-send --to-file <tmp>, requiring a CEF:0| first line"
     info "would run: a loopback UDP send to 127.0.0.1, requiring datagrams to arrive"
+    if (( ! NO_WEB )); then
+      info "would run: 'replicant web' on an ephemeral loopback port, requiring /api/health 200 and /api/catalog 401"
+    fi
     return 0
   fi
 
@@ -791,6 +810,91 @@ with open(out, "a") as fh:
   else
     ok "loopback transport delivered $count events"
   fi
+
+  verify_web "$py" "$bin"
+}
+
+# Start the web server for real and prove three things the build check cannot:
+# that it binds, that it serves the built frontend, and that the API refuses an
+# unauthenticated request. Verifying that webui/dist/index.html exists only proves
+# a file was written; it says nothing about whether the server starts.
+verify_web() {
+  local py="$1" bin="$2"
+
+  if (( NO_WEB )); then
+    info "skipping web check (--no-web)"
+    return 0
+  fi
+
+  local port
+  port="$("$py" -c '
+import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+' 2>/dev/null || true)"
+  if [[ ! "$port" =~ ^[0-9]+$ ]]; then
+    warn "could not allocate a port for the web check; skipping"
+    return 0
+  fi
+
+  local web_out
+  web_out="$(new_tmp_file replicant-web)" \
+    || die "$EX_VERIFY" "could not create a temporary file for the web check"
+
+  "$bin" web --host 127.0.0.1 --port "$port" --no-browser >"$web_out" 2>&1 &
+  WEB_PID=$!
+
+  local result
+  result="$("$py" -c '
+import sys, time, urllib.error, urllib.request
+
+port = sys.argv[1]
+base = "http://127.0.0.1:%s" % port
+
+
+def status(path):
+    try:
+        with urllib.request.urlopen(base + path, timeout=5) as response:
+            return response.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
+for _ in range(80):
+    try:
+        if status("/api/health") == 200:
+            break
+    except OSError:
+        time.sleep(0.25)
+else:
+    print("NOSTART")
+    raise SystemExit(0)
+
+# An unauthenticated API call must be refused. If this ever returns 200 the
+# install has produced a server anyone on the host can drive.
+print("AUTH_OPEN" if status("/api/catalog") != 401 else "OK")
+' "$port" 2>/dev/null || printf 'ERROR')"
+
+  kill "$WEB_PID" 2>/dev/null || true
+  wait "$WEB_PID" 2>/dev/null || true
+  WEB_PID=""
+
+  case "$result" in
+    OK)
+      ok "web server starts, serves, and requires a token"
+      ;;
+    NOSTART)
+      die "$EX_VERIFY" "web server did not answer on 127.0.0.1:$port (see $web_out)"
+      ;;
+    AUTH_OPEN)
+      die "$EX_VERIFY" "web API answered an unauthenticated request; refusing to call this a good install"
+      ;;
+    *)
+      die "$EX_VERIFY" "web check could not run (see $web_out)"
+      ;;
+  esac
 }
 
 report() {
@@ -805,13 +909,30 @@ report() {
     return 0
   fi
 
+  # Ask the installed package what port it actually defaults to rather than
+  # repeating the number here. `|| true` because a summary line is not worth
+  # aborting a successful install over; the fallback stands if this fails.
+  local reported_port
+  reported_port="$("$REPO_ROOT/.venv/bin/python" -c \
+    'from replicant.config.settings import WEB_DEFAULT_PORT; print(WEB_DEFAULT_PORT)' \
+    2>/dev/null || true)"
+  if [[ "$reported_port" =~ ^[0-9]+$ ]]; then
+    WEB_PORT="$reported_port"
+  fi
+
   printf '\n  Replicant is installed in %s/.venv (extra: %s).\n\n' "$REPO_ROOT" "$extra"
   printf '  Activate it:      source %s/.venv/bin/activate\n' "$REPO_ROOT"
   printf '  Interactive menu: replicant menu\n'
   if (( NO_WEB )); then
     printf '  Web UI:           not built (--no-web). Build with: cd webui && npm install && npm run build\n'
   else
-    printf '  Web UI:           replicant web\n'
+    printf '  Web UI:           replicant web            (http://127.0.0.1:%s/)\n' "$WEB_PORT"
+    printf '  Reach it remotely: replicant web --host 0.0.0.0 --no-browser\n'
+    printf '                    then open http://<this-host>:%s/ and use the token printed on start.\n' \
+      "$WEB_PORT"
+    printf '                    The token persists in ~/.config/replicant/web-token.\n'
+    printf '                    The embedded terminal tab is off by default on a non-loopback bind.\n'
+    printf '  Run as a service: see %s/scripts/replicant-web.service\n' "$REPO_ROOT"
   fi
   printf '  Headless run:     replicant run REP-001 --to-file ./out/test.log --no-send\n\n'
   printf '  %sReminder:%s at run time Replicant only sends to the collector you configure.\n' \
