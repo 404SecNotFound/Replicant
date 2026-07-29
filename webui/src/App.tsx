@@ -13,12 +13,20 @@
 // limitations under the License.
 
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Moon, Sun } from "lucide-react";
+import { ChevronDown, Moon, Sun } from "lucide-react";
 import { ConnectionCard } from "@/components/ConnectionCard";
 import { CatalogTable } from "@/components/CatalogTable";
 import { RunPanel } from "@/components/RunPanel";
 import { TechniqueDetail } from "@/components/TechniqueDetail";
 import { cn } from "@/lib/utils";
+import {
+  applyTheme,
+  darkModeMedia,
+  hasStoredTheme,
+  initialTheme,
+  storeTheme,
+  type Theme,
+} from "@/lib/theme";
 import {
   getCatalog,
   getConfig,
@@ -63,7 +71,13 @@ export default function App() {
   const [vendor, setVendor] = useState("fortigate");
   const [selected, setSelected] = useState<Technique | null>(null);
   const [tab, setTab] = useState<Tab>("emitter");
-  const [dark, setDark] = useState(true);
+  // Seeded from the same rule the pre-paint script in index.html already applied,
+  // so this agrees with what is on screen instead of overriding it.
+  const [theme, setTheme] = useState<Theme>(initialTheme);
+  // Below the lg breakpoint the left rail is a disclosure rather than a column.
+  // Closed by default there: the run stage is what the operator came for, and a
+  // 24-entry technique list above it would push it off the first screen.
+  const [railOpen, setRailOpen] = useState(false);
 
   useEffect(() => {
     Promise.all([getCatalog(), getConfig()])
@@ -76,9 +90,44 @@ export default function App() {
       .catch((err) => setLoadError((err as Error).message));
   }, []);
 
+  // Mount only. Every later change goes through changeTheme, which writes the
+  // class before React re-renders; see the comment there for why that matters.
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-  }, [dark]);
+    applyTheme(theme);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Write the class synchronously, then update state.
+  //
+  // TerminalView resolves its xterm palette by reading the CSS variables off the
+  // document, and React runs child effects BEFORE parent effects. Leaving the
+  // class change to an effect in App therefore had the terminal read the
+  // outgoing theme's colours: the whole app went light and the terminal pane
+  // stayed dark. Applying it here means the class is already correct by the time
+  // any child effect looks.
+  const changeTheme = (next: Theme) => {
+    applyTheme(next);
+    setTheme(next);
+  };
+
+  // Keep following the operating system until the operator actually chooses.
+  // Persisting the OS-derived default on load would look identical on the first
+  // visit and then silently stop tracking the system setting forever after.
+  useEffect(() => {
+    const media = darkModeMedia();
+    if (!media) return;
+    const onChange = (event: MediaQueryListEvent) => {
+      if (!hasStoredTheme()) changeTheme(event.matches ? "dark" : "light");
+    };
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  const toggleTheme = () => {
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    storeTheme(next);
+    changeTheme(next);
+  };
 
   if (loadError) {
     return (
@@ -118,50 +167,87 @@ export default function App() {
   );
 
   return (
-    <div className="app-surface flex h-screen flex-col overflow-hidden">
+    // Below lg this is an ordinary scrolling page. The fixed-viewport shell with
+    // independently scrolling panes is a desktop affordance: on a short or narrow
+    // screen it traps the run stage in a few hundred pixels with no way out.
+    <div className="app-surface flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
       {/* top bar */}
-      <header className="flex h-[54px] flex-none items-center justify-between border-b px-5">
-        <div className="flex items-center gap-2.5">
+      <header className="flex h-[54px] flex-none items-center justify-between gap-3 border-b px-3.5 sm:px-5">
+        <div className="flex min-w-0 items-center gap-2.5">
           {MARK}
           <span className="text-sm font-semibold tracking-tight">Replicant</span>
-          <span className="ml-1 border-l pl-2.5 font-mono text-[11px] text-text-3">
+          {/* The environment chip is orientation, not state. It is the first thing
+              to go when the bar runs out of room. */}
+          <span className="ml-1 hidden border-l pl-2.5 font-mono text-[11px] text-text-3 lg:inline">
             lab · 10.20.0.0/16
           </span>
         </div>
-        <nav className="flex gap-6">
+        <nav className="flex gap-4 sm:gap-6">
           {navItem("emitter", "Emitter")}
           {navItem("docs", "Docs")}
           {/* The server refuses the terminal websocket on a non-loopback bind, so
               showing the tab there would offer a control that can only fail. */}
           {config.terminal_enabled && navItem("terminal", "Terminal")}
         </nav>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2.5 sm:gap-4">
           <span className="flex items-center gap-2 font-mono text-[11.5px] text-text-3">
             {collector ? (
               <>
-                <span className="h-1.5 w-1.5 rounded-full bg-signal" />
-                {collector.host}:{collector.port} · {collector.transport}
+                <span className="h-1.5 w-1.5 flex-none rounded-full bg-signal" />
+                {/* The dot survives at every width; the address is what gets
+                    dropped, since the Collector card below states it in full. */}
+                <span className="hidden md:inline">
+                  {collector.host}:{collector.port} · {collector.transport}
+                </span>
               </>
             ) : (
               <>
-                <span className="h-1.5 w-1.5 rounded-full bg-text-4" />
-                no collector
+                <span className="h-1.5 w-1.5 flex-none rounded-full bg-text-4" />
+                <span className="hidden md:inline">no collector</span>
               </>
             )}
           </span>
           <button
-            onClick={() => setDark((d) => !d)}
-            className="flex h-[26px] w-[26px] items-center justify-center rounded-md border text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Toggle theme"
+            onClick={toggleTheme}
+            className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-md border text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
           >
-            {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
           </button>
         </div>
       </header>
 
       {tab === "emitter" ? (
-        <div className="grid min-h-0 flex-1 grid-cols-[336px_minmax(0,1fr)]">
-          <aside className="flex min-h-0 animate-rise flex-col gap-6 overflow-y-auto scroll-thin border-r p-5">
+        <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[336px_minmax(0,1fr)]">
+          {/* Below lg the rail is a disclosure instead of a column. One mechanism
+              rather than the drawer-and-bottom-sheet pair the design spec sketched:
+              two mechanisms is twice the surface to keep correct for a tool that is
+              used at a desk, and the spec was written before the rail grew a filter
+              box and 24 grouped entries. Recorded in the design doc. */}
+          <button
+            type="button"
+            onClick={() => setRailOpen((open) => !open)}
+            aria-expanded={railOpen}
+            aria-controls="setup-rail"
+            className="flex items-center justify-between gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:hidden"
+          >
+            <span className="u-label">Collector and techniques</span>
+            <span className="flex items-center gap-2 font-mono text-[11px] text-text-3">
+              {/* Naming the selection keeps the collapsed state informative: what
+                  is armed is the one thing you lose by closing this. */}
+              {selected?.id ?? "none selected"}
+              <ChevronDown
+                className={cn("h-3.5 w-3.5 transition-transform", railOpen && "rotate-180")}
+              />
+            </span>
+          </button>
+          <aside
+            id="setup-rail"
+            className={cn(
+              "flex-col gap-6 border-b p-5 lg:flex lg:min-h-0 lg:animate-rise lg:overflow-y-auto lg:scroll-thin lg:border-b-0 lg:border-r",
+              railOpen ? "flex" : "hidden",
+            )}
+          >
             <ConnectionCard
               epsCap={config.eps_cap}
               collector={collector}
@@ -176,7 +262,7 @@ export default function App() {
               onSelect={setSelected}
             />
           </aside>
-          <main className="min-h-0 animate-rise overflow-y-auto scroll-thin px-7 py-6 [animation-delay:0.1s]">
+          <main className="animate-rise px-4 py-5 sm:px-7 sm:py-6 lg:min-h-0 lg:overflow-y-auto lg:scroll-thin [animation-delay:0.1s]">
             {selected && <TechniqueDetail technique={selected} vendor={vendor} />}
             <RunPanel
               technique={selected}
@@ -189,10 +275,10 @@ export default function App() {
           </main>
         </div>
       ) : tab === "docs" ? (
-        <div className="min-h-0 flex-1">
+        <div className="flex min-h-[420px] flex-1 lg:min-h-0">
           <Suspense
             fallback={
-              <div className="grid h-full place-items-center text-sm text-muted-foreground">
+              <div className="grid h-full w-full place-items-center text-sm text-muted-foreground">
                 Loading docs…
               </div>
             }
@@ -201,8 +287,8 @@ export default function App() {
           </Suspense>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 p-4">
-          <div className="h-full overflow-hidden rounded-lg border bg-card p-2">
+        <div className="flex min-h-[420px] flex-1 p-3 sm:p-4 lg:min-h-0">
+          <div className="h-full w-full overflow-hidden rounded-lg border bg-card p-2">
             <Suspense
               fallback={
                 <div className="grid h-full place-items-center text-sm text-muted-foreground">
@@ -210,7 +296,7 @@ export default function App() {
                 </div>
               }
             >
-              <TerminalView />
+              <TerminalView theme={theme} />
             </Suspense>
           </div>
         </div>

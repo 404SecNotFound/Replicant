@@ -4,6 +4,61 @@ Patterns worth not repeating. Append after any correction or review finding.
 
 ---
 
+## A second theme is an audit of the first one
+
+**2026-07-29, light theme.** Building the light palette meant measuring contrast
+pair by pair instead of judging it. Four defects fell out, and **three of them were
+in the dark theme that had been shipping for weeks**:
+
+- `--text-4` is documented in the design spec as "decoration only, never body
+  text". It was body text in seven places, at 2.78:1. Failing in dark. Nobody had
+  noticed, because at 9.5px a faint label reads as *intentionally* faint.
+- Near-white on the red fill: 3.02:1.
+- 11 of xterm's 16 default ANSI colours fail on our light card, and 6 of 16 on our
+  dark one, so the embedded Rich menu was already partly illegible.
+
+The design spec said "WCAG AA contrast (tokens above verified)". The tokens had been
+verified; the *usage* never was. A palette can be correct while every screen built
+from it is not, and no amount of re-reading the palette shows that.
+
+**Rule:** measure contrast on the **rendered page**, walking real elements and
+resolving each one's effective background through its ancestors, not on the token
+table. Tokens are inputs. What ships is the composition.
+
+**Corollary:** the second theme is worth building partly *because* it forces the
+first one through a check nobody would otherwise run. Any parallel implementation
+does this: a second vendor profile, a second transport, a second platform. The value
+is not only the new thing.
+
+**Corollary:** target the existing theme's own measured ratios rather than a fresh
+standard. It makes the new one a translation instead of a second design, and it
+turns "is this right?" into a comparison instead of a judgement call.
+
+---
+
+## Child effects run before parent effects, so the DOM is not what you think
+
+**2026-07-29, terminal recolour.** The theme class was applied in an effect in
+`App`. `TerminalView` resolves its xterm palette by reading the CSS variables off
+the document, also in an effect. React runs **child** effects before **parent**
+effects, so the child read the variables while the outgoing theme's class was still
+on `documentElement`.
+
+The visible result: clicking the toggle switched the entire application to light and
+left the terminal pane black. Every test passed. jsdom has no cascade and no layout,
+so nothing in the suite could have observed it, and reading either component alone
+shows correct code. The bug lives only in the ordering *between* them.
+
+**Rule:** when a child reads state from the DOM that a parent writes, do not leave
+the write to a parent effect. Write it synchronously where the change originates
+(the event handler), so it is already true before any child renders or re-runs.
+
+**Corollary:** "resolve it from the stylesheet so there is one source of truth" was
+still the right call, and it is why the fix is three lines rather than a duplicated
+palette in TypeScript. The defect was in *when* it was read, not in reading it.
+
+---
+
 ## The environment a process runs in decides what "printing" means
 
 **2026-07-29, systemd unit verification.** The web server's startup banner prints

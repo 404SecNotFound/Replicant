@@ -75,9 +75,15 @@ export function DocsView() {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[248px_minmax(0,1fr)]">
-      <nav aria-label="Reference documents" className="flex flex-col gap-px overflow-y-auto scroll-thin border-r p-3">
-        <span className="u-label mb-2 px-2">Reference</span>
+    <div className="flex h-full min-h-0 w-full flex-col lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
+      {/* The document picker is a sidebar at lg and a horizontal strip below it.
+          Four entries scroll sideways in less space than they stack vertically,
+          and stacking would push the document itself off the first screen. */}
+      <nav
+        aria-label="Reference documents"
+        className="flex flex-none gap-px overflow-x-auto scroll-thin border-b p-3 lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r"
+      >
+        <span className="u-label mb-2 hidden px-2 lg:block">Reference</span>
         {(index?.pages ?? []).map((page) => (
           <button
             key={page.id}
@@ -85,7 +91,7 @@ export function DocsView() {
             disabled={!page.available}
             aria-current={page.id === current ? "true" : undefined}
             className={cn(
-              "rounded-md px-2.5 py-2 text-left text-[12.5px] transition-colors hover:bg-secondary disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "whitespace-nowrap rounded-md px-2.5 py-2 text-left text-[12.5px] transition-colors hover:bg-secondary disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               page.id === current && "bg-secondary font-medium",
             )}
           >
@@ -94,7 +100,7 @@ export function DocsView() {
         ))}
       </nav>
 
-      <article className="min-h-0 overflow-y-auto scroll-thin px-8 py-6">
+      <article className="min-h-0 flex-1 overflow-y-auto scroll-thin px-4 py-5 sm:px-8 sm:py-6">
         {error && (
           <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-[12px] text-destructive">
             {error}
