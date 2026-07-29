@@ -53,6 +53,9 @@ export default {
           foreground: "hsl(var(--signal-foreground))",
         },
         elev: "hsl(var(--elev))",
+        // The recessed telemetry surface (CEF tail, sample line, progress track).
+        // Previously `bg-black`, which only reads correctly in one theme.
+        well: "hsl(var(--well))",
         "text-3": "hsl(var(--text-3))",
         "text-4": "hsl(var(--text-4))",
       },

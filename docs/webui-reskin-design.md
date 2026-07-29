@@ -41,6 +41,36 @@ waveform, "emitting" and connected dots, and run progress. Generic primary/activ
 near-white; high severity and errors use red. This is what keeps the palette disciplined and the
 concept ownable.
 
+Colors (light, added 2026-07-29 - warm paper, deliberately not cold white):
+
+| Token | Value | Note |
+|---|---|---|
+| `--background` / `--card` | `#f7f6f2` / `#fcfcfa` | warm bone page, near-white card. Card is lighter than page, mirroring dark |
+| `--foreground` | `#24211e` | warm graphite ink, 14.75:1 on the page |
+| `--muted-foreground` / `--text-3` | `#68615a` | 5.61:1, so 11px mono labels still clear AA |
+| `--text-4` | `#8e867b` | decoration only, 3.49:1 as a graphic |
+| `--well` | `#e7e4de` | the recessed telemetry surface (CEF tail, sample line, progress track) |
+| `--border` | `#d4cdc4` | quiet hairline |
+| `--signal` | `#a04c03` | **darkened amber**, 5.48:1 |
+| `--destructive` | `#b8281e` | 5.75:1 |
+
+Three things about the light theme are load-bearing:
+
+1. **The amber is darkened, not reused.** `#f4b23e` is 1.9:1 on paper. It is used as small
+   text (the "emitting" chip, Docs links), so it needs 4.5:1, not the 3:1 a graphic needs.
+   Keeping one `--signal` token at `#a04c03` preserves the semantic rule intact rather than
+   splitting it into a text amber and a graphic amber.
+2. **The targets were the dark theme's own measured ratios**, not an invented standard, so
+   light reads as the same instrument lit differently rather than as a second design. Both
+   palettes are checked pair by pair; light meets or beats dark on every pair.
+3. **`--well` is a new token in both themes.** The CEF tail, the sample line and the progress
+   track were `bg-black` / `bg-black/40`, which is correct in exactly one theme.
+
+Measuring also found two defects in the shipped dark theme, both now fixed: near-white on the
+red fill was 3.02:1 (latent, the `destructive` Button variant is unused), and `--text-4` was
+being used as body text in seven places at 2.78:1, against its own documented "decoration only,
+never body text" rule. Those seven moved to `--text-3`.
+
 Type: **IBM Plex Sans** (400/500/600) for UI chrome; **IBM Plex Mono** (400/500) for all telemetry
 (IPs, ports, CEF, seeds, eps, epochs). Both OFL. Scale: 23 hero / 14 titles / 13 body / 11 mono data /
 10 uppercase micro-labels (letter-spacing .11em).
@@ -71,9 +101,26 @@ Borders quiet. Shadows only for elevation (primary button, active segment).
 
 Hover raises rows to `surface-2`; `:focus-visible` shows a neutral ring; toggles/tabs animate ~150ms;
 the waveform advances and progress fills; one staggered reveal on load (120-240ms), gated by
-`prefers-reduced-motion`. Responsive: at tablet the rail collapses to a top drawer; at mobile it
-becomes a bottom sheet and the run stage goes full width with the waveform kept and the manifest
-stacked to two columns.
+`prefers-reduced-motion`.
+
+Responsive (built 2026-07-29). The original sketch here called for a top drawer at tablet and a
+**separate** bottom sheet at mobile. Built as **one** mechanism instead: below `lg` (1024px) the
+rail becomes a disclosure panel, closed by default, labelled with the armed technique so the
+collapsed state still says what is selected. Two mechanisms is twice the surface to keep correct,
+for a tool used at a desk beside a SIEM, and the sketch predates the rail growing a filter box and
+24 tactic-grouped entries. Deviation recorded rather than silently dropped.
+
+What actually changes below `lg`:
+
+- The fixed-viewport shell (`h-screen overflow-hidden`, independently scrolling panes) becomes an
+  ordinary scrolling page. That shell is a desktop affordance; on a short screen it traps the run
+  stage in a few hundred pixels with no way out.
+- The run controls reflow 5 columns to 4 to 2; the manifest reflows 4 to 3 to 2. Two is the floor:
+  these are short mono values and one per row turns a seven-field manifest into a scroll.
+- The Docs sidebar becomes a horizontal scrolling strip, which costs less vertical space than
+  stacking four entries above the document.
+- The header drops the environment chip below `lg` and the collector address below `md`. The
+  collector *dot* survives at every width; the address is restated in full in the Collector card.
 
 ## 6. States (the gap in today's UI)
 
@@ -128,6 +175,13 @@ the readout.
 
 ## Out of scope
 
-No layout re-architecture beyond this reskin; the Terminal tab keeps xterm; no new product features;
-light theme is optional (dark-first). Accent can be swapped from amber to a cool signal (cyan/teal) by
-changing `--signal` alone if desired.
+No layout re-architecture beyond this reskin; the Terminal tab keeps xterm; no new product features.
+Accent can be swapped from amber to a cool signal (cyan/teal) by changing `--signal` alone if desired,
+though a light-theme swap has to re-check the 4.5:1 text threshold rather than assume it.
+
+**Closed 2026-07-29:** light theme was listed here as optional (dark-first). It is now built, along
+with the responsive layout above. First load follows `prefers-color-scheme`; an explicit toggle is
+remembered in `localStorage` and from then on beats the OS. A pre-paint script in `index.html`
+applies the class before the bundle loads so the page never flashes the wrong theme, and
+`theme.test.ts` asserts that script agrees with `resolveTheme()` for every input, because the rule
+necessarily exists in two places.

@@ -130,7 +130,7 @@ export function SignalReadout({
         </defs>
       </svg>
 
-      <div className="relative h-[3px] bg-black">
+      <div className="relative h-[3px] bg-well">
         <div className="absolute inset-y-0 left-0 bg-signal transition-[width]" style={{ width: `${pct}%` }} />
       </div>
 

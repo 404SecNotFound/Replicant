@@ -73,7 +73,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
           placeholder="id, name, use case, ATT&CK"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="h-8 w-full rounded-md border bg-transparent pl-8 pr-2.5 font-mono text-[11.5px] placeholder:text-text-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-8 w-full rounded-md border bg-transparent pl-8 pr-2.5 font-mono text-[11.5px] placeholder:text-text-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </div>
 
@@ -89,7 +89,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
                 "rounded border px-1.5 py-0.5 font-mono text-[9.5px] transition-colors",
                 on
                   ? "border-signal/50 bg-signal/10 text-signal"
-                  : "text-text-4 hover:text-muted-foreground",
+                  : "text-text-3 hover:text-muted-foreground",
               )}
             >
               {value}
@@ -118,7 +118,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
                   className={cn("h-3 w-3 text-text-4 transition-transform", open && "rotate-90")}
                 />
                 <span className="u-label flex-1">{tacticLabel(group.tactic)}</span>
-                <span className="font-mono text-[9.5px] text-text-4">
+                <span className="font-mono text-[9.5px] text-text-3">
                   {group.techniques.length}
                 </span>
               </button>
@@ -142,7 +142,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
                       <span className="col-start-1 row-start-1 text-[13px] font-medium">
                         {t.name}
                       </span>
-                      <span className="col-start-2 row-start-1 justify-self-end font-mono text-[9.5px] text-text-4">
+                      <span className="col-start-2 row-start-1 justify-self-end font-mono text-[9.5px] text-text-3">
                         {t.attack[0] ?? ""}
                       </span>
                       <span className="col-start-1 row-start-2 font-mono text-[10.5px] text-text-3">

@@ -84,7 +84,15 @@ Output convention: command results go to stdout, operator-facing errors go to st
   2. **Run it in the environment it ships for.** The web token was being written to the systemd journal, which a review, the test suite and `systemd-analyze verify` were all silent about. A real systemd start found it in seconds.
   3. **Most defects here were labels, not logic**: a README describing a UI that had moved on, an installer check asserting a file existed rather than that the server ran, `cap 2000` beside an unthrottled rate. Each locally true and contextually false, which is the class tests catch worst.
 
-Next up, not started: light theme and responsive layout for the web UI, and a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
+- v0.3.1 (packaging): the 0.3.0 wheel installed but could not run. Runtime files now live inside the package and `replicant/resources.py` is the only thing that knows where they are. Anything resolving a repository-relative path is a defect. Guarded by `tests/test_packaging.py` and a `wheel` CI job.
+
+- Light theme and responsive layout (complete): the UI follows `prefers-color-scheme` on first load and remembers an explicit toggle after that. The rule lives in `webui/src/lib/theme.ts`, and a pre-paint script in `webui/index.html` necessarily repeats it; `theme.test.ts` asserts the two agree. Below `lg` the fixed-viewport shell becomes a scrolling page and the rail becomes a disclosure. Palette and deviations: `docs/webui-reskin-design.md` sections 3 and 5.
+
+  Two conventions worth keeping:
+  1. **Measure contrast on the rendered page, not on the token table.** The tokens were verified; their *usage* was not, and the audit found four defects in the shipped **dark** theme, including `--text-4` used as body text at 2.78:1 against its own documented rule.
+  2. **A grid or flex item needs `min-w-0` before `overflow-x-auto` inside it can work.** Default `min-width: auto` refuses to shrink below the content, so one long CEF line scrolled the whole page to 3452px at 375px wide.
+
+Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 Vendor licensing position (trademarks, the `[Constructed]` golden lines, the field-mapping tables, the CEF spec's terms) is settled in `docs/prior-art-and-licensing.md` section 3. **Standing constraint: never claim CEF certification, CEF compliance, or ArcSight validation.**
 

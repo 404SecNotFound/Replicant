@@ -1,3 +1,102 @@
+# Light theme + responsive layout (complete, 2026-07-29, branch: feat/webui-light-theme)
+
+The last genuinely open engineering item on the backlog. Off `main` at `83775d6`
+(v0.3.1), 526 Python + 86 frontend tests green at the start.
+
+Two corrections to the handoff that named this work, both found by looking rather
+than trusting: there is **no `[data-theme]` toggle** (it is a `dark` class on
+`documentElement` driven by a boolean in `App.tsx`), and a light palette already
+existed but was **stock shadcn slate**, not the signal-instrument system. So the
+toggle worked and produced a theme that was not Replicant's.
+
+- [x] **Light palette, measured rather than eyeballed.** Warm paper (`#f7f6f2`) and
+      graphite ink, targeting the **dark theme's own ratios** so it reads as a
+      translation, not a second design. The amber darkens to `#a04c03`: `#f4b23e` is
+      1.9:1 on paper and it is used as small text, so it needs 4.5:1, not the 3:1 a
+      graphic needs. One `--signal` token, semantic rule intact. Values and reasoning
+      in `docs/webui-reskin-design.md` section 3.
+- [x] **`--well`, a new token in both themes.** The CEF tail, the sample line and the
+      progress track were `bg-black` / `bg-black/40`, correct in exactly one theme.
+- [x] **First load follows `prefers-color-scheme`; an explicit toggle is remembered**
+      and from then on beats the OS. `webui/src/lib/theme.ts` holds the rule so it is
+      unit-testable. A pre-paint script in `index.html` applies the class before the
+      bundle loads, otherwise the page paints dark and flips.
+- [x] **The duplicated rule is guarded.** That script cannot import the module, so the
+      rule exists twice. `theme.test.ts` extracts the script from `index.html` and
+      asserts it agrees with `resolveTheme()` for all six input combinations.
+- [x] **Responsive.** Below `lg` the fixed-viewport shell becomes an ordinary
+      scrolling page and the rail becomes a disclosure. **One** mechanism, not the
+      drawer-plus-bottom-sheet pair the spec sketched; deviation and reasoning
+      recorded in the design doc rather than silently dropped. Run controls reflow
+      5 to 4 to 2, manifest 4 to 3 to 2, Docs sidebar becomes a horizontal strip.
+- [x] **Terminal follows the theme.** It hardcoded `#0b1120`, a blue-slate matching
+      neither theme and a black box on paper. Now resolved from the CSS variables,
+      and recoloured **in place**: rebuilding the Terminal would tear down the
+      websocket and kill the operator's menu process.
+
+### Found by measuring, not by looking (four defects, all pre-existing)
+
+- [x] **`--text-4` was body text in seven places** at 2.78:1, against its own
+      documented "decoration only, never body text" rule. Failing in **dark** too, so
+      this was never a light-theme bug. Moved to `--text-3`. Decoration and the
+      disabled-control label stay on `--text-4`; disabled controls are exempt.
+- [x] **Near-white on the red fill is 3.02:1.** Latent, not live: the only consumer is
+      the `destructive` Button variant, which nothing renders. Fixed anyway so it is
+      not waiting for whoever reaches for that variant first.
+- [x] **The page scrolled sideways to 3452px at 375px wide.** A grid item defaults to
+      `min-width: auto`, so one 3376px CEF sample line inside an `overflow-x-auto`
+      stretched the whole column track instead of scrolling in its own box. Fixed with
+      `min-w-0`; guarded by `TechniqueDetail.test.tsx`, proved RED first.
+- [x] **11 of 16 ANSI colours failed on the light card, and 6 of 16 on the dark one.**
+      xterm's defaults are for a generic dark terminal, so the embedded Rich menu was
+      partly illegible before light mode existed. Two measured palettes now. `black`
+      is the one documented exception in dark: it is the background-adjacent slot.
+
+### Found only by running it
+
+- [x] **The terminal did not recolour on toggle.** React runs child effects before
+      parent effects, so `TerminalView` read the CSS variables while the outgoing
+      theme's class was still on the document: the whole app went light and the
+      terminal stayed dark. The class is now written synchronously in the handler,
+      before React re-renders. Nothing in the test suite could have caught this;
+      jsdom has no layout or cascade.
+
+### Verification record (2026-07-29)
+
+526 Python (unchanged, no backend change), **89 frontend (86 before, +21)**,
+tsc clean, black/ruff/mypy clean, build clean with the three chunks still split.
+
+Driven against a real server on `127.0.0.1:9787`, not jsdom:
+
+- **Contrast measured on the rendered page**, both themes, Emitter and Docs: every
+  distinct text style sampled, effective background resolved through the ancestor
+  chain, large-text and disabled exemptions applied. **0 failures** in either theme
+  after the fixes; the same scan found the three `--text-4` failures before them.
+- **Layout at 1280 / 768 / 375.** `document.scrollWidth` equals the viewport at every
+  width, zero overflowing elements, and wide content (CEF samples, reference tables,
+  code blocks) scrolls inside its own container.
+- **Theme persistence**: OS light + stored dark reloads dark. The OS-follow listener
+  switched the live page when the OS scheme changed with nothing stored.
+- **eps waveform mid-run** (the other open backlog item, below).
+
+## Backlog item closed here: verify the eps waveform mid-run
+
+Left over from the reskin. **Done, against a real collector**, because a run with no
+collector is unthrottled and finishes too fast to observe: a loopback UDP sink on
+`127.0.0.1:5514`, then REP-004 medium, 108000 events.
+
+- Waveform plotted real advancing data (vertex count and values both moving), not a
+  decorative curve.
+- **The readout matched the collector exactly.** 18 consecutive samples read 2000 eps
+  while the sink counted 2000 datagrams/s. One transient 2260 was observed during a
+  heavy render and did not recur; steady state is exact.
+- `cap 2000` with a collector, `uncapped` without: the label fix from the previous
+  session behaves correctly in both states.
+- Delivery exact: **108001 datagrams** = 108000 run events + 1 test log, no UDP loss.
+- Manifest rendered all seven audit fields; progress reached 100%; EMITTING cleared.
+
+---
+
 # Web UI access + navigation (in progress, 2026-07-28, branch: feat/webui-access)
 
 Source: `tasks/webui-access-and-nav-spec.md` (DJR, 2026-07-28). Plan approved 2026-07-28.

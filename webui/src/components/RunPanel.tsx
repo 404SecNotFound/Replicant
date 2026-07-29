@@ -269,7 +269,10 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       <div className="u-label mb-3">Arm run</div>
 
       {/* controls */}
-      <div className="mt-[18px] grid grid-cols-[132px_92px_92px_112px_1fr] items-end gap-3 border-y py-[18px]">
+      {/* Five controls. At lg they sit on one row at their natural widths; below
+          that the fixed track list is wider than the viewport, so it reflows to
+          four and then two columns rather than overflowing sideways. */}
+      <div className="mt-[18px] grid grid-cols-2 items-end gap-3 border-y py-[18px] sm:grid-cols-4 lg:grid-cols-[132px_92px_92px_112px_1fr]">
         <div>
           <label className="u-label mb-1.5 block">Intensity</label>
           <Select value={intensity} onValueChange={setIntensity}>
@@ -320,7 +323,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
             </SelectContent>
           </Select>
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="col-span-2 flex flex-col gap-2 sm:col-span-4 lg:col-span-1 lg:items-end">
           <span className="u-label">Destination</span>
           <div className="flex gap-4">
             <label className={cn("flex items-center gap-2 text-[12.5px]", collector ? "text-muted-foreground" : "text-text-4")}>
@@ -402,10 +405,10 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       </div>
       <div
         ref={logRef}
-        className="scroll-thin h-[132px] overflow-y-auto rounded-lg border bg-black/40 p-3 font-mono text-[11px] leading-[1.85] text-text-3"
+        className="scroll-thin h-[132px] overflow-y-auto rounded-lg border bg-well p-3 font-mono text-[11px] leading-[1.85] text-text-3"
       >
         {linesRef.current.length === 0 ? (
-          <div className="grid h-full place-items-center text-text-4">
+          <div className="grid h-full place-items-center text-text-3">
             {running ? "waiting for events…" : "Streamed CEF appears here on run."}
           </div>
         ) : (
@@ -426,7 +429,9 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
             </svg>
             Run complete · manifest written
           </div>
-          <div className="grid grid-cols-4 gap-x-5 gap-y-3">
+          {/* Audit fields. Two columns is the floor: these are short mono values
+              and one column per row would make a seven-field manifest a scroll. */}
+          <div className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
             {[
               ["events", manifest.event_count],
               ["seed", manifest.seed],

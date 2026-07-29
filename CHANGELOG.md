@@ -4,6 +4,67 @@ All notable changes to Replicant are recorded here. Format follows [Keep a Chang
 
 Claims that have not been validated against a live vendor build or a real host are marked `[Unverified]`, and stay marked until they are.
 
+## [Unreleased]
+
+### Added: a light theme, and a responsive layout
+
+The web UI was dark-only. A light palette existed in the stylesheet but it was the
+stock shadcn slate, so the toggle worked and produced a theme that was not
+Replicant's.
+
+- **Warm paper, not cold white**, for the same reason the dark theme is warm graphite
+  rather than blue-black. Contrast was **measured pair by pair against the dark
+  theme's own ratios**, so light reads as the same instrument lit differently rather
+  than as a second design.
+- **The amber darkens to `#a04c03`.** The dark theme's `#f4b23e` is 1.9:1 on paper,
+  and it is used as small text (the "emitting" chip, links in the Docs tab), so it
+  needs 4.5:1, not the 3:1 a graphic needs. One `--signal` token, so the rule that
+  amber means live signal survives intact.
+- **First load follows `prefers-color-scheme`**; an explicit toggle is remembered and
+  from then on beats the operating system. A pre-paint script applies the class
+  before the bundle loads, so the page never flashes the wrong theme. That script
+  cannot import the module holding the rule, so the rule exists twice, and a test
+  extracts the script and asserts the two agree for every input.
+- **Responsive below 1024px.** The fixed-viewport shell with independently scrolling
+  panes is a desktop affordance; on a short screen it traps the run stage in a few
+  hundred pixels. It becomes an ordinary scrolling page, the left rail becomes a
+  disclosure labelled with the armed technique, the run controls reflow 5 columns to
+  4 to 2, and the Docs sidebar becomes a horizontal strip.
+- **The terminal follows the theme.** It hardcoded a blue-slate `#0b1120` that matched
+  neither theme and would have been a black box on paper. It now resolves its colours
+  from the stylesheet and recolours **in place**, because rebuilding it would tear
+  down the websocket and kill the operator's running menu process.
+
+### Fixed: contrast defects the audit found in the shipped dark theme
+
+Three of the four were never light-theme bugs. The design spec claimed the tokens
+were AA-verified, and they were; their **usage** never had been.
+
+- **`--text-4` was body text in seven places, at 2.78:1**, against its own documented
+  "decoration only, never body text" rule. At 9.5px a faint label reads as
+  deliberately faint, which is why it survived. Moved to `--text-3`. Genuine
+  decoration and the one disabled-control label stay put.
+- **Near-white on the red fill is 3.02:1.** Latent rather than live: the only consumer
+  is a Button variant nothing currently renders. Fixed so it is not waiting for
+  whoever uses that variant first.
+- **11 of xterm's 16 default ANSI colours fail on the light card, 6 of 16 on the dark
+  one.** The embedded Rich menu was partly illegible before light mode existed. Two
+  measured palettes now. ANSI `black` stays low-contrast in dark by design: it is the
+  background-adjacent slot programs use for fills, not for text.
+- **The page scrolled sideways to 3452px at 375px wide.** A CSS grid item defaults to
+  `min-width: auto` and will not shrink below its content, so one 3376px CEF sample
+  line inside an `overflow-x-auto` stretched the whole column track instead of
+  scrolling inside its own box.
+
+### Notes
+
+The eps signal readout was verified mid-run against a real loopback collector, since
+a run with no collector is unthrottled and finishes too fast to observe. Over 108000
+events the readout matched the collector exactly at 2000 events per second, and
+delivery was exact with no UDP loss.
+
+89 frontend tests (68 before). No backend change: 526 Python tests unchanged.
+
 ## [0.3.1] - 2026-07-29
 
 A packaging fix. Nothing changes for anyone running from a git clone, which is how

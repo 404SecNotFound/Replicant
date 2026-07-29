@@ -21,3 +21,34 @@ import { afterEach } from "vitest";
 afterEach(() => {
   cleanup();
 });
+
+// Node 25 ships an experimental built-in `localStorage`. Without a valid
+// `--localstorage-file` it is a methodless object, and it shadows the working
+// Storage jsdom would otherwise provide, so `getItem` is not a function. Verified
+// with a bare `node -e`, no jsdom involved:
+//
+//   node v25.6.1  ->  typeof localStorage "object", getItem is fn: false
+//   Warning: `--localstorage-file` was provided without a valid path
+//
+// CI runs Node 18 and 20, which have no built-in localStorage, so jsdom's real
+// Storage is used there and the branch below never fires. This only bites local
+// development on a newer Node. The guard keys off a working `getItem` rather than
+// a version check so it follows the actual capability. Tests that need storage to
+// *fail* still override this with their own throwing getter.
+if (typeof window.localStorage?.getItem !== "function") {
+  const entries = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    writable: true,
+    value: {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => void entries.set(key, String(value)),
+      removeItem: (key: string) => void entries.delete(key),
+      clear: () => entries.clear(),
+      key: (index: number) => [...entries.keys()][index] ?? null,
+      get length() {
+        return entries.size;
+      },
+    },
+  });
+}

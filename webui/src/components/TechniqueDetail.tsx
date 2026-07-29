@@ -44,9 +44,14 @@ function Chip({ label, signal }: { label: string; signal?: boolean }) {
   );
 }
 
+// `min-w-0` is load-bearing, not tidiness. A grid item defaults to
+// `min-width: auto`, so it refuses to shrink below its content's intrinsic
+// width. A single 3376px CEF sample line inside an `overflow-x-auto` therefore
+// stretched the whole column track and the page scrolled sideways to 3452px on a
+// 375px viewport, instead of the sample scrolling inside its own box.
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-lg border bg-card p-4">
+    <section className="min-w-0 rounded-lg border bg-card p-4">
       <div className="u-label mb-3">{title}</div>
       {children}
     </section>
@@ -79,13 +84,13 @@ function SampleLines({ technique, vendor }: Props) {
   }, [technique.id, vendor]);
 
   return (
-    <div className="scroll-thin overflow-x-auto rounded-lg border bg-black/40 p-3 font-mono text-[11px] leading-[1.9] text-text-3">
+    <div className="scroll-thin overflow-x-auto rounded-lg border bg-well p-3 font-mono text-[11px] leading-[1.9] text-text-3">
       {err ? (
         <span className="text-destructive">sample unavailable: {err}</span>
       ) : !sample ? (
-        <span className="text-text-4">rendering sample for {vendorLabel(vendor)}…</span>
+        <span className="text-text-3">rendering sample for {vendorLabel(vendor)}…</span>
       ) : sample.lines.length === 0 ? (
-        <span className="text-text-4">no representative event for this preset</span>
+        <span className="text-text-3">no representative event for this preset</span>
       ) : (
         sample.lines.map((line, i) => (
           <div key={i} className="whitespace-pre">
@@ -207,7 +212,7 @@ export function TechniqueDetail({ technique, vendor }: Props) {
           )}
         </Card>
 
-        <section className="rounded-lg border bg-card p-4 md:col-span-2">
+        <section className="min-w-0 rounded-lg border bg-card p-4 md:col-span-2">
           <div className="mb-3 flex items-center justify-between">
             <div className="u-label">What the logs will show · {vendorLabel(vendor)}</div>
             <span className="font-mono text-[10.5px] text-text-3">

@@ -12,38 +12,52 @@
 @font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/fonts/plex-mono-500.woff2") format("woff2")}
 
 @layer base {
-  /* Light theme retained (Replicant is dark-first; light is a follow-up). */
+  /* Light: the same instrument, lit differently. Warm paper rather than cold
+     white, for the same reason the dark theme is warm graphite rather than
+     blue-black. Every pair that carries meaning was measured, not eyeballed, and
+     the targets are the dark theme's own ratios so this reads as a translation
+     rather than a second design. The amber is darkened to #a04c03 so it still
+     clears 4.5:1 as small text (the "emitting" chip, Docs links); the bright
+     #f4b23e is 1.9:1 on paper and would have quietly broken the semantic rule
+     that amber is readable signal. See docs/webui-reskin-design.md section 3. */
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --primary: 222 47% 11%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 94%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 4 74% 52%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 220 9% 46%;
+    color-scheme: light;
+    --background: 40 24% 96%;
+    --foreground: 30 10% 13%;
+    --card: 40 33% 98.5%;
+    --card-foreground: 30 10% 13%;
+    --primary: 30 10% 13%;
+    --primary-foreground: 40 33% 98.5%;
+    --secondary: 38 20% 92%;
+    --secondary-foreground: 32 7% 38%;
+    --muted: 38 20% 92%;
+    --muted-foreground: 32 7% 38%;
+    --accent: 38 22% 89%;
+    --accent-foreground: 30 10% 13%;
+    --destructive: 4 72% 42%;
+    --destructive-foreground: 40 33% 98.5%;
+    --border: 34 15% 80%;
+    --input: 34 15% 80%;
+    --ring: 32 8% 45%;
     --radius: 0.625rem;
-    --signal: 38 92% 50%;
-    --signal-foreground: 42 40% 8%;
-    --elev: 210 40% 97%;
-    --text-3: 220 9% 46%;
-    --text-4: 220 9% 60%;
-    --signal-dim: rgba(214, 140, 20, 0.14);
-    --signal-line: rgba(214, 140, 20, 0.42);
-    --grid-line: rgba(20, 20, 30, 0.04);
+    /* signal system (custom, not part of the shadcn set) */
+    --signal: 28 96% 32%;
+    --signal-foreground: 40 33% 98.5%;
+    --elev: 38 22% 89%;
+    --text-3: 32 7% 38%;
+    --text-4: 34 8% 52%;
+    /* The recessed telemetry well: the CEF tail, the sample line, the progress
+       track. Darker than the page in light, darker still than the page in dark.
+       These were `bg-black`, which is correct in exactly one theme. */
+    --well: 38 16% 89%;
+    --signal-dim: rgba(160, 76, 3, 0.1);
+    --signal-line: rgba(160, 76, 3, 0.38);
+    --grid-line: rgba(60, 45, 25, 0.045);
   }
 
   /* Dark: warm graphite instrument panel with a single amber signal accent. */
   .dark {
+    color-scheme: dark;
     --background: 240 10% 6%;
     --foreground: 48 15% 94%;
     --card: 240 6% 9%;
@@ -57,7 +71,12 @@
     --accent: 240 9% 15%;
     --accent-foreground: 48 15% 94%;
     --destructive: 4 74% 62%;
-    --destructive-foreground: 48 15% 94%;
+    /* Was 48 15% 94% (near-white), which is 3.02:1 on the red fill and fails AA.
+       Latent rather than live: the only consumer is the `destructive` Button
+       variant, which nothing currently renders. Set to the same ink the amber
+       fill already uses, giving 5.40:1, so the trap is not waiting for whoever
+       reaches for that variant first. */
+    --destructive-foreground: 42 28% 7%;
     --border: 240 6% 16%;
     --input: 240 6% 16%;
     --ring: 44 7% 62%;
@@ -67,6 +86,7 @@
     --elev: 240 9% 15%;
     --text-3: 45 6% 54%;
     --text-4: 45 4% 36%;
+    --well: 240 12% 3%;
     --signal-dim: rgba(244, 178, 62, 0.14);
     --signal-line: rgba(244, 178, 62, 0.42);
     --grid-line: rgba(255, 255, 255, 0.014);

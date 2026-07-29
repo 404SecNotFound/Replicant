@@ -1,10 +1,33 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex" />
     <title>Replicant</title>
+    <script>
+      // Runs before first paint, so the page never shows one theme and then flips
+      // to the other. It cannot import src/lib/theme.ts: that module only exists
+      // once the bundle has loaded, which is already too late. The rule is
+      // therefore written twice, and theme.test.ts extracts this script and
+      // asserts it agrees with resolveTheme() for every input.
+      (function () {
+        var stored = null;
+        try {
+          stored = localStorage.getItem("replicant.theme");
+        } catch (e) {
+          stored = null;
+        }
+        var theme =
+          stored === "light" || stored === "dark"
+            ? stored
+            : matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+        document.documentElement.classList.toggle("dark", theme === "dark");
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
