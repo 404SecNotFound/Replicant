@@ -348,26 +348,88 @@ not drawn from the Fortinet example above (which uses the EICAR test signature).
 `[Unverified]` whether that string matches a real Fortinet IPS signature name
 exactly.
 
-### 3.3 What was done, and what is left
+### 3.3 The field-mapping tables, reviewed
+
+Section 3.2 cleared the sample lines. The tables were the other half of the
+question and were left open on 2026-07-29 morning; they were reviewed the same
+day. There are nine tables across the three reference documents.
+
+| Document | Table | Rows | Relationship to any source | Verdict |
+|---|---|---|---|---|
+| FortiGate | 1.1 CEF header fields | 8 | ArcSight "What is CEF" header definitions | Paraphrased to a few words per row, restructured, augmented |
+| FortiGate | 1.3 Extension dictionary | 29 | ArcSight Extension Dictionary | Independently worded, restructured, selectively subset |
+| FortiGate | 2.2 FortiOS-to-CEF keys | 22 | Read off Fortinet's published example lines | Replicant's own compilation |
+| FortiGate | 2.4 Severity mapping | 8 | Fortinet CEF priority levels | Numeric facts |
+| FortiGate | 4. Technique to field | 12 | None | Entirely original |
+| PAN-OS | 2.1 / 2.2 / 2.3 | 5 / 7 / 8 | None | Replicant's own design decisions |
+| Check Point | 2.1 / 2.2 / 2.3 | 6 / 7 / 9 | None | Replicant's own design decisions |
+
+**The extension dictionary is the one that mattered**, being the largest and the
+only one drawn from the ArcSight specification. Columns 1 and 2 (CEF key, full
+name) are the format definition itself: `src` means `sourceAddress` and cannot be
+expressed any other way while remaining correct. Column 4 is the only place
+expression can live, and it is not ArcSight's:
+
+| Key | ArcSight's description | Replicant's "Meaning" |
+|---|---|---|
+| `src` | "Identifies the source that an event refers to in an IP network. The format is an IPv4 address. Example: '192.168.10.1'." | "Source IP of the event." |
+| `spt` | "The valid port numbers are 0 to 65535." | "Source port." |
+| `out` | "Number of bytes transferred outbound relative to the source to destination relationship. For example, the byte number of data flowing from the destination to the source." | "Bytes sent (outbound)." |
+| `request` | "In the case of an HTTP request, this field contains the URL accessed. The URL should contain the protocol as well. Example: 'http://www/secure.com'" | "Requested URL." |
+| `deviceExternalId` | "A name that uniquely identifies the device generating this event." | "Vendor device identifier (FortiGate serial number)." |
+
+Three things beyond the wording being different:
+
+1. **The table is restructured, not transcribed.** ArcSight's columns are CEF
+   version, key, full name, data type, length, description. Replicant's are key,
+   full name, type, meaning. Length and version are dropped, and ArcSight's port
+   *description* ("valid port numbers are 0 to 65535") is folded into Replicant's
+   *type* column as `Integer 0-65535`. Moving a fact between columns is
+   re-authoring the table.
+2. **It is a functional subset.** ArcSight's dictionary runs to well over a
+   hundred entries; Replicant lists 29, selected for firewall telemetry.
+3. **Several entries are re-cast for Replicant specifically**, which ArcSight
+   could not have written: `deviceExternalId` as the FortiGate serial number,
+   `externalId` as the FortiGate session ID.
+
+The closest single item in the whole repository, stated plainly rather than
+glossed: the note under that table. ArcSight writes two sentences about `bytesIn`
+and `bytesOut` holding Long values from CEF 1.0, and two more about IP fields
+holding IPv6 from CEF 1.0. Replicant compresses both to one line each. It is a
+paraphrase of a factual versioning note, roughly a third the length, and it is the
+nearest anything gets.
+
+The FortiOS-to-CEF table (2.2) deserves a note in the other direction. Fortinet
+does not publish that mapping as a table anywhere; their mapping guidelines page
+is prose rules. The 22 rows were derived by reading their published example lines
+and recording which native field landed on which CEF key. That is Replicant's own
+work, not a reproduction.
+
+### 3.4 What was done, and what is left
 
 Done:
 
 - `NOTICE` gained a trademark and non-affiliation section naming each vendor.
 - The README states the non-affiliation position and links to this section.
-- The `[Constructed]` claim is verified above rather than asserted.
+- The `[Constructed]` claim on the sample lines is verified (3.2), not asserted.
+- All nine field-mapping tables are reviewed (3.3). Where expression was possible
+  they are independently authored; where it was not, they are facts.
 
 Open, and worth a decision before any public release:
 
 - `[Unverified]` the current distribution terms of the ArcSight/Open Text CEF
-  specification. Replicant implements from vendor mapping docs, not from the
-  spec document, which is the safer route, but the terms have not been read.
-- The three vendor reference documents under `docs/` are derived works from
-  vendor documentation. The sample lines are cleared above; the **field-mapping
-  tables** have not been reviewed for how closely they track their sources in
-  structure and wording. That is the remaining copyright surface.
+  specification. Section 3.3 establishes that Replicant's dictionary table is
+  independently written rather than reproduced, which is the question that
+  mattered most, but the specification's own terms of use have still not been
+  read. Note that the FortiGate reference cites the spec pages directly in its
+  Sources list, so this is not hypothetical.
 - Whether any of this changes if Replicant is published under, or used in
   connection with, an employer's name. That is a question for counsel, not for
   this document.
+
+Nothing in sections 3.2 or 3.3 is a legal opinion. They record what was compared
+against what, and what was found, so that a reviewer can check the reasoning
+rather than take it on trust.
 
 ---
 
