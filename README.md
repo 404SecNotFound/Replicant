@@ -373,4 +373,8 @@ Replicant's contribution is narrower and specific: next-generation-firewall-accu
 
 This project uses MITRE ATT&CK. (c) 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation. ATT&CK is a registered trademark of The MITRE Corporation. Use does not imply endorsement.
 
+**Replicant is an independent project with no vendor affiliation.** It is not affiliated with, sponsored by, or endorsed by Fortinet, Palo Alto Networks, Check Point, Open Text (ArcSight/CEF), or Exabeam (LogRhythm). Fortinet, FortiGate and FortiOS are trademarks of Fortinet, Inc.; Palo Alto Networks and PAN-OS of Palo Alto Networks, Inc.; Check Point of Check Point Software Technologies Ltd. Those names appear here only to identify whose log format a given output imitates, which is the one thing a detection engineer needs to know about it. No vendor logos or brand assets are used.
+
+Every record Replicant emits is fabricated: events that did not happen, on devices that do not exist, using RFC 1918 and IANA documentation addresses. The vendor reference documents in [`docs/`](docs/) were written from each vendor's public documentation, cited per file, and their sample lines are `[Constructed]` from the documented field rules rather than copied from vendor examples. That claim is verified, not just asserted: see [section 3 of the prior-art and licensing review](docs/prior-art-and-licensing.md).
+
 Replicant is licensed under the [Apache License 2.0](LICENSE). Design acknowledgements and third-party notices are in [`NOTICE`](NOTICE). The design blueprint, the FortiGate CEF reference, and the prior-art review are in [`docs/`](docs/).
