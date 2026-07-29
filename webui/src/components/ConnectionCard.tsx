@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { testConnection, vendorLabel, type Collector } from "@/lib/api";
+import { testConnection, vendorShortLabel, type Collector } from "@/lib/api";
 
 interface Props {
   epsCap: number;
@@ -102,7 +102,7 @@ export function ConnectionCard({
                 : "text-text-3 hover:text-foreground",
             )}
           >
-            {vendorLabel(v)}
+            {vendorShortLabel(v)}
           </button>
         ))}
       </div>
