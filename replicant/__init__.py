@@ -11,6 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Replicant: safe synthetic FortiGate CEF telemetry for detection engineering."""
+"""Replicant: safe synthetic firewall CEF telemetry for detection engineering.
 
-__version__ = "0.3.0"
+Renders FortiGate, Palo Alto PAN-OS and Check Point. The single-vendor wording this
+docstring used to carry predated Phase 3 by three vendors.
+"""
+
+__version__ = "0.3.1"
