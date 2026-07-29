@@ -77,6 +77,16 @@ export const VENDOR_LABELS: Record<string, string> = {
   checkpoint: "Check Point",
 };
 
+// Short forms for width-constrained controls. The vendor picker is three equal
+// segments inside a 336px rail, which leaves about 92px each; "Palo Alto
+// (PAN-OS)" wrapped to two lines and spilled out of its 28px-tall segment. The
+// long forms stay in prose, where there is room and the full name is clearer.
+export const VENDOR_SHORT_LABELS: Record<string, string> = {
+  fortigate: "FortiGate",
+  paloalto: "PAN-OS",
+  checkpoint: "Check Point",
+};
+
 // An own-property check, not `VENDOR_LABELS[id] ?? id`: a plain object inherits
 // from Object.prototype, so the bracket lookup resolves "constructor" and
 // "toString" to functions. Those are not null or undefined, so ?? never fires
@@ -86,6 +96,10 @@ export const VENDOR_LABELS: Record<string, string> = {
 // ES2020, and bumping the whole target for one lookup is not worth it.
 export const vendorLabel = (id: string): string =>
   Object.prototype.hasOwnProperty.call(VENDOR_LABELS, id) ? VENDOR_LABELS[id] : id;
+
+// Same own-property reasoning as above.
+export const vendorShortLabel = (id: string): string =>
+  Object.prototype.hasOwnProperty.call(VENDOR_SHORT_LABELS, id) ? VENDOR_SHORT_LABELS[id] : id;
 
 export interface Manifest {
   technique_id: string;

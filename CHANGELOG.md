@@ -55,6 +55,10 @@ were AA-verified, and they were; their **usage** never had been.
   `min-width: auto` and will not shrink below its content, so one 3376px CEF sample
   line inside an `overflow-x-auto` stretched the whole column track instead of
   scrolling inside its own box.
+- **The vendor picker's middle segment overflowed.** Three equal segments in a 336px
+  rail leave about 92px each, and "Palo Alto (PAN-OS)" wrapped to two lines and spilled
+  out of its 28px-tall button. Width-constrained controls now use a short label
+  (`PAN-OS`); prose keeps the full name, where there is room and it is clearer.
 
 ### Notes
 
@@ -62,6 +66,12 @@ The eps signal readout was verified mid-run against a real loopback collector, s
 a run with no collector is unthrottled and finishes too fast to observe. Over 108000
 events the readout matched the collector exactly at 2000 events per second, and
 delivery was exact with no UDP loss.
+
+`scripts/capture-webui-screenshots.py` gained `--theme` and `--views`. The theme is now
+**pinned and asserted** rather than inherited: the UI follows `prefers-color-scheme`,
+headless Chrome reports light, so the script would otherwise have quietly re-themed
+every committed screenshot the first time it ran after this change. The README's
+screenshots were regenerated, which also picked up the contrast fixes above.
 
 89 frontend tests (68 before). No backend change: 526 Python tests unchanged.
 

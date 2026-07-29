@@ -23,10 +23,17 @@ because two of the three shots need interaction: one needs the Docs tab open, on
 needs a run actually emitting. Captures at 1440x900 at scale 1, matching the
 images already committed.
 
+**The theme is pinned, not inherited.** The UI follows ``prefers-color-scheme`` on
+first load, and headless Chrome reports *light*. Left alone, this script would have
+quietly re-themed every committed screenshot the first time it ran after the light
+theme shipped. ``--theme`` emulates the media feature and then asserts the page
+actually landed on it, so a shot can never be mislabelled.
+
 Usage:
 
     replicant web --no-browser                       # in another shell
     python scripts/capture-webui-screenshots.py "http://127.0.0.1:9787/?token=..."
+    python scripts/capture-webui-screenshots.py URL --theme light --views emitter
 
 The run shot starts a real run with no collector and no output file, so it emits
 to the browser stream and writes nothing anywhere.
@@ -37,11 +44,11 @@ dependency of ``uvicorn[standard]``, so a ``.[web]`` install has it).
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import base64
 import json
 import subprocess
-import sys
 import urllib.request
 from pathlib import Path
 
@@ -51,6 +58,7 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 DEBUG_PORT = 9222
 WIDTH, HEIGHT = 1440, 900
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "images"
+VIEWS = ("emitter", "docs", "run", "terminal")
 
 
 class Chrome:
@@ -129,6 +137,32 @@ class Chrome:
         path.write_bytes(base64.b64decode(result["data"]))
         print(f"  wrote {path.relative_to(OUT_DIR.parents[1])}")
 
+    async def pin_theme(self, theme: str) -> None:
+        """Emulate a colour-scheme preference, for use before navigating."""
+        await self.send(
+            "Emulation.setEmulatedMedia",
+            features=[{"name": "prefers-color-scheme", "value": theme}],
+        )
+
+    async def assert_theme(self, theme: str) -> None:
+        """Fail rather than write a shot labelled with a theme it is not in.
+
+        The app stores an explicit toggle in localStorage and that beats the OS
+        preference. This script never toggles, so a fresh profile follows the
+        emulated media; but the Chrome profile is reused between runs, and a
+        stored value would silently win. Cheaper to assert than to notice later
+        in a committed PNG.
+        """
+        actual = await self.evaluate(
+            "document.documentElement.classList.contains('dark') ? 'dark' : 'light'"
+        )
+        if actual != theme:
+            stored = await self.evaluate("localStorage.getItem('replicant.theme')")
+            raise RuntimeError(
+                f"asked for the {theme} theme but the page rendered {actual}"
+                f" (localStorage replicant.theme = {stored!r})"
+            )
+
 
 def button_by_text(text: str) -> str:
     return (
@@ -137,7 +171,18 @@ def button_by_text(text: str) -> str:
     )
 
 
-async def capture_all(url: str) -> None:
+def shot_name(view: str, theme: str) -> str:
+    """`webui-emitter.png` for dark, `webui-emitter-light.png` for light.
+
+    Dark keeps the bare name because it is what the committed images and every
+    README reference already use, and renaming them to `-dark` would break those
+    for no gain.
+    """
+    suffix = "" if theme == "dark" else f"-{theme}"
+    return f"webui-{view}{suffix}.png"
+
+
+async def capture_all(url: str, theme: str, views: set[str]) -> None:
     chrome = subprocess.Popen(  # noqa: S603 - fixed path, no shell
         [
             CHROME,
@@ -148,7 +193,9 @@ async def capture_all(url: str) -> None:
             "--hide-scrollbars",
             "--disable-gpu",
             "--no-first-run",
-            "--user-data-dir=/tmp/replicant-shots",
+            # Per theme, so a stored preference from a previous run of the other
+            # theme cannot leak across and override the emulated media.
+            f"--user-data-dir=/tmp/replicant-shots-{theme}",
             "about:blank",
         ],
         stdout=subprocess.DEVNULL,
@@ -180,100 +227,126 @@ async def capture_all(url: str) -> None:
                 deviceScaleFactor=1,
                 mobile=False,
             )
+            await page.pin_theme(theme)
             await page.send("Page.navigate", url=url)
             await page.wait_for(
                 "!!document.querySelector('input[aria-label=\"Filter techniques\"]')",
                 what="the catalog rail",
             )
+            await page.assert_theme(theme)
             # The signal diagram animates in; let it settle before capturing.
             await asyncio.sleep(1.5)
-            print("emitter view")
-            await page.capture("webui-emitter.png")
+            if "emitter" in views:
+                print("emitter view")
+                await page.capture(shot_name("emitter", theme))
 
-            print("docs tab")
-            await page.click(button_by_text("Docs"))
-            await page.wait_for("!!document.querySelector('.doc-prose h1')", what="a rendered doc")
-            await asyncio.sleep(0.5)
-            await page.capture("webui-docs.png")
+            if "docs" in views:
+                print("docs tab")
+                await page.click(button_by_text("Docs"))
+                await page.wait_for(
+                    "!!document.querySelector('.doc-prose h1')", what="a rendered doc"
+                )
+                await asyncio.sleep(0.5)
+                await page.capture(shot_name("docs", theme))
 
-            print("live run")
-            await page.click(button_by_text("Emitter"))
-            await page.wait_for(
-                "!!document.querySelector('main')", what="the emitter view to come back"
-            )
-            # The shot needs a plan big enough to fill the waveform and the progress
-            # bar. REP-001's default is 243 events and is over in well under a
-            # second; REP-004's is 108000. Filtering to it also puts the rail in a
-            # more useful state for the shot, since REP-004 is mapped to two tactics
-            # and so appears under both.
-            #
-            # React tracks the input's value on the DOM node, so assigning .value
-            # directly is silently reverted on the next render. Going through the
-            # prototype setter and then dispatching `input` is what makes React see
-            # the change.
-            await page.evaluate(
-                "(() => { const box ="
-                " document.querySelector('input[aria-label=\"Filter techniques\"]');"
-                " const setter = Object.getOwnPropertyDescriptor("
-                "   window.HTMLInputElement.prototype, 'value').set;"
-                " setter.call(box, 'REP-004');"
-                " box.dispatchEvent(new Event('input', { bubbles: true })); })()"
-            )
-            await page.wait_for(
-                "[...document.querySelectorAll('button')]"
-                ".some(b => b.textContent.includes('DNS tunneling'))",
-                what="REP-004 in the filtered rail",
-            )
-            await page.click(
-                "[...document.querySelectorAll('button')]"
-                ".find(b => b.textContent.includes('DNS tunneling'))"
-            )
-            await asyncio.sleep(0.8)
-            # No collector and no output file: the run emits to the browser stream
-            # and writes nothing to disk.
-            await page.click(button_by_text("Start run"))
-            # Capture just after the plan drains. REP-004's default is 108000 events
-            # and the useful window is narrow: at 2.2s the readout still showed
-            # single digits, and a looser "wait until the rate is high" predicate
-            # matched the intensity-preset numbers elsewhere on the page and fired
-            # before the run even started. The settled frame carries more anyway --
-            # the full waveform, the delivered rate against the cap, and the
-            # manifest panel -- so it is the one the README uses.
-            await asyncio.sleep(4.0)
-            await page.evaluate(
-                "document.querySelector('main').scrollTop = "
-                "document.querySelector('main').scrollHeight * 0.55"
-            )
-            await asyncio.sleep(0.4)
-            await page.capture("webui-run.png")
-            await page.click(button_by_text("Stop"))
+            if "run" in views:
+                print("live run")
+                await page.click(button_by_text("Emitter"))
+                await page.wait_for(
+                    "!!document.querySelector('main')", what="the emitter view to come back"
+                )
+                # The shot needs a plan big enough to fill the waveform and the
+                # progress bar. REP-001's default is 243 events and is over in well
+                # under a second; REP-004's is 108000. Filtering to it also puts the
+                # rail in a more useful state for the shot, since REP-004 is mapped
+                # to two tactics and so appears under both.
+                #
+                # React tracks the input's value on the DOM node, so assigning .value
+                # directly is silently reverted on the next render. Going through the
+                # prototype setter and then dispatching `input` is what makes React
+                # see the change.
+                await page.evaluate(
+                    "(() => { const box ="
+                    " document.querySelector('input[aria-label=\"Filter techniques\"]');"
+                    " const setter = Object.getOwnPropertyDescriptor("
+                    "   window.HTMLInputElement.prototype, 'value').set;"
+                    " setter.call(box, 'REP-004');"
+                    " box.dispatchEvent(new Event('input', { bubbles: true })); })()"
+                )
+                await page.wait_for(
+                    "[...document.querySelectorAll('button')]"
+                    ".some(b => b.textContent.includes('DNS tunneling'))",
+                    what="REP-004 in the filtered rail",
+                )
+                await page.click(
+                    "[...document.querySelectorAll('button')]"
+                    ".find(b => b.textContent.includes('DNS tunneling'))"
+                )
+                await asyncio.sleep(0.8)
+                # No collector and no output file: the run emits to the browser
+                # stream and writes nothing to disk.
+                await page.click(button_by_text("Start run"))
+                # Capture just after the plan drains. REP-004's default is 108000
+                # events and the useful window is narrow: at 2.2s the readout still
+                # showed single digits, and a looser "wait until the rate is high"
+                # predicate matched the intensity-preset numbers elsewhere on the
+                # page and fired before the run even started. The settled frame
+                # carries more anyway -- the full waveform, the delivered rate
+                # against the cap, and the manifest panel -- so it is the one the
+                # README uses.
+                await asyncio.sleep(4.0)
+                await page.evaluate(
+                    "document.querySelector('main').scrollTop = "
+                    "document.querySelector('main').scrollHeight * 0.55"
+                )
+                await asyncio.sleep(0.4)
+                await page.capture(shot_name("run", theme))
+                await page.click(button_by_text("Stop"))
 
-            print("terminal tab")
-            await page.click(button_by_text("Terminal"))
-            await page.wait_for(
-                "!!document.querySelector('.xterm-screen')", what="the terminal to attach"
-            )
-            await asyncio.sleep(2.5)
-            # Focus xterm's hidden textarea, then decline the collector prompt so the
-            # shot shows the main menu and the technique table rather than the first
-            # question on an empty screen.
-            await page.evaluate("document.querySelector('.xterm-helper-textarea').focus()")
-            await page.type_line("n")
-            await asyncio.sleep(2.5)
-            await page.capture("webui-terminal.png")
+            if "terminal" in views:
+                print("terminal tab")
+                await page.click(button_by_text("Terminal"))
+                await page.wait_for(
+                    "!!document.querySelector('.xterm-screen')", what="the terminal to attach"
+                )
+                await asyncio.sleep(2.5)
+                # Focus xterm's hidden textarea, then decline the collector prompt so
+                # the shot shows the main menu and the technique table rather than
+                # the first question on an empty screen.
+                await page.evaluate("document.querySelector('.xterm-helper-textarea').focus()")
+                await page.type_line("n")
+                await asyncio.sleep(2.5)
+                await page.capture(shot_name("terminal", theme))
     finally:
         chrome.terminate()
         chrome.wait(timeout=10)
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print(__doc__)
-        return 2
+    parser = argparse.ArgumentParser(description=__doc__ or "")
+    parser.add_argument("url", help="the web UI URL, including ?token=")
+    parser.add_argument(
+        "--theme",
+        choices=("dark", "light"),
+        default="dark",
+        help="colour scheme to emulate and assert (default: dark)",
+    )
+    parser.add_argument(
+        "--views",
+        default=",".join(VIEWS),
+        help=f"comma-separated subset of {','.join(VIEWS)} (default: all)",
+    )
+    args = parser.parse_args()
+
+    views = {view.strip() for view in args.views.split(",") if view.strip()}
+    unknown = views - set(VIEWS)
+    if unknown:
+        parser.error(f"unknown view(s): {', '.join(sorted(unknown))}")
+
     if not Path(CHROME).exists():
-        print(f"Google Chrome not found at {CHROME}", file=sys.stderr)
-        return 1
-    asyncio.run(capture_all(sys.argv[1]))
+        parser.error(f"Google Chrome not found at {CHROME}")
+
+    asyncio.run(capture_all(args.url, args.theme, views))
     return 0
 
 

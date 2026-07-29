@@ -298,6 +298,12 @@ The Terminal tab, when enabled, runs the Rich menu inside the browser:
 
 <img src="docs/images/webui-terminal.png" alt="The embedded terminal tab running the Rich menu, showing the technique table and the technique, scenario, connection, vendor, seed, and quit prompts" width="900" />
 
+The UI follows your system's colour scheme on first load and remembers an explicit toggle after that, so it sits dark beside a dark SIEM console and light on a projector or a bright desk. The light palette is warm paper rather than cold white, and every pair that carries meaning was measured on the rendered page against the dark theme's own ratios rather than judged by eye. The amber that means "signal is live" darkens to hold 4.5:1 on paper, so the one semantic accent survives the change intact.
+
+<img src="docs/images/webui-emitter-light.png" alt="The same Emitter view in the light theme: warm paper surfaces and graphite text, with the ATT&CK-grouped technique rail, the selected technique's detail panel, and the amber signal path diagram" width="900" />
+
+Below 1024px the fixed-viewport shell becomes an ordinary scrolling page and the left rail becomes a disclosure panel labelled with the armed technique, so the run stage is not squeezed into a few hundred pixels on a laptop or a tablet. Wide content, a long CEF line or a vendor reference table, scrolls inside its own container rather than dragging the page sideways.
+
 The frontend is React, Vite, TypeScript, and Tailwind with shadcn-style components.
 
 ## Safety model
