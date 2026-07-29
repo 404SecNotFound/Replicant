@@ -405,7 +405,49 @@ is prose rules. The 22 rows were derived by reading their published example line
 and recording which native field landed on which CEF key. That is Replicant's own
 work, not a reproduction.
 
-### 3.4 What was done, and what is left
+### 3.4 The CEF specification's own terms, read
+
+Left open by 3.2 and 3.3, and closed on 2026-07-29 by reading the document itself:
+*Implementing ArcSight Common Event Format (CEF), Version 26*, OpenText
+SmartConnectors 8.4.3, document release October 2023. The PDF is linked from the
+Sources list at the end of `docs/fortigate-cef-reference.md`.
+
+**What the legal notice contains.** Copyright 2010-2023 Open Text, a warranty
+disclaimer, a trademark notice reserving OpenText marks, and a pointer to
+documentation updates.
+
+**What it does not contain**, which is the material part. There is no restricted
+rights legend, no confidentiality clause, no terms-of-use section, and **no
+prohibition on reproduction or redistribution**. Many vendor documents carry a
+"may not be reproduced without prior written consent" line. This one does not.
+The copyright assertion is the ordinary default that attaches to any document.
+
+**The document's own stated purpose is to enable third-party implementation.**
+Page 4 describes CEF as "an open log management standard" that "allows third
+parties to create their own device schemas" compatible with it, and says the
+format "enables vendors and their customers to quickly integrate their product
+information into ESM" (*Implementing ArcSight CEF v26*, OpenText, p. 4). Page 5
+opens by stating that the document defines the CEF protocol and provides details
+about implementing the standard.
+
+That resolves the question in the direction the repository needed. Replicant emits
+CEF, which is precisely the activity the specification is published to support.
+The two things worth separating:
+
+- **Implementing the format**: invited by the document in terms.
+- **Reproducing the document**: still governed by ordinary copyright, and not
+  something Replicant does. Section 3.3 establishes that the dictionary table is
+  independently authored rather than reproduced.
+
+**One trap this creates, worth stating so nobody walks into it later.** Page 4 also
+describes CEF Certification, run through the OpenText Technology Alliance Program,
+for companies that want to test and certify compatibility with the standard.
+Replicant has not been through that program. **Nothing in this repository may
+claim that Replicant is CEF certified, CEF compliant, or ArcSight validated.**
+Verified 2026-07-29 that no such claim exists. Emitting CEF and being certified to
+emit CEF are different statements, and only the first is true here.
+
+### 3.5 What was done, and what is left
 
 Done:
 
@@ -415,17 +457,19 @@ Done:
 - All nine field-mapping tables are reviewed (3.3). Where expression was possible
   they are independently authored; where it was not, they are facts.
 
-Open, and worth a decision before any public release:
+- The CEF specification's own terms are read (3.4). It carries no reproduction
+  restriction, and the document exists to enable third parties to implement the
+  format.
 
-- `[Unverified]` the current distribution terms of the ArcSight/Open Text CEF
-  specification. Section 3.3 establishes that Replicant's dictionary table is
-  independently written rather than reproduced, which is the question that
-  mattered most, but the specification's own terms of use have still not been
-  read. Note that the FortiGate reference cites the spec pages directly in its
-  Sources list, so this is not hypothetical.
+Open:
+
 - Whether any of this changes if Replicant is published under, or used in
   connection with, an employer's name. That is a question for counsel, not for
-  this document.
+  this document. It is the only item here that engineering work cannot close.
+
+Standing constraint, from 3.4: **never claim CEF certification, CEF compliance, or
+ArcSight validation.** Replicant emits CEF; it has not been through the OpenText
+Technology Alliance certification program, and those are different claims.
 
 Nothing in sections 3.2 or 3.3 is a legal opinion. They record what was compared
 against what, and what was found, so that a reviewer can check the reasoning

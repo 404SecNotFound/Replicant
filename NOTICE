@@ -27,6 +27,10 @@ Fortinet, FortiGate and FortiOS are trademarks of Fortinet, Inc. Palo Alto
 Networks and PAN-OS are trademarks of Palo Alto Networks, Inc. Check Point is a
 trademark of Check Point Software Technologies Ltd. ArcSight and the Common
 Event Format (CEF) originate with ArcSight, now part of Open Text Corporation.
+OpenText documents CEF as an open log management standard that third parties may
+implement; Replicant emits CEF on that basis. Replicant has NOT been through the
+OpenText Technology Alliance certification program and makes no claim of CEF
+certification, CEF compliance, or ArcSight validation.
 LogRhythm is a trademark of Exabeam, Inc. All other trademarks are the property
 of their respective owners.
 
