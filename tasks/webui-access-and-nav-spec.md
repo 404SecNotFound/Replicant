@@ -72,6 +72,28 @@ The catalog is 24 techniques and a flat list. Restructure the left rail:
    (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`,
    `utm:ips`).
 
+   > **Resolved 2026-07-29, DJR: the vendor half is dropped. Log type shipped.**
+   >
+   > Vendor applicability does not partition the catalog. All three vendor
+   > profiles implement all six render paths (`traffic:forward`,
+   > `dns:dns-query`, `dns:dns-response`, `utm:ips`, `event:vpn`,
+   > `event:system`) and the catalog uses five of them, so every one of the 24
+   > techniques applies to every one of the 3 vendors. The toggle could not have
+   > excluded a single entry.
+   >
+   > A control whose output cannot change is decoration, and worse than absent
+   > because it implies a distinction the data does not contain. Same call as
+   > REP-016, which was left unbuilt rather than shipped dishonestly.
+   >
+   > Re-open this if a vendor is ever added that lacks a render path. The check
+   > is one grep: `git grep -n 'key == (' replicant/profiles/` should show the
+   > same set for every profile.
+   >
+   > Measured while deciding, in case it is useful later: `action` is the only
+   > other axis that splits the catalog (6 values: accept 10, deny 5, pass 4,
+   > reset 2, tunnel-up 2, ssl-login-fail 1). `benign_baseline` and `implemented`
+   > are uniform across all 24 and would be equally inert.
+
 10. Add a Docs tab that renders the markdown already in `docs/` (the three
     vendor CEF references and the technique catalog expansion research), so the
     reference material is reachable without leaving the UI.
