@@ -78,6 +78,11 @@ Keys below are the ArcSight Extension Dictionary short names (the "CEF key name"
 name on the wire; the full name will be rejected by consumers. These are the keys most relevant
 to network firewall telemetry.
 
+The key and full-name columns are the format definition and are necessarily identical to the
+specification: `src` means `sourceAddress` and cannot be written any other way. The Meaning column
+is written for this project and is deliberately not the specification's wording. If you edit these
+rows, keep it that way, and see `docs/prior-art-and-licensing.md` section 3.3 for why.
+
 | CEF key | Full name | Type | Meaning |
 |---|---|---|---|
 | src | sourceAddress | IPv4/IPv6 | Source IP of the event. |
