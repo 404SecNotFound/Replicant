@@ -81,6 +81,22 @@ Live runs against a real server, not the TestClient:
       produced an unauthenticated server fails instead of passing. The server PID is
       reaped by the existing EXIT trap, not a RETURN trap: every failure path calls
       `die`, which exits, and exit does not fire RETURN.
+- [x] **systemd unit VERIFIED against a real systemd** (Debian 12, systemd 252 as
+      PID 1 in a container). 11 assertions, all passing:
+      `systemd-analyze verify` silent, unit active, runs as the non-root service
+      user, serves, refuses an unauthenticated request, token 0600 in a 0700 dir
+      under `ProtectHome=read-only`, token absent from the journal, terminal tab off
+      on the `0.0.0.0` bind, `Restart=on-failure` recovers from SIGKILL and serves
+      again, token survives the restart. The `[Unverified]` marker is cleared.
+      **It found a real defect** (see below). Preserved as
+      `scripts/verify-systemd-unit.sh` and wired into CI as the `systemd-unit` job,
+      so it stays verified rather than being a one-off.
+- [x] **DEFECT, found only by the real run: the token was written to the systemd
+      journal.** The startup banner printed the URL with `?token=` in it. Under
+      systemd stdout is the journal, which root and the systemd-journal group can
+      read, so every start leaked the token the 0600 file exists to protect. Fixed:
+      the banner reveals the token only when `sys.stdout.isatty()`, otherwise it
+      names the file. 3 unit tests plus a journal grep in the container script.
 - [x] **Screenshots regenerated** and `scripts/capture-webui-screenshots.py` added.
       The v0.2.0 regeneration was done ad hoc and not kept, so the method had to be
       reinvented; it is written down now.

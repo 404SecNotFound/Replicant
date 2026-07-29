@@ -4,6 +4,37 @@ Patterns worth not repeating. Append after any correction or review finding.
 
 ---
 
+## The environment a process runs in decides what "printing" means
+
+**2026-07-29, systemd unit verification.** The web server's startup banner prints
+the URL with the token in it. That is correct on a terminal: the operator needs
+something to click. The unit ran perfectly in a container on the first try, and the
+journal showed this:
+
+```
+replicant[175]:   URL : http://127.0.0.1:9787/?token=BuvY6dvcTqyDs1-CSdPueC8Jtv...
+```
+
+Under systemd, **stdout is the journal**. So a codebase that had just gone to the
+trouble of writing the token `0600` in a `0700` directory was also writing it in
+cleartext to a file readable by root and the whole `systemd-journal` group, on every
+single start. The 0600 was not wrong; it was simply bypassed by a different exit.
+
+Nothing about reading the unit file or the server code would have shown this. It
+needed the process to actually run under the supervisor it ships for.
+
+**Rule:** when code writes a secret, enumerate every sink it reaches, not just the
+one you designed. stdout, stderr, logs, argv (visible in `ps`), environment
+(visible in `/proc/PID/environ`), crash reports, and shell history are all sinks. A
+protection applied at one of them means nothing if another is unguarded.
+
+**Corollary:** the fix has to be conditional on context, not global. Suppressing the
+token everywhere would break the interactive path that legitimately needs it, so the
+banner keys on `sys.stdout.isatty()`. And it is now asserted where the consequence
+lands: a check greps the live journal for the live token.
+
+---
+
 ## Check the premise of a spec item before building it
 
 **2026-07-29, web UI navigation.** The spec asked for "toggle filters for vendor

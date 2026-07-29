@@ -283,7 +283,10 @@ To run it as a service, `scripts/replicant-web.service` is a systemd unit templa
 sudo cp scripts/replicant-web.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now replicant-web
+sudo cat /opt/replicant/.config/replicant/web-token   # the token to open the UI with
 ```
+
+The banner prints the token only when it is attached to a terminal. Under systemd, stdout is the journal, and `journalctl` is readable by root and the systemd-journal group, so the token is deliberately kept out of it and read from the file instead. CI runs the unit under a real systemd on every push and asserts exactly that, along with the restart behaviour and the token's permissions.
 
 > **Keeping it loopback-only.** That is still the default: plain `replicant web` binds 127.0.0.1 and nothing else. To reach a loopback-only instance from your workstation, tunnel it rather than rebinding: `ssh -N -L 9787:127.0.0.1:9787 operator@sensor`.
 

@@ -459,6 +459,53 @@ def test_startup_banner_never_prints_an_unopenable_wildcard_url() -> None:
     assert "all interfaces" in joined
 
 
+def test_banner_does_not_print_the_token_when_stdout_is_not_a_terminal() -> None:
+    # Under systemd, stdout is the journal. Printing the token there writes it in
+    # cleartext to a file readable by root and the systemd-journal group, which
+    # gives away exactly what the 0600 token file protects. Found by running the
+    # unit in a container: the token was sitting in `journalctl -u replicant-web`.
+    lines = startup_lines(
+        "0.0.0.0",
+        9787,
+        token="s3cret-token",
+        token_state="created",
+        terminal=False,
+        reveal_token=False,
+        token_path="/opt/replicant/.config/replicant/web-token",
+    )
+    joined = "\n".join(lines)
+
+    assert "s3cret-token" not in joined
+    assert "?token=" not in joined
+    assert "/opt/replicant/.config/replicant/web-token" in joined
+
+
+def test_banner_still_prints_the_token_on_a_terminal() -> None:
+    # An operator running it by hand needs a URL they can click.
+    joined = "\n".join(
+        startup_lines("127.0.0.1", 9787, token="s3cret-token", token_state="created", terminal=True)
+    )
+
+    assert "?token=s3cret-token" in joined
+
+
+def test_banner_omits_the_ctrl_c_hint_when_not_on_a_terminal() -> None:
+    # There is no Ctrl-C to press when systemd owns the process.
+    joined = "\n".join(
+        startup_lines(
+            "0.0.0.0",
+            9787,
+            token="t",
+            token_state="created",
+            terminal=False,
+            reveal_token=False,
+            token_path="/tmp/web-token",
+        )
+    )
+
+    assert "Ctrl-C" not in joined
+
+
 def test_startup_banner_says_when_authentication_is_off() -> None:
     lines = startup_lines("127.0.0.1", 9787, token=None, token_state="disabled", terminal=True)
     joined = "\n".join(lines)

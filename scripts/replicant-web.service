@@ -7,7 +7,11 @@
 #   sudo systemctl enable --now replicant-web
 #   systemctl status replicant-web
 #
-# The token persists across restarts, so the URL stays valid. Print it with:
+# The token persists across restarts, so the URL stays valid. It is deliberately
+# NOT printed in the startup banner when stdout is not a terminal, which under
+# systemd means the journal: `journalctl` is readable by root and the
+# systemd-journal group, so printing it there would give away exactly what the
+# 0600 token file protects. Read it from the file instead:
 #
 #   sudo cat /opt/replicant/.config/replicant/web-token
 #

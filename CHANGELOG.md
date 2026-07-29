@@ -38,9 +38,26 @@ every restart and reaching it from another machine meant an SSH tunnel. Driven b
 - **The terminal tab is off by default on a non-loopback bind**, restored with
   `--enable-terminal`, and reported to the frontend so the tab is hidden rather
   than offered and broken.
-- **`scripts/replicant-web.service`**, a systemd unit template. [Unverified]: not
-  yet started by a real systemd. Verify with
-  `systemd-analyze verify scripts/replicant-web.service` on a Linux host.
+- **`scripts/replicant-web.service`**, a systemd unit template. **Verified** against
+  a real systemd (Debian 12, systemd 252, PID 1 in a container): the unit starts,
+  runs as a non-root service user, serves, refuses an unauthenticated request,
+  writes its token 0600 under `ProtectHome=read-only`, disables the terminal tab on
+  its `0.0.0.0` bind, and recovers from `SIGKILL` via `Restart=on-failure` with the
+  token intact. `scripts/verify-systemd-unit.sh` is those assertions, and CI runs
+  them on every push (job `systemd-unit`), so the unit cannot rot silently.
+
+### Security: the token no longer reaches the systemd journal
+
+Running the unit for real found a defect that no amount of reading it would have.
+The startup banner printed the full URL including `?token=...`. Interactively that
+is the point. Under systemd, **stdout is the journal**, so every start wrote the
+token in cleartext into a file readable by root and the systemd-journal group,
+giving away precisely what the `0600` token file protects.
+
+The banner now prints the token only when stdout is a terminal. Otherwise it prints
+the URL without it and names the file to read it from, and drops the "stop: Ctrl-C"
+hint, since nobody is at a keyboard. Covered by three unit tests and by an assertion
+in `scripts/verify-systemd-unit.sh` that greps the journal for the live token.
 
 ### Security: what replaces the loopback bind
 
