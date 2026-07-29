@@ -25,8 +25,8 @@ from replicant.scenario.composer import ComposedPlan, compose
 from replicant.scenario.engine import ScenarioEngine
 
 ROOT = Path(__file__).resolve().parents[1]
-TECH = load_catalog(ROOT / "data" / "technique-catalog.yaml")
-SCEN = load_scenario_catalog(ROOT / "data" / "scenario-catalog.yaml", TECH)
+TECH = load_catalog(ROOT / "replicant" / "data" / "technique-catalog.yaml")
+SCEN = load_scenario_catalog(ROOT / "replicant" / "data" / "scenario-catalog.yaml", TECH)
 ANCHOR = 1_752_586_800
 ALL_SCENARIOS = [s.id for s in SCEN.scenarios]
 

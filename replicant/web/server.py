@@ -46,7 +46,6 @@ import threading
 import webbrowser
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import uvicorn
@@ -58,6 +57,7 @@ from starlette.requests import HTTPConnection
 from starlette.websockets import WebSocket
 
 from replicant import __version__
+from replicant import resources as _resources
 from replicant.config.settings import (
     VENDORS,
     WEB_DEFAULT_PORT,
@@ -73,8 +73,8 @@ from replicant.scenario.engine import implemented_technique_ids
 from replicant.web.pty_bridge import bridge_terminal
 from replicant.web.runner import RunInProgressError, RunManager
 
-FRONTEND_DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
-DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
+FRONTEND_DIST = _resources.FRONTEND_DIST
+DOCS_DIR = _resources.DOCS_DIR
 
 
 @dataclass(frozen=True)
@@ -88,10 +88,11 @@ class DocPage:
 # id is a dictionary key and is never joined onto a path, so a traversal attempt
 # resolves to nothing rather than to a file.
 #
-# Like FRONTEND_DIST above, this reads from the repository, not from the installed
-# package: docs/ sits outside `replicant`, pyproject packages `replicant*` only,
-# and there is no MANIFEST.in, so a non-editable wheel has no docs/ at all. The
-# endpoints report that rather than failing.
+# These read from the repository, not the installed package. The catalogs and the
+# built frontend now live inside `replicant/` and ship in a wheel; docs/ does not,
+# deliberately. It is documentation rather than runtime data, and duplicating it
+# into the package would guarantee the two copies drift. A wheel install therefore
+# has no reference docs, and these endpoints say so rather than failing.
 DOC_PAGES: tuple[DocPage, ...] = (
     DocPage("fortigate-cef", "FortiGate CEF reference", "fortigate-cef-reference.md"),
     DocPage("paloalto-cef", "Palo Alto PAN-OS CEF reference", "paloalto-cef-reference.md"),

@@ -26,7 +26,11 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, "src") },
   },
   build: {
-    outDir: "dist",
+    // Build INTO the Python package, not beside it. Anything outside
+    // replicant/ is absent from a wheel, so a `pip install` used to produce a
+    // web UI that could never be served. setuptools picks this up via
+    // package-data in pyproject.toml.
+    outDir: "../replicant/webui_dist",
     emptyOutDir: true,
   },
   server: {

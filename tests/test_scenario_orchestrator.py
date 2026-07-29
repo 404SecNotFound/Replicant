@@ -28,8 +28,8 @@ from replicant.core.models import (
 from replicant.core.orchestrator import Orchestrator
 
 ROOT = Path(__file__).resolve().parents[1]
-TECH = load_catalog(ROOT / "data" / "technique-catalog.yaml")
-SCEN = load_scenario_catalog(ROOT / "data" / "scenario-catalog.yaml", TECH)
+TECH = load_catalog(ROOT / "replicant" / "data" / "technique-catalog.yaml")
+SCEN = load_scenario_catalog(ROOT / "replicant" / "data" / "scenario-catalog.yaml", TECH)
 
 
 def _orch(tmp_path: Path, vendor: str = "fortigate") -> Orchestrator:

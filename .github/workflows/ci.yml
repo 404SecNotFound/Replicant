@@ -96,7 +96,8 @@ jobs:
 
       - name: Assert the build actually produced a page
         working-directory: webui
-        run: test -f dist/index.html
+        # Vite builds into the Python package so the UI ships in a wheel.
+        run: test -f ../replicant/webui_dist/index.html
 
   shell:
     name: Shell
@@ -294,3 +295,68 @@ jobs:
       - name: Tear down
         if: always()
         run: docker rm -f rsd || true
+
+  wheel:
+    name: Wheel install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The frontend must be built BEFORE the wheel, because vite writes into
+      # replicant/webui_dist and setuptools packages whatever is there at build
+      # time. Building after would produce a wheel with no UI.
+      - name: Build the frontend
+        working-directory: webui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build --wheel --outdir dist-wheel .
+
+      # Installed into a clean venv and run from a directory with no repository
+      # in it. This is the check the unit suite cannot make: every test imports
+      # from the source tree, so the suite stayed green for months while a wheel
+      # install was unusable.
+      - name: Install the wheel and run it away from the repo
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/wheelvenv
+          /tmp/wheelvenv/bin/pip install "$(ls dist-wheel/*.whl)[web]"
+          mkdir -p /tmp/elsewhere
+          cd /tmp/elsewhere
+
+          /tmp/wheelvenv/bin/replicant --version
+          test "$(/tmp/wheelvenv/bin/replicant list | grep -c 'REP-0')" -eq 24
+          /tmp/wheelvenv/bin/replicant scenario list >/dev/null
+          /tmp/wheelvenv/bin/replicant run REP-004 --intensity low --to-file ./out.log --no-send
+          head -1 ./out.log | grep -q '^CEF:0|Fortinet|Fortigate'
+
+          # The built UI must be served from the wheel, not the "build it" page.
+          /tmp/wheelvenv/bin/replicant web --no-browser --port 9791 >/tmp/web.log 2>&1 &
+          python - <<'PY'
+          import sys, time, urllib.request
+          for _ in range(80):
+              try:
+                  urllib.request.urlopen("http://127.0.0.1:9791/api/health", timeout=2)
+                  break
+              except OSError:
+                  time.sleep(0.25)
+          else:
+              sys.exit("web server never answered")
+          body = urllib.request.urlopen("http://127.0.0.1:9791/", timeout=5).read().decode()
+          if "Frontend build not found" in body:
+              sys.exit("wheel served the build-me page: the UI is not in the wheel")
+          if "/assets/" not in body:
+              sys.exit("served page does not reference the built assets")
+          print("wheel serves the built UI")
+          PY
+          pkill -f "replicant web" || true

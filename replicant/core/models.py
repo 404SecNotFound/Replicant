@@ -27,6 +27,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+from replicant.resources import SCENARIO_CATALOG
+
 Intensity = Literal["low", "medium", "high"]
 Transport = Literal["udp", "tcp", "tls"]
 
@@ -203,7 +205,7 @@ def load_catalog(path: str | Path) -> Catalog:
     return Catalog.model_validate(raw)
 
 
-SCENARIO_CATALOG_PATH = Path(__file__).resolve().parents[2] / "data" / "scenario-catalog.yaml"
+SCENARIO_CATALOG_PATH = SCENARIO_CATALOG
 
 
 class ScenarioStage(BaseModel):

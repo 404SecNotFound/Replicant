@@ -44,7 +44,9 @@ def test_key_hint_range_tracks_the_catalog_size() -> None:
     It must be derived, because the selection validator bounds on
     len(catalog.techniques) and the two silently disagreed.
     """
-    catalog = load_catalog(Path(__file__).resolve().parents[1] / "data" / "technique-catalog.yaml")
+    catalog = load_catalog(
+        Path(__file__).resolve().parents[1] / "replicant" / "data" / "technique-catalog.yaml"
+    )
     hint = _key_hint(catalog)
     assert rf"\[1-{len(catalog.techniques)}] technique" in hint
     assert "[1-11]" not in hint
@@ -99,8 +101,8 @@ def test_vendor_label_falls_back_to_id() -> None:
 def test_pick_scenario_returns_selection(monkeypatch: pytest.MonkeyPatch) -> None:
     console = Console(quiet=True)
     root = Path(__file__).resolve().parents[1]
-    tech = load_catalog(root / "data" / "technique-catalog.yaml")
-    scen = load_scenario_catalog(root / "data" / "scenario-catalog.yaml", tech)
+    tech = load_catalog(root / "replicant" / "data" / "technique-catalog.yaml")
+    scen = load_scenario_catalog(root / "replicant" / "data" / "scenario-catalog.yaml", tech)
     monkeypatch.setattr("replicant.cli.menu.Prompt.ask", staticmethod(lambda *a, **k: "1"))
     chosen = _pick_scenario(console, scen)
     assert chosen.id == scen.scenarios[0].id

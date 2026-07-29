@@ -30,7 +30,9 @@ from replicant.core.models import load_catalog  # noqa: E402
 from replicant.web.server import create_app  # noqa: E402
 
 TOKEN = "test-token"
-CATALOG = load_catalog(Path(__file__).resolve().parents[1] / "data" / "technique-catalog.yaml")
+CATALOG = load_catalog(
+    Path(__file__).resolve().parents[1] / "replicant" / "data" / "technique-catalog.yaml"
+)
 HEADERS = {"x-replicant-token": TOKEN}
 
 

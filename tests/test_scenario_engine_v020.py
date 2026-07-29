@@ -36,7 +36,9 @@ from replicant.profiles.fortigate import FortiGateProfile
 from replicant.profiles.paloalto import PaloAltoProfile
 from replicant.scenario.engine import ScenarioEngine
 
-CATALOG = load_catalog(Path(__file__).resolve().parents[1] / "data" / "technique-catalog.yaml")
+CATALOG = load_catalog(
+    Path(__file__).resolve().parents[1] / "replicant" / "data" / "technique-catalog.yaml"
+)
 ENTITIES = EntityModel.build()
 
 NEW_TECHNIQUES = [

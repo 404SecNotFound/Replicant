@@ -23,7 +23,9 @@ from replicant.config.settings import Settings
 from replicant.core.models import RunRequest, load_catalog
 from replicant.core.orchestrator import Orchestrator
 
-CATALOG = load_catalog(Path(__file__).resolve().parents[1] / "data" / "technique-catalog.yaml")
+CATALOG = load_catalog(
+    Path(__file__).resolve().parents[1] / "replicant" / "data" / "technique-catalog.yaml"
+)
 
 
 def _orchestrator(tmp_path: Path) -> Orchestrator:

@@ -5,6 +5,8 @@ __pycache__/
 .eggs/
 build/
 dist/
+# Built frontend, now emitted inside the package so it ships in a wheel.
+replicant/webui_dist/
 
 # Virtual environments
 .venv/
