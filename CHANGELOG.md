@@ -4,7 +4,10 @@ All notable changes to Replicant are recorded here. Format follows [Keep a Chang
 
 Claims that have not been validated against a live vendor build or a real host are marked `[Unverified]`, and stay marked until they are.
 
-## [Unreleased]
+## [0.3.0] - 2026-07-29
+
+The web UI becomes something you can actually reach and navigate. No change to the
+technique catalog, which stays at 24 entries and its own version 0.2.0.
 
 ### Changed: the web UI is directly reachable
 
