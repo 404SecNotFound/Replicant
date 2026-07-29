@@ -461,11 +461,25 @@ Done:
   restriction, and the document exists to enable third parties to implement the
   format.
 
+How Replicant is actually used (recorded 2026-07-29, narrows the open item below):
+
+- **Own threat-detection lab only. Not used in customer delivery, and not used in
+  connection with an employer's name.** No output reaches a customer, no artifact
+  is produced for a client, and nothing is distributed commercially.
+
+That removes the half of the question that carried real weight. Earlier revisions
+of this section raised customer delivery as a distinct risk profile; it does not
+apply and should not be cited as though it does.
+
 Open:
 
-- Whether any of this changes if Replicant is published under, or used in
-  connection with, an employer's name. That is a question for counsel, not for
-  this document. It is the only item here that engineering work cannot close.
+- **Publishing the repository publicly** is still publishing, independently of how
+  the tool is used. The trademark and non-affiliation position in 3.1 exists for
+  the published artifact, not for lab use, which is why it was worth writing down
+  even though the usage is private. Nothing found in 3.1 through 3.4 argues
+  against a public release; the remaining question is simply whether the owner
+  wants a second opinion before making the repository public under their own name.
+  Engineering work cannot answer that one.
 
 Standing constraint, from 3.4: **never claim CEF certification, CEF compliance, or
 ArcSight validation.** Replicant emits CEF; it has not been through the OpenText
