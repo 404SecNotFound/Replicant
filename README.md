@@ -14,7 +14,7 @@ Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS
 
 <br />
 
-<img src="docs/images/webui-emitter.png" alt="Replicant web UI showing the technique catalog, the selected technique's detail panel, and its signal path diagram" width="900" />
+<img src="docs/images/webui-emitter.png" alt="Replicant web UI: the technique catalog grouped by ATT&CK tactic with a filter box and log-type toggles, beside the selected technique's detail panel and its signal path diagram" width="900" />
 
 <sub>Every technique carries its detection use case, the fields it holds constant, the fields it varies, and the shape of the signal a rule has to catch.</sub>
 
@@ -273,6 +273,8 @@ At 24 techniques the left rail is grouped by ATT&CK tactic, collapsible, with a 
 
 The **Docs** tab renders the reference material in `docs/` in the browser: the three vendor CEF references and the two catalog expansion research notes. Those files ship with the repository rather than the installed package, so the tab is populated from a git checkout or an editable install and says so plainly if they are absent.
 
+<img src="docs/images/webui-docs.png" alt="The Docs tab rendering the FortiGate CEF reference in the browser, with its heading structure, the CEF header format code block, and the field reference table" width="900" />
+
 The run form exposes the event-time anchor as a visible control, `now` or `fixed`, defaulting to `now` for a live send and `fixed` for file output, and warns before the run if a live send is about to go out with a fixed anchor. See [Event times, and when to override the anchor](#event-times-and-when-to-override-the-anchor) for why that matters.
 
 To run it as a service, `scripts/replicant-web.service` is a systemd unit template. Edit the user and the two paths at the top, then:
@@ -285,9 +287,9 @@ sudo systemctl enable --now replicant-web
 
 > **Keeping it loopback-only.** That is still the default: plain `replicant web` binds 127.0.0.1 and nothing else. To reach a loopback-only instance from your workstation, tunnel it rather than rebinding: `ssh -N -L 9787:127.0.0.1:9787 operator@sensor`.
 
-A run streams live CEF while it emits, with the delivered rate plotted against your events-per-second cap:
+A run streams live CEF while it emits, plots the delivered rate, and writes its manifest when it finishes. The rate here runs well above the 2000 eps cap shown because this run has no collector: the cap governs sending, so a dry run or a file-only run is not throttled.
 
-<img src="docs/images/webui-run.png" alt="A live run in the web UI: 2271 events per second against a 2000 cap, a waveform of the delivered rate, progress at 29900 of 108000 events, and streaming CEF output" width="900" />
+<img src="docs/images/webui-run.png" alt="A finished run in the web UI: the delivered-rate waveform, the full progress bar, the tail of streamed FortiGate CEF, and the run manifest showing event count, seed, intensity, target, transport, and anchor" width="900" />
 
 The Terminal tab, when enabled, runs the Rich menu inside the browser:
 

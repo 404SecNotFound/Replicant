@@ -64,6 +64,36 @@ Live runs against a real server, not the TestClient:
   by `mpe_studio.api`.** The refusal message named the port and `--port`, as designed.
   See the open question on the port default.
 
+## Follow-up after the merge (2026-07-29)
+
+- [x] **README brought up to what the UI does.** PR B shipped without touching it, so
+      the web section described a UI missing four features and the roadmap still
+      listed two of them as "Next". Also: test counts were 249 (actual 516) and the
+      frontend suite was not mentioned.
+- [x] **Installer updated.** The final summary now names the port, the remote-bind
+      command, the token file, the terminal default, and the systemd unit. The port
+      is read from `WEB_DEFAULT_PORT` in the installed package rather than repeated
+      in shell, so the two cannot drift.
+- [x] **Installer verifies the web server for real.** It previously proved only that
+      `webui/dist/index.html` had been written, which says nothing about whether the
+      server starts. It now boots `replicant web` on an ephemeral loopback port and
+      requires `/api/health` 200 **and** `/api/catalog` 401, so an install that
+      produced an unauthenticated server fails instead of passing. The server PID is
+      reaped by the existing EXIT trap, not a RETURN trap: every failure path calls
+      `die`, which exits, and exit does not fire RETURN.
+- [x] **Screenshots regenerated** and `scripts/capture-webui-screenshots.py` added.
+      The v0.2.0 regeneration was done ad hoc and not kept, so the method had to be
+      reinvented; it is written down now.
+
+### Backlog item found while doing this
+
+- The run readout prints `cap 2000` even when no cap is being applied. The eps cap
+  is only enforced when there is an emitter (`orchestrator.py:331-339`), so a
+  dry run or a file-only run is unthrottled and the readout can show a rate an
+  order of magnitude above the number next to it. The behaviour is correct; the
+  label is what misleads. Worth either hiding the cap or marking it "not applied"
+  when the run has no collector.
+
 ## PR B - navigation (spec items 7-11), stacked on A
 
 - [x] B1. **Group by ATT&CK tactic.** DONE. Logic in `webui/src/lib/catalogView.ts` so
