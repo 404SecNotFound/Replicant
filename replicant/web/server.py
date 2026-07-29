@@ -65,6 +65,7 @@ from replicant.config.settings import (
     load_or_create_web_token,
     parse_anchor,
     stale_anchor_warning,
+    web_token_path,
 )
 from replicant.core.models import Catalog, CollectorProfile, Intensity, RunRequest, Transport
 from replicant.core.orchestrator import Orchestrator, effective_identity
@@ -733,19 +734,32 @@ def startup_lines(
     token: str | None,
     token_state: str,
     terminal: bool,
+    reveal_token: bool = True,
+    token_path: str | None = None,
 ) -> list[str]:
-    """The startup banner: URL, then token state, then terminal state."""
+    """The startup banner: URL, then token state, then terminal state.
+
+    ``reveal_token`` is False when stdout is not a terminal, which under systemd
+    means the journal. Printing the token there writes it in cleartext to a file
+    readable by root and the systemd-journal group, giving away precisely what the
+    0600 token file protects. In that case the banner names the file instead, and
+    drops the Ctrl-C hint, since nobody is at a keyboard.
+    """
     wildcard = _normalize_host(host) in _WILDCARD_BINDS
-    url = display_url(host, port, token)
+    url = display_url(host, port, token if reveal_token else None)
     bind = f"{host}:{port}" + (" (all interfaces)" if wildcard else "")
+    token_line = token_state
+    if token and not reveal_token:
+        token_line = f"{token_state}, read it from {token_path or web_token_path()}"
     lines = [
         "Replicant web UI",
         f"  URL      : {url}",
         f"  bind     : {bind}",
-        f"  token    : {token_state}",
+        f"  token    : {token_line}",
         f"  terminal : {'enabled' if terminal else 'disabled (--enable-terminal to allow)'}",
-        "  stop     : Ctrl-C",
     ]
+    if reveal_token:
+        lines.append("  stop     : Ctrl-C")
     if wildcard:
         lines.insert(
             2, f"  remote   : http://<this host's address>:{port}/ from the rest of the segment"
@@ -783,12 +797,17 @@ def serve(
     sock = bind_socket(host, port)
     bound_port = int(sock.getsockname()[1])
 
+    # A non-tty stdout means something is capturing this: under systemd, the
+    # journal. The token must not go there.
+    reveal = sys.stdout.isatty()
     for line in startup_lines(
         host,
         bound_port,
         token=token or None,
         token_state=token_state,
         terminal=policy.terminal_enabled,
+        reveal_token=reveal,
+        token_path=str(web_token_path()),
     ):
         print(line, flush=True)
 
