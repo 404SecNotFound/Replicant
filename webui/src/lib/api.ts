@@ -12,10 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// API client. The per-session token arrives in the page URL (?token=...) from the
-// `replicant web` launcher and is attached to every request.
+// API client. The token arrives in the page URL (?token=...) from the `replicant
+// web` launcher and is attached to every request.
+//
+// It is read once, at module load, and then stripped from the address bar by
+// main.tsx. The server sets an httpOnly session cookie on that first load, so a
+// later reload still authenticates even though the URL no longer carries the
+// token: TOKEN is "" then, the header goes out empty, and the cookie carries the
+// request instead.
 
 export const TOKEN = new URLSearchParams(window.location.search).get("token") || "";
+
+/** Return `href` without its `token` parameter, or null if it had none. */
+export function urlWithoutToken(href: string): string | null {
+  const url = new URL(href);
+  if (!url.searchParams.has("token")) return null;
+  url.searchParams.delete("token");
+  return url.toString();
+}
 
 export interface Technique {
   id: string;
@@ -54,6 +68,7 @@ export interface ConfigResponse {
   accepted_as: string;
   vendor: string;
   vendors: string[];
+  terminal_enabled: boolean;
 }
 
 export const VENDOR_LABELS: Record<string, string> = {

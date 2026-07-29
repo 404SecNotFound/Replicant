@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { urlWithoutToken } from "./api";
 
 import { VENDOR_LABELS, getRunStatus, startRun, stopRun, vendorLabel } from "./api";
 
@@ -92,5 +93,29 @@ describe("api client", () => {
   it("falls back to a status-coded message when the error body has no detail", async () => {
     vi.stubGlobal("fetch", mockFetch(500, {}));
     await expect(stopRun("r1")).rejects.toThrow(/request failed: 500/);
+  });
+});
+
+describe("urlWithoutToken", () => {
+  it("removes the token so it stops sitting in the address bar", () => {
+    // The token is now persistent, so a URL left in history, a screen share, or a
+    // shoulder-surf leaks a credential that survives restarts.
+    expect(urlWithoutToken("http://10.20.0.50:9787/?token=abc123")).toBe("http://10.20.0.50:9787/");
+  });
+
+  it("keeps every other query parameter", () => {
+    expect(urlWithoutToken("http://localhost:9787/?token=abc&tab=docs")).toBe(
+      "http://localhost:9787/?tab=docs",
+    );
+  });
+
+  it("returns null when there is nothing to strip", () => {
+    expect(urlWithoutToken("http://localhost:9787/")).toBeNull();
+  });
+
+  it("preserves the hash fragment", () => {
+    expect(urlWithoutToken("http://localhost:9787/?token=abc#REP-004")).toBe(
+      "http://localhost:9787/#REP-004",
+    );
   });
 });

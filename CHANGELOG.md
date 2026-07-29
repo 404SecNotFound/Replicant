@@ -4,6 +4,78 @@ All notable changes to Replicant are recorded here. Format follows [Keep a Chang
 
 Claims that have not been validated against a live vendor build or a real host are marked `[Unverified]`, and stay marked until they are.
 
+## [Unreleased]
+
+### Changed: the web UI is directly reachable
+
+`replicant web` bound a **random** loopback port, minted a **per-session** token
+into the URL, and rejected any `Host` that was not localhost. The URL changed on
+every restart and reaching it from another machine meant an SSH tunnel. Driven by
+`tasks/webui-access-and-nav-spec.md`.
+
+- **Fixed port.** `--port`, defaulting to **9787**. A busy port is now an error
+  naming the port and the flag, not a reason to silently pick another: a fixed port
+  is only useful if it is actually fixed. 8787 was the first candidate and was
+  dropped after it turned out to be occupied on the author's own machine, which is
+  exactly the collision a fixed port has to avoid. [Unverified] against the IANA
+  registry.
+- **Non-loopback binds are supported.** `--host` accepts any local address or
+  `0.0.0.0`. This deliberately relaxes the enforcement added in 0.1.0 (below).
+- **The Host allowlist follows the bind address**, plus loopback, plus repeatable
+  `--allowed-host`. On a wildcard bind any IP *literal* Host is accepted, because
+  DNS rebinding needs a hostname whose resolution the attacker controls; hostnames
+  still have to be named.
+- **The token persists** to `~/.config/replicant/web-token`, created `0600` in a
+  `0700` directory, so a bookmark and a systemd unit keep working across restarts.
+  `--rotate-token` mints a new one. A blank or unreadable file is treated as absent
+  rather than as a valid empty token.
+- **The token is accepted four ways**: `Authorization: Bearer`, the existing
+  `X-Replicant-Token`, a query parameter, and an httpOnly `SameSite=Strict` session
+  cookie set on the first authenticated load. The frontend then strips the token
+  from the address bar.
+- **`--no-auth`**, with a loud warning, refused outright on a non-loopback bind
+  unless `--i-understand-this-is-unauthenticated` is also passed.
+- **The terminal tab is off by default on a non-loopback bind**, restored with
+  `--enable-terminal`, and reported to the frontend so the tab is hidden rather
+  than offered and broken.
+- **`scripts/replicant-web.service`**, a systemd unit template. [Unverified]: not
+  yet started by a real systemd. Verify with
+  `systemd-analyze verify scripts/replicant-web.service` on a Linux host.
+
+### Security: what replaces the loopback bind
+
+0.1.0 refused a non-loopback bind because the token was per-session, there was no
+origin check, and the transport is plain HTTP. That refusal is now gone, so:
+
+- **A cookie is an ambient credential and the previous ones were not.** A browser
+  attaches it to a cross-site request on its own, which a header or query token
+  never was. A state-changing request authenticated *by the cookie* must therefore
+  carry an `Origin` the Host allowlist accepts; a missing `Origin` is refused.
+  Requests authenticated by a header or query parameter are exempt, because nothing
+  spends those on a user's behalf.
+- **The terminal websocket now performs its own Host, Origin, token, and
+  enabled checks.** Websocket scopes never traverse HTTP middleware, so the guard
+  protecting every `/api` route did not protect `/ws/terminal`. That was invisible
+  while the bind was loopback-only. Recorded at
+  `docs/end-to-end-debug-audit-2026-07-21.md:296-298`; now closed.
+- **Still plain HTTP.** The token and the traffic are readable on the wire. Put the
+  UI on a management segment or behind a TLS-terminating proxy named with
+  `--allowed-host`.
+
+### Fixed
+
+- No `webbrowser.open` attempt when there is no display, which printed a `gio`
+  "Operation not supported" error over the startup banner on every headless start.
+
+### Docs
+
+- The README safety-model table said the web server "binds to loopback only" and
+  "requires a per-session token". Both were true and are not any more; rewritten to
+  the controls that now exist.
+- `CLAUDE.md`, `AGENTS.md`, and this file each claimed a test asserts the web UI's
+  scenario surface is absent. **There is no such test.** The artifact is a manual
+  UAT row (`tasks/uat-plan.md`, CHAIN-16). Corrected in all three.
+
 ## [0.2.0] - 2026-07-26
 
 Catalog expansion: 11 techniques to 24. Every new entry is anchored to a
@@ -328,7 +400,7 @@ Each run writes an advisory document beside its manifest, mapping the chain to A
 - **Installer coverage.** Verified against live package repositories on Debian 12, Rocky 9, and Ubuntu 22.04 (where the correct behavior is a refusal). `[Unverified]` on AlmaLinux, on RHEL proper as distinct from Rocky, and on Arch and openSUSE, whose package mappings are carried over unexercised. The `sudo` elevation path, the interactive consent prompt, and the no-TTY refusal are also `[Unverified]`, because the container runs that validated everything else execute as root.
 - **Ubuntu 22.04, Debian 11, and RHEL-family 8** ship Python below 3.11 and cannot be satisfied from their own repositories. The installer refuses on these with guidance rather than installing packages that would not help. Ubuntu 22.04 offers `python3.11` only as a release candidate (`3.11.0~rc1`), which the installer deliberately declines.
 - **The events-per-second cap is a fixed-window cap,** not an instantaneous one. It counts to the cap, sleeps the remainder of the wall second, then resets, so events cluster at the head of each window. A sliding one-second window straddling a boundary was measured once at 59 against a cap of 50; the overall delivered rate held at 49.94/s. Treat the guarantee as a fixed-window average.
-- **The web UI has no scenario surface.** Scenario composition is CLI and Rich menu only. Deferred by design, and covered by a test that asserts the absence so a later partial implementation is caught.
+- **The web UI has no scenario surface.** Scenario composition is CLI and Rich menu only. Deferred by design. The deferral is checked by a manual UAT row (`tasks/uat-plan.md`, CHAIN-16), not by an automated test. Earlier revisions of this file described it as a test; that was wrong.
 - **Signature IDs** for DNS `dns-query` (54803) and SSL-VPN tunnel-up (39947) are `[Unverified]` against a live FortiOS build and carry inline notes saying so. Confirm before customer use.
 - **The built wheel is not yet self-contained.** The technique and scenario catalogs live in the repo-root `data/` directory, which the supported install (a git clone plus an editable install) resolves correctly and CI verifies in real containers. A plain `pip install` of the wheel would not bundle them. Relocating the catalogs into the package so the wheel stands alone is deferred to 0.1.1, since the shipping path does not use the wheel.
 

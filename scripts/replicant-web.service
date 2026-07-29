@@ -1,0 +1,58 @@
+# Replicant web UI as a systemd service.
+#
+# Template. Edit User, Group, WorkingDirectory, and the two paths below, then:
+#
+#   sudo cp scripts/replicant-web.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now replicant-web
+#   systemctl status replicant-web
+#
+# The token persists across restarts, so the URL stays valid. Print it with:
+#
+#   sudo cat /opt/replicant/.config/replicant/web-token
+#
+# Rotate it by deleting that file and restarting the unit, or by running
+# `replicant web --rotate-token` once with the same REPLICANT_CONFIG_DIR.
+#
+# Replicant emits synthetic telemetry to the collector an operator configures. It
+# needs no privileges beyond writing manifests, so do not run it as root.
+
+[Unit]
+Description=Replicant synthetic firewall telemetry web UI
+Documentation=https://github.com/404SecNotFound/Replicant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=replicant
+Group=replicant
+
+# The repository checkout. Replicant loads its technique catalog and the built
+# frontend by repository-relative path, so this must be the checkout root and the
+# install must be editable (`pip install -e ".[web]"`).
+WorkingDirectory=/opt/replicant
+
+# Keep config beside the checkout rather than in the service user's home, so
+# ProtectHome below can stay on. Replicant creates this directory 0700 and the
+# token file inside it 0600 on first start.
+Environment=REPLICANT_CONFIG_DIR=/opt/replicant/.config/replicant
+
+# Bind to the address this host should answer on. 0.0.0.0 serves every interface.
+# The embedded terminal tab is off by default on a non-loopback bind; add
+# --enable-terminal only if you want a browser-reachable PTY on this segment.
+ExecStart=/opt/replicant/.venv/bin/replicant web --host 0.0.0.0 --port 9787 --no-browser
+
+Restart=on-failure
+RestartSec=5s
+
+# Serves plain HTTP with a bearer token. Keep it on a management segment, or put a
+# TLS-terminating reverse proxy in front and add its name with --allowed-host.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/replicant
+
+[Install]
+WantedBy=multi-user.target

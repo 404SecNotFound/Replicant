@@ -15,7 +15,15 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { urlWithoutToken } from "@/lib/api";
 import "./index.css";
+
+// Drop the token from the address bar once the page has it. Order matters and is
+// guaranteed: imports are evaluated before this body runs, so api.ts has already
+// captured TOKEN, and the server has already set the session cookie on the
+// document response that delivered this script.
+const cleaned = urlWithoutToken(window.location.href);
+if (cleaned) window.history.replaceState(null, "", cleaned);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

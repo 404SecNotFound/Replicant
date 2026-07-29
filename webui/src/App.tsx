@@ -122,7 +122,9 @@ export default function App() {
         </div>
         <nav className="flex gap-6">
           {navItem("emitter", "Emitter")}
-          {navItem("terminal", "Terminal")}
+          {/* The server refuses the terminal websocket on a non-loopback bind, so
+              showing the tab there would offer a control that can only fail. */}
+          {config.terminal_enabled && navItem("terminal", "Terminal")}
         </nav>
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-2 font-mono text-[11.5px] text-text-3">

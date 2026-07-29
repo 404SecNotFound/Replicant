@@ -329,19 +329,26 @@ def test_start_run_rejects_unknown_intensity(client: TestClient) -> None:
     assert resp.status_code == 422
 
 
-@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost", "127.5.5.5"])
-def test_serve_accepts_loopback_hosts(host: str) -> None:
-    from replicant.web.server import _require_loopback
+# A non-loopback bind used to be refused outright by `_require_loopback`. That
+# refusal is gone on purpose (tasks/webui-access-and-nav-spec.md): remote hosting is
+# now supported, and the compensating controls live in tests/test_web_access.py.
+# `is_loopback` survives as the predicate those controls key off, so it still has to
+# classify correctly - it now decides whether the terminal tab defaults on and
+# whether `--no-auth` needs an acknowledgement, rather than whether the server starts.
 
-    _require_loopback(host)  # must not raise
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost", "127.5.5.5"])
+def test_loopback_addresses_are_recognised(host: str) -> None:
+    from replicant.web.server import is_loopback
+
+    assert is_loopback(host)
 
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.168.1.5", "10.20.0.50", "example.com"])
-def test_serve_rejects_non_loopback_hosts(host: str) -> None:
-    from replicant.web.server import _require_loopback
+def test_routable_and_wildcard_addresses_are_not_loopback(host: str) -> None:
+    from replicant.web.server import is_loopback
 
-    with pytest.raises(ValueError):
-        _require_loopback(host)
+    assert not is_loopback(host)
 
 
 def test_start_run_while_one_active_returns_409(client: TestClient, monkeypatch) -> None:

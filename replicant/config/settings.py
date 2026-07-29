@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -43,6 +44,15 @@ VENDORS: tuple[str, ...] = ("fortigate", "paloalto", "checkpoint")
 # How far the anchor may drift from now before a live send is worth warning about.
 STALE_ANCHOR_DAYS = 2
 _DAY = 86400
+
+# The web UI's fixed default port. Fixed rather than random so the URL an operator
+# bookmarks, puts in a systemd unit, or opens a firewall for stays valid across
+# restarts. 8787 was the first candidate and was rejected on evidence: RStudio
+# Server defaults to it, and it was already held on the author's own machine by an
+# unrelated local tool, which is precisely the failure a fixed port exists to avoid.
+# [Unverified] against the IANA registry. Override with ``replicant web --port``.
+WEB_DEFAULT_PORT = 9787
+_WEB_TOKEN_BYTES = 32
 
 
 def parse_anchor(value: str) -> int:
@@ -136,6 +146,58 @@ def settings_path() -> Path:
 
 def profiles_path() -> Path:
     return config_dir() / "profiles.yaml"
+
+
+def web_token_path() -> Path:
+    return config_dir() / "web-token"
+
+
+def _write_secret(path: Path, value: str) -> None:
+    """Write a secret so only its owner can read it.
+
+    This is the first value Replicant stores that is worth stealing, so it does not
+    reuse the plain ``write_text`` that ``save_settings`` and ``save_profile`` use.
+    Two details matter and neither is the default:
+
+    - ``mkdir(mode=...)`` is ignored when the directory already exists, and the
+      process umask masks it when it does not, so the directory mode is set
+      explicitly afterwards.
+    - The mode argument to ``os.open`` applies only when the file is *created*. An
+      existing file keeps whatever mode it had, which is exactly the case that
+      matters on rotation, so the mode is set explicitly there too.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    descriptor = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(value + "\n")
+    os.chmod(path, 0o600)
+
+
+def load_or_create_web_token(*, rotate: bool = False) -> tuple[str, str]:
+    """Return ``(token, state)`` for the web UI, minting one if needed.
+
+    ``state`` is ``persisted``, ``created``, or ``rotated``, which is what the
+    startup banner reports. A per-session token meant the URL changed on every
+    restart; persisting it is what lets a bookmark and a systemd unit keep working.
+
+    An unreadable or blank file is treated as absent rather than as a valid token.
+    An interrupted write would otherwise leave the empty string as the shared
+    secret, and ``compare_digest("", "")`` is true.
+    """
+
+    path = web_token_path()
+    if not rotate:
+        try:
+            existing = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            existing = ""
+        if existing:
+            return existing, "persisted"
+    token = secrets.token_urlsafe(_WEB_TOKEN_BYTES)
+    _write_secret(path, token)
+    return token, "rotated" if rotate else "created"
 
 
 def load_settings(path: str | Path | None = None) -> Settings:

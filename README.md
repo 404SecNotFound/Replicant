@@ -251,13 +251,33 @@ All three call the same Orchestrator. Anything the menu can do, `replicant run` 
 
 ### Web UI with an embedded terminal
 
-`replicant web` serves a browser interface on a random loopback port.
+`replicant web` serves a browser interface on port 9787.
 
 ```bash
 pip install -e ".[web]"
 (cd webui && npm install && npm run build)
-replicant web        # prints http://127.0.0.1:<port>/?token=...
+replicant web        # http://127.0.0.1:9787/
 ```
+
+To reach it from another machine on the segment, bind an address that machine can route to and open `http://<this-host>:9787/`:
+
+```bash
+replicant web --host 0.0.0.0 --no-browser
+```
+
+The access token is printed on startup, persists in `~/.config/replicant/web-token` so the URL survives a restart, and is exchanged for an httpOnly `SameSite=Strict` session cookie on first load, so it does not stay in the address bar. Rotate it with `--rotate-token`. Add a hostname the UI should answer to with `--allowed-host`, repeatable.
+
+The Terminal tab is a real pseudo-terminal, so it is **off by default** whenever the bind address is not loopback. `--enable-terminal` turns it back on. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
+
+To run it as a service, `scripts/replicant-web.service` is a systemd unit template. Edit the user and the two paths at the top, then:
+
+```bash
+sudo cp scripts/replicant-web.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now replicant-web
+```
+
+> **Keeping it loopback-only.** That is still the default: plain `replicant web` binds 127.0.0.1 and nothing else. To reach a loopback-only instance from your workstation, tunnel it rather than rebinding: `ssh -N -L 9787:127.0.0.1:9787 operator@sensor`.
 
 A run streams live CEF while it emits, with the delivered rate plotted against your events-per-second cap:
 
@@ -281,7 +301,9 @@ Safety is a design constraint, not a disclaimer. The guarantees below are enforc
 | Rate limits | A configurable events-per-second cap protects the operator's own collector. It is a fixed-window average, not an instantaneous ceiling: sends run at full speed until a one-second window fills, then pause, so a sliding second straddling a boundary can briefly exceed the cap. |
 | Audit trail | Every run writes a manifest recording seed, technique, parameters, entity pools, target, event count, and start and end times in UTC+04:00. |
 
-The web server adds its own controls: it binds to loopback only, requires a per-session token on every API and websocket call, and rejects requests whose Host header is not localhost.
+The web server adds its own controls. It binds to loopback by default, and requires a token on every API and websocket call, accepted as an `Authorization: Bearer` header, an `X-Replicant-Token` header, a query parameter, or an httpOnly `SameSite=Strict` session cookie. It rejects any request whose `Host` is neither the bind address, nor loopback, nor a name passed to `--allowed-host`. Because the cookie is the one credential a browser attaches on its own, a state-changing request authenticated by the cookie must also carry a matching `Origin`; the websocket repeats those checks itself, since websocket scopes do not traverse HTTP middleware.
+
+Binding to a routable address is supported and turns the embedded terminal tab off by default. `--no-auth` is refused outright on a non-loopback bind unless `--i-understand-this-is-unauthenticated` is also passed. The server speaks plain HTTP, so the token and the traffic are readable on the wire: put it on a management segment, or behind a TLS-terminating proxy named with `--allowed-host`.
 
 ## Determinism and testing
 
