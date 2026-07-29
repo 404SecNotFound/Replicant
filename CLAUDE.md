@@ -77,7 +77,16 @@ Output convention: command results go to stdout, operator-facing errors go to st
   1. `benign_baseline` is a property to **generate**, not just document. A plan that emits only the malicious pattern lets any detection score perfectly. Bilot et al. (USENIX Sec 2025) is the argument; see the CHANGELOG.
   2. A technique that cannot be expressed honestly is not added. REP-016 was catalogued but left unbuildable until `dns:dns-response` existed, because a DGA entry with no NXDOMAIN in it is worse than no entry.
 
-Next up, not started: group the catalog by MITRE tactic in the web UI left rail, then a Docs tab. At 24 entries the tactic grouping is close to a prerequisite for the menu staying usable, not a cosmetic improvement. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
+- v0.3.0 (web UI access and navigation, complete): the UI serves on fixed port **9787** and can bind an address the rest of the segment reaches, with a persistent token in `~/.config/replicant/web-token`, an httpOnly `SameSite=Strict` session cookie, a Host allowlist that follows the bind address, and the embedded terminal off by default once the bind is not loopback. The left rail is grouped by ATT&CK tactic with a filter box and log-type toggles, a Docs tab renders the vendor CEF references, and the event-time anchor is a visible control in the run form. `scripts/replicant-web.service` is verified under a real systemd by a CI job (`systemd-unit`), not by inspection. Spec and decisions: `tasks/webui-access-and-nav-spec.md`.
+
+  Three things this established, worth keeping:
+  1. **A control whose output cannot change is decoration.** The spec's vendor filter was dropped because all 24 techniques apply to all 3 vendors, so it could never exclude an entry. Same call as REP-016.
+  2. **Run it in the environment it ships for.** The web token was being written to the systemd journal, which a review, the test suite and `systemd-analyze verify` were all silent about. A real systemd start found it in seconds.
+  3. **Most defects here were labels, not logic**: a README describing a UI that had moved on, an installer check asserting a file existed rather than that the server ran, `cap 2000` beside an unthrottled rate. Each locally true and contextually false, which is the class tests catch worst.
+
+Next up, not started: light theme and responsive layout for the web UI, and a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
+
+Vendor licensing position (trademarks, the `[Constructed]` golden lines, the field-mapping tables, the CEF spec's terms) is settled in `docs/prior-art-and-licensing.md` section 3. **Standing constraint: never claim CEF certification, CEF compliance, or ArcSight validation.**
 
 ## Definition of done for any change
 
