@@ -13,4 +13,4 @@
 # limitations under the License.
 """Replicant: safe synthetic FortiGate CEF telemetry for detection engineering."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
