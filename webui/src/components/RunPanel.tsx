@@ -75,6 +75,10 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   const [count, setCount] = useState(0);
   const [total, setTotal] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
+  // Whether the run in flight is actually being throttled. Frozen when the run
+  // starts rather than read live from the form, so toggling the destination
+  // mid-run cannot relabel a run that is already emitting.
+  const [runSending, setRunSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [eps, setEps] = useState(0);
   const [samples, setSamples] = useState<number[]>([]);
@@ -102,12 +106,16 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
     if (collector === null) setSendToCollector(false);
   }, [collector]);
 
+  // Whether a run started right now would go to a collector. Drives both the
+  // anchor default and whether the eps cap is in force.
+  const sending = sendToCollector && collector !== null;
+
   // Follow the destination. Changing where the events go changes which anchor is
   // correct, so the control resets to the right default for the new destination
   // rather than silently carrying the previous choice into a run where it is wrong.
   useEffect(() => {
-    setAnchor(defaultAnchor(sendToCollector && collector !== null));
-  }, [sendToCollector, collector]);
+    setAnchor(defaultAnchor(sending));
+  }, [sending]);
 
   useEffect(() => {
     if (!running) return;
@@ -162,6 +170,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   async function handleStart() {
     if (!technique) return;
     reset();
+    setRunSending(sending);
     const body = {
       technique_id: technique.id,
       intensity,
@@ -331,12 +340,12 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           No collector configured. Sends fail closed. Connect one, or write to file.
         </p>
       )}
-      {anchorNotice(anchor, sendToCollector && collector !== null, anchorEpoch) && (
+      {anchorNotice(anchor, sending, anchorEpoch) && (
         <div
           role="status"
           className="mt-2.5 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-[12px] leading-relaxed text-signal"
         >
-          {anchorNotice(anchor, sendToCollector && collector !== null, anchorEpoch)}
+          {anchorNotice(anchor, sending, anchorEpoch)}
         </div>
       )}
       {toFile && (
@@ -376,6 +385,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       <SignalReadout
         eps={eps}
         cap={epsCap}
+        capApplies={running ? runSending : sending}
         samples={samples}
         windowSeconds={Math.round((SAMPLE_WINDOW * SAMPLE_MS) / 1000)}
         pct={pct}

@@ -290,9 +290,9 @@ The banner prints the token only when it is attached to a terminal. Under system
 
 > **Keeping it loopback-only.** That is still the default: plain `replicant web` binds 127.0.0.1 and nothing else. To reach a loopback-only instance from your workstation, tunnel it rather than rebinding: `ssh -N -L 9787:127.0.0.1:9787 operator@sensor`.
 
-A run streams live CEF while it emits, plots the delivered rate, and writes its manifest when it finishes. The rate here runs well above the 2000 eps cap shown because this run has no collector: the cap governs sending, so a dry run or a file-only run is not throttled.
+A run streams live CEF while it emits, plots the delivered rate, and writes its manifest when it finishes. The readout says `uncapped` here because this run has no collector: the events-per-second cap governs sending, so a dry run or a file-only run is not throttled and the rate goes as fast as the machine allows. Point the same run at a collector and the readout shows `cap 2000` instead.
 
-<img src="docs/images/webui-run.png" alt="A finished run in the web UI: the delivered-rate waveform, the full progress bar, the tail of streamed FortiGate CEF, and the run manifest showing event count, seed, intensity, target, transport, and anchor" width="900" />
+<img src="docs/images/webui-run.png" alt="A finished run in the web UI: the delivered-rate waveform labelled uncapped, the full progress bar, the tail of streamed FortiGate CEF, and the run manifest showing event count, seed, intensity, target, transport, and anchor" width="900" />
 
 The Terminal tab, when enabled, runs the Rich menu inside the browser:
 

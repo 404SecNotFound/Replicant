@@ -103,12 +103,13 @@ Live runs against a real server, not the TestClient:
 
 ### Backlog item found while doing this
 
-- The run readout prints `cap 2000` even when no cap is being applied. The eps cap
-  is only enforced when there is an emitter (`orchestrator.py:331-339`), so a
-  dry run or a file-only run is unthrottled and the readout can show a rate an
-  order of magnitude above the number next to it. The behaviour is correct; the
-  label is what misleads. Worth either hiding the cap or marking it "not applied"
-  when the run has no collector.
+- [x] **The run readout claimed a cap that was not applied.** DONE. The eps cap is
+      only enforced when there is an emitter (`orchestrator.py:331-339`), so a dry
+      run or a file-only run is unthrottled and the readout showed a rate an order of
+      magnitude above the number beside it. Now `uncapped` with an explanatory
+      tooltip when there is no collector, `cap N` when there is. Frozen at run start
+      so toggling the destination mid-run cannot relabel a live run. 4 vitest tests;
+      both states checked in the running UI, not just jsdom.
 
 ## PR B - navigation (spec items 7-11), stacked on A
 

@@ -20,6 +20,7 @@ import { SignalReadout } from "./SignalReadout";
 const base = {
   eps: 120,
   cap: 2000,
+  capApplies: true,
   samples: [] as number[],
   pct: 0,
   running: false,
@@ -28,6 +29,41 @@ const base = {
   elapsedLabel: "0s",
   windowSeconds: 11,
 };
+
+describe("SignalReadout cap label", () => {
+  // The eps cap is only enforced when there is an emitter to throttle
+  // (orchestrator.py, the send loop). A dry run or a file-only run is not
+  // throttled at all, so the readout was printing "cap 2000" beside a measured
+  // rate an order of magnitude above it. The number was right and the label was
+  // a lie, which is worse than showing nothing: it invites the reader to
+  // conclude the cap is broken.
+  it("shows the cap when the run is sending to a collector", () => {
+    render(<SignalReadout {...base} cap={50} capApplies />);
+
+    expect(screen.getByText(/cap 50/)).toBeInTheDocument();
+    expect(screen.queryByText(/uncapped/i)).not.toBeInTheDocument();
+  });
+
+  it("says uncapped, not 'cap N', when nothing is being sent", () => {
+    render(<SignalReadout {...base} cap={2000} capApplies={false} />);
+
+    expect(screen.getByText(/uncapped/i)).toBeInTheDocument();
+    expect(screen.queryByText(/cap 2000/)).not.toBeInTheDocument();
+  });
+
+  it("still reports the sample window when uncapped", () => {
+    render(<SignalReadout {...base} capApplies={false} windowSeconds={11} />);
+
+    expect(screen.getByText(/window 11s/)).toBeInTheDocument();
+  });
+
+  it("explains why it is uncapped rather than leaving the reader guessing", () => {
+    const { container } = render(<SignalReadout {...base} capApplies={false} />);
+    const label = container.querySelector("[title]");
+
+    expect(label?.getAttribute("title") ?? "").toMatch(/collector|sending/i);
+  });
+});
 
 describe("SignalReadout", () => {
   // Regression guard for DEF-002. This component once hardcoded 2000 as the cap
