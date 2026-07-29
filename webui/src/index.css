@@ -113,6 +113,111 @@
   border-radius: 4px;
 }
 
+/* Rendered markdown in the Docs tab. The base layer resets margins and list
+   styles for the app chrome, so document flow has to be restored here. The CEF
+   reference tables are the reason this tab exists, hence the explicit table
+   rules and the horizontal scroll container: a wide table must scroll inside
+   itself rather than push the page sideways. */
+.doc-prose {
+  color: hsl(var(--foreground));
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+.doc-prose h1,
+.doc-prose h2,
+.doc-prose h3,
+.doc-prose h4 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.6em 0 0.6em;
+}
+.doc-prose h1 {
+  font-size: 1.5rem;
+  margin-top: 0;
+}
+.doc-prose h2 {
+  font-size: 1.15rem;
+  border-bottom: 1px solid hsl(var(--border));
+  padding-bottom: 0.3em;
+}
+.doc-prose h3 {
+  font-size: 1rem;
+}
+.doc-prose p,
+.doc-prose blockquote {
+  margin: 0.85em 0;
+}
+.doc-prose ul,
+.doc-prose ol {
+  margin: 0.85em 0;
+  padding-left: 1.4em;
+}
+.doc-prose ul {
+  list-style: disc;
+}
+.doc-prose ol {
+  list-style: decimal;
+}
+.doc-prose li {
+  margin: 0.25em 0;
+}
+.doc-prose a {
+  color: hsl(var(--signal));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.doc-prose code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.88em;
+  background: hsl(var(--secondary));
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+}
+.doc-prose pre {
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  padding: 0.85em 1em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+.doc-prose pre code {
+  background: none;
+  padding: 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+.doc-prose blockquote {
+  border-left: 2px solid hsl(var(--border));
+  padding-left: 1em;
+  color: hsl(var(--text-3));
+}
+.doc-prose table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 12px;
+}
+.doc-prose th,
+.doc-prose td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.4em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+.doc-prose th {
+  background: hsl(var(--secondary));
+  font-weight: 600;
+}
+.doc-prose hr {
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+  margin: 2em 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

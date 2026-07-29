@@ -122,6 +122,26 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export const getCatalog = () => api<CatalogResponse>("/api/catalog");
 export const getConfig = () => api<ConfigResponse>("/api/config");
 
+export interface DocPage {
+  id: string;
+  title: string;
+  available: boolean;
+}
+
+export interface DocsIndex {
+  available: boolean;
+  pages: DocPage[];
+}
+
+export interface DocContent {
+  id: string;
+  title: string;
+  markdown: string;
+}
+
+export const getDocs = () => api<DocsIndex>("/api/docs");
+export const getDoc = (id: string) => api<DocContent>(`/api/docs/${encodeURIComponent(id)}`);
+
 export interface TechniqueSample {
   technique_id: string;
   vendor: string;
@@ -164,6 +184,7 @@ export interface RunBody {
   no_send: boolean;
   collector?: Collector | null;
   vendor?: string | null;
+  anchor?: string | null;
 }
 
 export const startRun = (body: RunBody) =>

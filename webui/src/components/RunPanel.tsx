@@ -27,6 +27,7 @@ import { SignalReadout } from "@/components/SignalReadout";
 import { cn } from "@/lib/utils";
 import { startRun, stopRun, getRunStatus, runEventsUrl, type Collector, type Manifest, type Technique } from "@/lib/api";
 import { pollRunUntilTerminal } from "@/lib/runLifecycle";
+import { anchorNotice, defaultAnchor, type AnchorChoice } from "@/lib/anchor";
 
 interface Props {
   technique: Technique | null;
@@ -34,6 +35,7 @@ interface Props {
   collector: Collector | null;
   vendor: string;
   epsCap: number;
+  anchorEpoch: number;
 }
 
 const MAX_VISIBLE = 800;
@@ -60,13 +62,14 @@ function fmtDur(sec: number): string {
   return m > 0 ? `${m}m ${String(s % 60).padStart(2, "0")}s` : `${s}s`;
 }
 
-export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: Props) {
+export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, anchorEpoch }: Props) {
   const [intensity, setIntensity] = useState("medium");
   const [duration, setDuration] = useState("");
   const [seed, setSeed] = useState(String(defaultSeed));
   const [sendToCollector, setSendToCollector] = useState(false);
   const [toFile, setToFile] = useState(false);
   const [filePath, setFilePath] = useState("./out/replicant.log");
+  const [anchor, setAnchor] = useState<AnchorChoice>(defaultAnchor(false));
 
   const [running, setRunning] = useState(false);
   const [count, setCount] = useState(0);
@@ -98,6 +101,13 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
   useEffect(() => {
     if (collector === null) setSendToCollector(false);
   }, [collector]);
+
+  // Follow the destination. Changing where the events go changes which anchor is
+  // correct, so the control resets to the right default for the new destination
+  // rather than silently carrying the previous choice into a run where it is wrong.
+  useEffect(() => {
+    setAnchor(defaultAnchor(sendToCollector && collector !== null));
+  }, [sendToCollector, collector]);
 
   useEffect(() => {
     if (!running) return;
@@ -161,6 +171,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
       no_send: !(sendToCollector && collector),
       collector: sendToCollector ? collector : null,
       vendor,
+      anchor,
     };
     try {
       const { run_id, total: est } = await startRun(body);
@@ -249,7 +260,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
       <div className="u-label mb-3">Arm run</div>
 
       {/* controls */}
-      <div className="mt-[18px] grid grid-cols-[148px_104px_104px_1fr] items-end gap-3 border-y py-[18px]">
+      <div className="mt-[18px] grid grid-cols-[132px_92px_92px_112px_1fr] items-end gap-3 border-y py-[18px]">
         <div>
           <label className="u-label mb-1.5 block">Intensity</label>
           <Select value={intensity} onValueChange={setIntensity}>
@@ -288,6 +299,18 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
             onChange={(e) => setSeed(e.target.value)}
           />
         </div>
+        <div>
+          <label className="u-label mb-1.5 block">Anchor</label>
+          <Select value={anchor} onValueChange={(v) => setAnchor(v as AnchorChoice)}>
+            <SelectTrigger className="h-9 text-[13px]" aria-label="Event time anchor">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="now">now</SelectItem>
+              <SelectItem value="fixed">fixed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <div className="flex flex-col items-end gap-2">
           <span className="u-label">Destination</span>
           <div className="flex gap-4">
@@ -307,6 +330,14 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap }: 
         <p className="mt-2.5 font-mono text-[11px] leading-relaxed text-text-3">
           No collector configured. Sends fail closed. Connect one, or write to file.
         </p>
+      )}
+      {anchorNotice(anchor, sendToCollector && collector !== null, anchorEpoch) && (
+        <div
+          role="status"
+          className="mt-2.5 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-[12px] leading-relaxed text-signal"
+        >
+          {anchorNotice(anchor, sendToCollector && collector !== null, anchorEpoch)}
+        </div>
       )}
       {toFile && (
         <Input

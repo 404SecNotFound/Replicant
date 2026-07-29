@@ -66,16 +66,61 @@ Live runs against a real server, not the TestClient:
 
 ## PR B - navigation (spec items 7-11), stacked on A
 
-- [ ] B1. Group the left rail by ATT&CK tactic, collapsible, count per group.
-- [ ] B2. Filter box over id, name, `ndr_uc`, and ATT&CK technique id.
-- [ ] B3. Toggle filters for vendor applicability and log type.
-- [ ] B4. Docs tab. `docs/` does NOT ship in a wheel (no `MANIFEST.in`; `pyproject.toml:46-50`
-      packages `replicant*` only), so it inherits `FRONTEND_DIST`'s editable-install-only
-      constraint. Degrade with a message, do not 500.
-- [ ] B5. `--anchor` control in the run form. Model side already exists; this is wiring.
-- [ ] B6. CHAIN-16 in `tasks/uat-plan.md` greps for the literal string `scenario`, so a Docs
-      tab that lists `phase4-scenario-composition-design.md` makes it read as failed with no
-      feature added. Re-express it as "these five routes 404".
+- [x] B1. **Group by ATT&CK tactic.** DONE. Logic in `webui/src/lib/catalogView.ts` so
+      the ordering rule is unit-testable. Kill-chain order is stated explicitly: it is
+      neither alphabetical nor numeric, since Reconnaissance is first and carries the
+      highest number (TA0043) and Exfiltration (TA0010) follows C2 (TA0011). 17 tests.
+- [x] B2. **Filter box** over id, name, `ndr_uc`, and ATT&CK id at once; empty groups
+      disappear; header switches to "N of 24" while filtering. 11 component tests.
+- [x] B3. **Log-type toggles** for the five paths the catalog uses. **The vendor half
+      was NOT built.** See the open question below: it would filter nothing.
+- [x] B4. **Docs tab.** DONE. Fixed allowlist (`DOC_PAGES`), id is a dict key so
+      traversal resolves to nothing, `marked` (MIT) lazy-loaded into its own 44 kB
+      chunk. Absent `docs/` reports itself rather than 500ing. 12 py + 5 vitest tests.
+- [x] B5. **Anchor control.** DONE. `POST /api/runs` accepts `anchor` and returns the
+      resolved `anchor_epoch` plus `anchor_warning`; the form defaults to `now` for a
+      live send and `fixed` for a file, and shows a pre-flight notice. The notice
+      states the consequence rather than re-implementing the server's staleness
+      threshold, so there is no duplicated rule to drift. 8 py + 6 vitest tests.
+- [x] B6. **CHAIN-16 re-expressed.** DONE, and it was worse than predicted: the grep
+      **already fails today**, because `replicant/web/server.py` imports
+      `replicant.scenario.engine` for `implemented_technique_ids`. It was never a
+      correct check. Now asserts five candidate routes 404 plus no scenario control in
+      the UI, and `App.test.tsx` pins the UI half automatically.
+
+### Open question for DJR: the vendor filter in spec item 9
+
+Spec item 9 asks for "toggle filters for vendor applicability and log type". The log
+type half is built. The vendor half was not, because **it would filter nothing**:
+
+- All three vendor profiles implement all six render paths (`traffic:forward`,
+  `dns:dns-query`, `dns:dns-response`, `utm:ips`, `event:vpn`, `event:system`).
+- The catalog uses five of them.
+- So all 24 techniques are applicable to all 3 vendors. The control could never
+  exclude a single entry.
+
+Shipping it would put a toggle in the rail that looks like it does something and
+cannot. That is the same call as REP-016, which was left unbuildable rather than
+shipped dishonestly. Three options, DJR's call:
+
+1. Leave it out and note the reason in the spec (current state).
+2. Build it anyway as a forward-looking control for a future vendor with a gap.
+3. Replace it with an axis that does discriminate. Measured across the catalog,
+   `action` is the only other one that splits it (6 values: accept=10, deny=5,
+   pass=4, reset=2, tunnel-up=2, ssl-login-fail=1). `benign_baseline` and
+   `implemented` are both uniform across all 24 and would be equally inert.
+
+### PR B verification record (2026-07-29)
+
+516 Python tests (496 after PR A), 64 frontend (23 after PR A), black/ruff/mypy clean,
+build clean with `marked` code-split into its own chunk (main bundle +0.4 kB).
+
+Driven in a real browser against a live server, not only in jsdom: the rail renders
+grouped with counts, filtering on `T1048` narrows to "3 of 24" and correctly lists
+REP-004 under both Command and Control and Exfiltration, the Docs tab renders the
+FortiGate reference with working headings, code blocks and tables, the anchor control
+shows `fixed` for file output, and the address bar reads `http://127.0.0.1:9787`
+with the token stripped after load.
 
 ---
 

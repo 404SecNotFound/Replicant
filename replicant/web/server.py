@@ -63,6 +63,8 @@ from replicant.config.settings import (
     WEB_DEFAULT_PORT,
     Settings,
     load_or_create_web_token,
+    parse_anchor,
+    stale_anchor_warning,
 )
 from replicant.core.models import Catalog, CollectorProfile, Intensity, RunRequest, Transport
 from replicant.core.orchestrator import Orchestrator, effective_identity
@@ -71,6 +73,40 @@ from replicant.web.pty_bridge import bridge_terminal
 from replicant.web.runner import RunInProgressError, RunManager
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
+DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
+
+
+@dataclass(frozen=True)
+class DocPage:
+    id: str
+    title: str
+    filename: str
+
+
+# The reference material the Docs tab serves, as a fixed allowlist. The requested
+# id is a dictionary key and is never joined onto a path, so a traversal attempt
+# resolves to nothing rather than to a file.
+#
+# Like FRONTEND_DIST above, this reads from the repository, not from the installed
+# package: docs/ sits outside `replicant`, pyproject packages `replicant*` only,
+# and there is no MANIFEST.in, so a non-editable wheel has no docs/ at all. The
+# endpoints report that rather than failing.
+DOC_PAGES: tuple[DocPage, ...] = (
+    DocPage("fortigate-cef", "FortiGate CEF reference", "fortigate-cef-reference.md"),
+    DocPage("paloalto-cef", "Palo Alto PAN-OS CEF reference", "paloalto-cef-reference.md"),
+    DocPage("checkpoint-cef", "Check Point CEF reference", "checkpoint-cef-reference.md"),
+    DocPage(
+        "catalog-research",
+        "Catalog expansion research",
+        "technique-catalog-expansion-research.md",
+    ),
+    DocPage(
+        "catalog-research-2",
+        "Catalog expansion research, round 2",
+        "technique-catalog-expansion-research-round2.md",
+    ),
+)
+_DOC_BY_ID = {page.id: page for page in DOC_PAGES}
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _WILDCARD_BINDS = frozenset({"0.0.0.0", "::"})
@@ -212,6 +248,10 @@ class RunBody(BaseModel):
     no_send: bool = True
     collector: CollectorBody | None = None
     vendor: str | None = None  # override settings.vendor for this run
+    # "now", "fixed", an epoch, or an ISO-8601 timestamp. None and "fixed" both mean
+    # the deterministic default; everything else goes through the same parse_anchor
+    # the CLI uses, so the two surfaces cannot drift.
+    anchor: str | None = None
 
 
 def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
@@ -264,6 +304,17 @@ def create_app(
         if resolved == settings.vendor:
             return settings
         return settings.model_copy(update={"vendor": resolved})
+
+    def _resolve_anchor(value: str | None) -> int:
+        """Resolve the run form's anchor control to an epoch.
+
+        ``fixed`` is the form's name for the deterministic default and is not
+        something ``parse_anchor`` knows, so it is translated here rather than
+        being allowed to fall through and 400.
+        """
+        if value is None or value.strip().lower() == "fixed":
+            return settings.anchor_epoch
+        return parse_anchor(value)
 
     def _orchestrator_for(vendor: str | None) -> Orchestrator:
         resolved = _resolve_vendor(vendor)
@@ -405,6 +456,41 @@ def create_app(
             "terminal_enabled": policy.terminal_enabled,
         }
 
+    @app.get("/api/docs", dependencies=[Depends(require_token)])
+    def list_docs() -> dict[str, Any]:
+        return {
+            "available": DOCS_DIR.is_dir(),
+            "pages": [
+                {
+                    "id": page.id,
+                    "title": page.title,
+                    "available": (DOCS_DIR / page.filename).is_file(),
+                }
+                for page in DOC_PAGES
+            ],
+        }
+
+    @app.get("/api/docs/{doc_id}", dependencies=[Depends(require_token)])
+    def get_doc(doc_id: str) -> dict[str, Any]:
+        page = _DOC_BY_ID.get(doc_id)
+        if page is None:
+            raise HTTPException(status_code=404, detail="unknown document")
+        path = DOCS_DIR / page.filename
+        if not path.is_file():
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "reference documents are not present in this install. They ship with "
+                    "the repository, not the package, so they are available from an "
+                    "editable install (pip install -e) or a git checkout."
+                ),
+            )
+        return {
+            "id": page.id,
+            "title": page.title,
+            "markdown": path.read_text(encoding="utf-8"),
+        }
+
     @app.post("/api/connect/test", dependencies=[Depends(require_token)])
     def connect_test(body: CollectorBody) -> dict[str, Any]:
         orch = _orchestrator_for(body.vendor)
@@ -433,6 +519,10 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         _resolve_vendor(body.vendor)  # 400 on an unknown vendor before starting
+        try:
+            anchor = _resolve_anchor(body.anchor)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"bad anchor: {exc}") from exc
         collector = None
         if body.collector is not None:
             collector = CollectorProfile(
@@ -451,6 +541,7 @@ def create_app(
             to_file=body.to_file,
             no_send=body.no_send,
             collector=collector,
+            anchor_epoch=anchor,
         )
         try:
             handle = manager.start(request, settings=_settings_for(body.vendor))
@@ -458,7 +549,14 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (RuntimeError, NotImplementedError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"run_id": handle.run_id, "total": handle.total}
+        return {
+            "run_id": handle.run_id,
+            "total": handle.total,
+            "anchor_epoch": anchor,
+            "anchor_warning": stale_anchor_warning(
+                anchor, sending=not body.no_send and collector is not None
+            ),
+        }
 
     @app.get("/api/runs/{run_id}", dependencies=[Depends(require_token)])
     def run_status(run_id: str) -> dict[str, Any]:

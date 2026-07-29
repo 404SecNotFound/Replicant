@@ -351,6 +351,89 @@ def test_routable_and_wildcard_addresses_are_not_loopback(host: str) -> None:
     assert not is_loopback(host)
 
 
+# --- anchor selection on the web run path -----------------------------------
+#
+# The anchor trap: CEF eventtime is pinned to the determinism anchor while the
+# syslog header is stamped at send time. On a SIEM that keys on parsed event time,
+# a live send with the default fixed anchor lands outside every recent-window rule
+# and nothing fires, which is indistinguishable from a broken detection. The CLI
+# has had --anchor since Phase 2; the web path had no way to set it at all.
+
+
+def _resolved_anchor(client: TestClient, anchor: object) -> dict:
+    body = {"technique_id": "REP-001", "intensity": "low", "duration": "2m", "no_send": True}
+    if anchor is not None:
+        body["anchor"] = anchor
+    return client.post("/api/runs", headers=HEADERS, json=body).json()
+
+
+def test_run_defaults_to_the_fixed_anchor(client: TestClient) -> None:
+    from replicant.config.settings import Settings
+
+    assert _resolved_anchor(client, None)["anchor_epoch"] == Settings().anchor_epoch
+
+
+def test_run_accepts_anchor_now(client: TestClient) -> None:
+    import time
+
+    resolved = _resolved_anchor(client, "now")["anchor_epoch"]
+
+    assert abs(resolved - int(time.time())) < 120
+
+
+def test_fixed_is_an_accepted_spelling_of_the_default(client: TestClient) -> None:
+    # The form offers "now" and "fixed"; "fixed" has to mean something to the API
+    # rather than falling through to parse_anchor and 400-ing.
+    from replicant.config.settings import Settings
+
+    assert _resolved_anchor(client, "fixed")["anchor_epoch"] == Settings().anchor_epoch
+
+
+def test_run_accepts_an_explicit_epoch(client: TestClient) -> None:
+    assert _resolved_anchor(client, "1700000000")["anchor_epoch"] == 1700000000
+
+
+def test_run_accepts_an_iso_timestamp(client: TestClient) -> None:
+    # 1784073600 == 2026-07-15T00:00:00Z. Check with:
+    #   date -u -d @1784073600   (GNU)   /   date -u -r 1784073600   (BSD)
+    assert _resolved_anchor(client, "2026-07-15T00:00:00Z")["anchor_epoch"] == 1784073600
+
+
+def test_run_rejects_an_unparseable_anchor(client: TestClient) -> None:
+    resp = client.post(
+        "/api/runs",
+        headers=HEADERS,
+        json={"technique_id": "REP-001", "no_send": True, "anchor": "last tuesday"},
+    )
+
+    assert resp.status_code == 400
+    assert "anchor" in resp.json()["detail"]
+
+
+def test_a_live_send_with_a_stale_anchor_is_flagged_in_the_response(client: TestClient) -> None:
+    resp = client.post(
+        "/api/runs",
+        headers=HEADERS,
+        json={
+            "technique_id": "REP-001",
+            "intensity": "low",
+            "duration": "2m",
+            "no_send": False,
+            "collector": {"host": "127.0.0.1", "port": 9, "transport": "udp"},
+            "anchor": "fixed",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert "anchor" in (resp.json()["anchor_warning"] or "").lower()
+
+
+def test_a_file_only_run_is_not_warned_about_its_anchor(client: TestClient) -> None:
+    # Writing a fixed-anchor artifact to a file is the correct use of the default,
+    # so warning there would train the operator to ignore the warning.
+    assert _resolved_anchor(client, "fixed")["anchor_warning"] is None
+
+
 def test_start_run_while_one_active_returns_409(client: TestClient, monkeypatch) -> None:
     from replicant.web import runner as runner_mod
 

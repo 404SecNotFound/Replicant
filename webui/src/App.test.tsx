@@ -78,6 +78,25 @@ beforeEach(() => {
   });
 });
 
+describe("navigation", () => {
+  it("always offers the Docs tab", async () => {
+    vi.mocked(api.getConfig).mockResolvedValue(config());
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: "Docs" })).toBeInTheDocument();
+  });
+
+  it("has no scenario surface (OBS-006 / CHAIN-16, deferred by design)", async () => {
+    vi.mocked(api.getConfig).mockResolvedValue(config());
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Emitter" });
+
+    expect(screen.queryByText(/scenario/i)).not.toBeInTheDocument();
+  });
+});
+
 describe("terminal tab visibility", () => {
   it("offers the Terminal tab when the server says it is available", async () => {
     vi.mocked(api.getConfig).mockResolvedValue(config({ terminal_enabled: true }));
