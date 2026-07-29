@@ -264,6 +264,113 @@ Permissive and safe to reuse (MIT / Apache-2.0 / BSD-style), all compatible with
 
 ---
 
+## 3. Firewall vendor names, formats, and documentation
+
+Added 2026-07-29. Sections 1 and 2 cover the open-source prior art and MITRE
+ATT&CK. They said nothing about the firewall vendors whose log formats Replicant
+actually emulates, which was a gap: the question "do we have permission from the
+vendors to do this?" had no answer in the repository. This section answers it.
+
+**Not legal advice.** This is an engineering assessment of where the exposure is
+and what has been done about it. A public release connected to an employer, or
+use in customer delivery, is a different risk profile and warrants counsel.
+
+### 3.1 What Replicant actually uses
+
+| Thing used | What it is | Assessment |
+|---|---|---|
+| `Fortinet`, `Palo Alto Networks`, `Check Point` in CEF headers | Word marks, as field values | Required by the format. A CEF record identifies its device vendor and product; there is no way to emit a FortiGate-shaped record without the string `Fortinet`. Purely identifying, no logos, no stylized marks, no affiliation claim. |
+| Field names (`FTNTFGTlogid`, `deviceInboundInterface`, `dpt`) | Wire-format identifiers | Functional. Short names and a field ordering are not creative expression. |
+| Log IDs and signature IDs (`0000000013`, `54802`, `39426`) | Numeric identifiers | Facts. |
+| Severity mapping rules | Documented behaviour | Facts about how the product behaves. |
+| Vendor documentation pages | Public docs, cited per file | Read and implemented against, which is ordinary interoperability work. The exposure would be reproducing substantial portions, not reading them. |
+| CEF itself | ArcSight format, now Open Text | `[Unverified]` current distribution terms of the CEF specification. Replicant implements the format from vendor mapping documentation rather than from the ArcSight spec document. |
+
+No vendor logos, icons, or brand assets exist anywhere in the repository
+(verified: no vendor image files, and the only images are Replicant's own
+screenshots). No text claims partnership, certification, endorsement, or
+approval (verified by grep).
+
+### 3.2 The `[Constructed]` claim, verified
+
+Every sample line in the vendor reference docs, and every golden line in the test
+suite, is marked `[Constructed]`: assembled from documented field and format
+rules rather than copied from the vendors' published examples. The whole
+copyright posture rests on that being true, and until 2026-07-29 it was asserted
+rather than checked. It has now been checked against Fortinet's own published CEF
+examples.
+
+Fortinet's `traffic:forward` example (FortiOS 7.4.3 docs) against Replicant's:
+
+| Field | Fortinet's published example | Replicant golden line |
+|---|---|---|
+| Header | `CEF: 0\|` (with a space) | `CEF:0\|` (no space, per the CEF spec) |
+| Device serial | `FGT5HD3915800610` | `FGVMSYNTH0000001` |
+| Hostname | `FGT-A-LOG` | `FGT-LAB-01` |
+| Version / action | `v6.0.3`, `close` | `v7.4.3`, `accept` |
+| Virtual domain | `vdom1` | `root` |
+| Source | `10.1.100.11:54190` | `10.20.30.40:51544` |
+| **Destination** | **`52.53.140.235`** (a real, routable address) | **`203.0.113.25`** (IANA documentation range) |
+| Bytes | `3652` / `146668` | `8421` / `61325` |
+
+And across the other record types:
+
+| | Fortinet's example | Replicant |
+|---|---|---|
+| DNS qname | `detectportal.firefox.com` (a real domain) | `updates.example.net` (IANA documentation domain) |
+| DNS resolved IPs | `104.80.89.26, 104.80.89.24` (real) | absent, or `.invalid` for the NXDOMAIN case |
+| IPS attack / id | `Eicar.Virus.Test.File` / `29844` | `Apache.Struts.OGNL.Remote.Code.Execution` / `40449` |
+| IPS request path | `/virus/eicar.com` | `/struts2/index.action` |
+| User, MAC | `bob`, `a2:e9:00:ec:40:01` | absent |
+
+**Conclusion: constructed, not copied.** Three things establish it beyond the
+values simply differing:
+
+1. **Every value differs.** Not one field carries Fortinet's sample data through.
+2. **The header spacing diverges.** Fortinet's documentation prints `CEF: 0|`
+   with a space after the colon; Replicant emits `CEF:0|` per the CEF
+   specification. A verbatim copy would have carried the space through. This is
+   the cleanest single piece of evidence that the lines were built from the rules
+   rather than transcribed.
+3. **Real-world values were systematically replaced with documentation-range
+   equivalents.** Fortinet's examples use a live AWS address, a real Mozilla
+   domain, and real resolved IPs. Replicant substitutes `203.0.113.0/24`,
+   `example.net`, and `.invalid` throughout. That substitution is the opposite of
+   copying, and it falls directly out of safety rule 2.
+
+What legitimately *does* match is the field ordering and the `FTNTFGT` prefixing.
+That is the wire format. Matching it is the entire point of the tool, and it is
+functional rather than expressive.
+
+One item to keep in view: `FTNTFGTattack=Apache.Struts.OGNL.Remote.Code.Execution`
+is a vendor signature name used as a factual identifier in emitted output. It is
+not drawn from the Fortinet example above (which uses the EICAR test signature).
+`[Unverified]` whether that string matches a real Fortinet IPS signature name
+exactly.
+
+### 3.3 What was done, and what is left
+
+Done:
+
+- `NOTICE` gained a trademark and non-affiliation section naming each vendor.
+- The README states the non-affiliation position and links to this section.
+- The `[Constructed]` claim is verified above rather than asserted.
+
+Open, and worth a decision before any public release:
+
+- `[Unverified]` the current distribution terms of the ArcSight/Open Text CEF
+  specification. Replicant implements from vendor mapping docs, not from the
+  spec document, which is the safer route, but the terms have not been read.
+- The three vendor reference documents under `docs/` are derived works from
+  vendor documentation. The sample lines are cleared above; the **field-mapping
+  tables** have not been reviewed for how closely they track their sources in
+  structure and wording. That is the remaining copyright surface.
+- Whether any of this changes if Replicant is published under, or used in
+  connection with, an employer's name. That is a question for counsel, not for
+  this document.
+
+---
+
 ## Sources
 
 - Replicant owner repos: https://api.github.com/users/404SecNotFound/repos

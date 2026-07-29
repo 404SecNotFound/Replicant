@@ -15,6 +15,41 @@ The MITRE Corporation.
 https://attack.mitre.org/
 
 -------------------------------------------------------------------------------
+Third-party trademarks, and the absence of any vendor affiliation
+-------------------------------------------------------------------------------
+Replicant is an independent project. It is not affiliated with, sponsored by,
+endorsed by, or in any way officially connected to Fortinet, Inc., Palo Alto
+Networks, Inc., Check Point Software Technologies Ltd., Open Text Corporation,
+Exabeam (LogRhythm), or any other vendor whose products or log formats it
+emulates.
+
+Fortinet, FortiGate and FortiOS are trademarks of Fortinet, Inc. Palo Alto
+Networks and PAN-OS are trademarks of Palo Alto Networks, Inc. Check Point is a
+trademark of Check Point Software Technologies Ltd. ArcSight and the Common
+Event Format (CEF) originate with ArcSight, now part of Open Text Corporation.
+LogRhythm is a trademark of Exabeam, Inc. All other trademarks are the property
+of their respective owners.
+
+These names are used solely to identify the products whose log formats Replicant
+reproduces, which is information a detection engineer needs in order to know what
+the output is meant to look like. There is no way to describe a FortiGate-shaped
+CEF record without naming FortiGate. No vendor logos, stylized marks, or brand
+assets are used anywhere in this repository.
+
+Replicant emits SYNTHETIC log records. They are fabricated text that describes
+events which did not occur, on devices that do not exist, using addresses drawn
+from RFC 1918 and the IANA documentation ranges. They are not captured from, and
+are not representative of, any vendor's product output in a customer
+environment. Every run writes a manifest recording exactly what was generated.
+
+The vendor reference documents under docs/ were written from each vendor's
+public documentation, cited in each file's Sources section. Sample lines in
+those documents and the golden lines in the test suite are marked [Constructed]:
+they are assembled from the documented field and format rules rather than copied
+from the vendors' published examples. See
+docs/prior-art-and-licensing.md section 3 for the verification of that claim.
+
+-------------------------------------------------------------------------------
 Bundled third-party components and assets
 -------------------------------------------------------------------------------
 The web UI ships the following third-party works.
