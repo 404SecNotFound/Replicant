@@ -79,6 +79,28 @@ and `cache: npm` is passed explicitly anyway.
 All three require runner v2.327.1 or newer. Every job is `runs-on: ubuntu-latest`, so that
 is satisfied by GitHub-hosted runners. A self-hosted runner would need checking.
 
+### Changed: CI no longer runs for a commit it cannot be affected by
+
+A documentation commit queued all ten jobs, including three installer containers and a
+wheel build that no prose can change. `push` and `pull_request` now carry a `paths`
+filter that skips prose: markdown anywhere, `docs/`, `tasks/`, `LICENSE` and `NOTICE`.
+Measured against the last 112 non-merge commits, 34 of them would have skipped the
+matrix. `workflow_dispatch` stays unfiltered and forces a full run on any ref.
+
+The filter defaults to running (`"**"` first, exclusions after), so a new kind of file
+fails safe rather than silently skipping the gate. Five files under `docs/` are
+re-included because they are executable in practice, not prose: the three vendor CEF
+references are the golden-line oracle that `tests/test_*_golden.py` parse, and
+`tests/test_web_docs.py` asserts all five exist on disk.
+
+`tests/test_ci_paths_filter.py` guards both halves of that. It asserts the `push` and
+`pull_request` lists stay identical, that load-bearing paths still trigger, and that
+every page in `DOC_PAGES` is re-included, deriving the list from `DOC_PAGES` rather
+than repeating it so a new Docs tab page fails the test until the workflow covers it.
+The lists are written out twice on purpose: a YAML anchor would say it once, but
+GitHub Actions does not support anchors while PyYAML does, so the guard would have
+resolved the alias and passed against a workflow GitHub rejected.
+
 ### Notes
 
 The eps signal readout was verified mid-run against a real loopback collector, since
