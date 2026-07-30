@@ -273,3 +273,26 @@ The fix was not to loosen the assertion and move on. The exact-delivery claim mo
 **Corollary:** verify a concurrency or timing fix under the condition that broke it, not under the condition you develop in. Five passes on an idle machine proved nothing here. Three passes with every core saturated proved something.
 
 **Corollary:** this is also the argument for CI existing at all. The flake had been latent for weeks and passed every local run. Its first execution on shared, contended hardware surfaced it immediately.
+
+---
+
+## A number from a throwaway script is a claim, not a measurement
+
+**2026-07-30, sizing the CI paths filter.** The question was how many recent commits were documentation-only, to decide whether a `paths` filter was worth adding. A shell loop answered: 12 of the last 60, and it printed a tidy list of plausible commit subjects.
+
+The number was fabricated. The loop was:
+
+```sh
+files=$(git show --pretty=format: --name-only "$c" | sort -u)
+for f in $files; do case "$f" in docs/images/*|tasks/*|...) ;; *) only=0; break;; esac; done
+```
+
+**zsh does not word-split unquoted parameter expansions.** In bash `$files` splits on newlines and the loop tests one path per iteration; in zsh it stays a single word, so the loop ran once against the entire multi-line blob. `docs/images/*` then matched the whole blob, because `*` spans newlines. Every commit whose sorted file list merely *began* with a docs path was classified documentation-only.
+
+It survived because the output looked right. The subjects all began `docs:`, the count was plausible, and nothing errored. It was caught only by spot-checking one entry against `git show`, which listed `replicant/cli/menu.py` and two test files. Re-measured correctly: 34 of 112.
+
+**Rule:** a measurement is not evidence until one of its results has been checked by hand, against a different tool. Pick the row that would be most embarrassing if wrong and verify that one. The failure mode here is not a crash, it is confident precision, which is far more expensive because it gets quoted in a commit message and then in a decision.
+
+**Corollary:** do not write analysis in shell. `for f in $x` means different things in bash and zsh, and the version that gives a wrong answer gives it silently. Use a language with real lists, and keep the script so the result can be re-derived and audited.
+
+**Corollary:** the same applies to the correctness of any reimplementation of somebody else's matcher. `tests/test_ci_paths_filter.py` reimplements GitHub's glob semantics and says so in its docstring, including what it does not model. That labelling is the difference between a guard and a false assurance.
