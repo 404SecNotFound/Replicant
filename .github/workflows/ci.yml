@@ -14,10 +14,52 @@
 
 name: CI
 
+# The two `paths` lists below are deliberately identical, and deliberately written
+# out twice. A filter applied to pull_request but not to the push onto main (or the
+# reverse) would gate a commit on one leg and not the other, which is worse than no
+# filter at all. A YAML anchor would express that intent once, but GitHub Actions
+# does not support anchors, and PyYAML does: the guard test would resolve the alias
+# and pass while GitHub rejected the workflow. So: duplicated here, and
+# tests/test_ci_paths_filter.py asserts the two lists stay in step and that nothing
+# the suite actually reads is excluded. `workflow_dispatch` stays unfiltered as the
+# escape hatch, forcing the full matrix on any ref whatever changed.
 on:
   push:
     branches: [main]
+    paths:
+      # Run by default. Anything not excluded below starts a run, so a new kind
+      # of file fails safe rather than silently skipping the gate.
+      - "**"
+      # Prose. Nothing in the suite, the wheel build or the installer reads it,
+      # and a documentation commit queued ten jobs including three installer
+      # containers it could not affect.
+      - "!**.md"
+      - "!docs/**"
+      - "!tasks/**"
+      - "!LICENSE"
+      - "!NOTICE"
+      # Except the reference docs that are executable in practice. The three CEF
+      # references are the golden-line oracle that tests/test_*_golden.py parse,
+      # and tests/test_web_docs.py asserts all five exist on disk, so editing one
+      # can fail the suite. Later patterns win, which is what re-includes these.
+      - "docs/fortigate-cef-reference.md"
+      - "docs/paloalto-cef-reference.md"
+      - "docs/checkpoint-cef-reference.md"
+      - "docs/technique-catalog-expansion-research.md"
+      - "docs/technique-catalog-expansion-research-round2.md"
   pull_request:
+    paths:
+      - "**"
+      - "!**.md"
+      - "!docs/**"
+      - "!tasks/**"
+      - "!LICENSE"
+      - "!NOTICE"
+      - "docs/fortigate-cef-reference.md"
+      - "docs/paloalto-cef-reference.md"
+      - "docs/checkpoint-cef-reference.md"
+      - "docs/technique-catalog-expansion-research.md"
+      - "docs/technique-catalog-expansion-research-round2.md"
   workflow_dispatch:
 
 # A second push to the same branch cancels the first: these jobs spend real
