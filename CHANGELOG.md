@@ -60,6 +60,25 @@ were AA-verified, and they were; their **usage** never had been.
   out of its 28px-tall button. Width-constrained controls now use a short label
   (`PAN-OS`); prose keeps the full name, where there is room and it is clearer.
 
+### Changed: CI actions moved off the deprecated Node 20 runtime
+
+Every job carried a deprecation warning. `actions/checkout@v4`, `actions/setup-python@v5`
+and `actions/setup-node@v4` all declare `using: node20`, which the runners deprecated and
+were already overriding to Node 24. Pinned to the current majors, `v7` for all three, each
+of which declares `using: node24` in its own `action.yml`.
+
+Pinned at the current major rather than the floor. The first Node 24 majors are checkout
+v5, setup-python v6 and setup-node v5, so pinning there would clear the warning and leave
+two majors of drift to redo. The breaking changes between were checked against this
+workflow rather than assumed: checkout v7 blocks fork checkouts for `pull_request_target`
+and `workflow_run`, neither of which this workflow uses; setup-python v7 removes the
+`pip-install` input, which was never set; setup-node v5 added automatic caching keyed on a
+`packageManager` field, and `webui/package.json` has none, no root `package.json` exists,
+and `cache: npm` is passed explicitly anyway.
+
+All three require runner v2.327.1 or newer. Every job is `runs-on: ubuntu-latest`, so that
+is satisfied by GitHub-hosted runners. A self-hosted runner would need checking.
+
 ### Notes
 
 The eps signal readout was verified mid-run against a real loopback collector, since
