@@ -1,18 +1,19 @@
 # Replicant — User Acceptance Test (UAT) Plan
 
 Owner (QA lead): Claude Code (automated suites) + DJR/RZA (manual suites)
-Status: **Revision 2** — Round 1 executed and signed **GO**; Round 2 (Phase 4 scenarios + Linux installer) authored, awaiting execution
-Authored: 2026-07-19 · Revised: 2026-07-21
+Status: **Revision 3** — Round 1 executed and signed **GO**; Round 2 (Phase 4 scenarios + Linux installer) authored, awaiting execution; Round 3 (live SIEM ingestion) authored, blocked on a lab
+Authored: 2026-07-19 · Revised: 2026-07-29
 
 **Revision history**
 - **r1 (2026-07-19)** — Phases 1, 1.5, 2, 3. Suites A–E. Executed; automated verdict GO; Suites C/D still pending DJR.
 - **r2 (2026-07-21)** — adds Suite F (Phase 4 scenario composition, PR #7) and Suite G (Linux installer, PR #8), plus TUI-07..09. Refreshes facts that went stale between the two rounds.
+- **r3 (2026-07-29)** — adds Suite H (live SIEM ingestion) and requirements LR-1..LR-6. Moves live SIEM ingestion out of "Out of scope", where it had sat since r1 with no pass criteria attached. This is the oldest open item in the project and it predates v0.1.0; until now the plan gave a tester nothing to measure it against, so the result would have been an opinion rather than a record.
 
 ## 1. Purpose & scope
 
 Validate that Replicant meets its stated requirements and non-negotiable safety rules across **every surface and every claim** before it is treated as production-ready. Round 1 was the quality gate on Phases 1, 1.5, 2, and 3. Round 2 extends that gate over Phase 4 scenario composition and the Linux install script, neither of which existed when this plan was first written.
 
-**Product under test:** `main` @ `0af51f7` (PR #8 merge). Round 1 ran against `main` @ `8fe3d31`; the delta since is PR #6 (use-case detail panel), PR #7 (Phase 4), PR #8 (installer).
+**Product under test:** Round 3 targets `main` @ `f9894dc` (v0.3.1 plus the light theme and screenshot work). Round 2 was authored against `main` @ `0af51f7` (PR #8 merge); Round 1 ran against `main` @ `8fe3d31`. The delta into Round 3 is the v0.2.0 catalog expansion (11 → 24 techniques), the web UI access and navigation work, multi-vendor `[Unverified]` references, the v0.3.1 packaging fix, and the light theme.
 
 **In scope — Round 1 (executed)**
 - 11 techniques (REP-001..REP-011), each with a unique `ndr_uc`.
@@ -30,8 +31,16 @@ Validate that Replicant meets its stated requirements and non-negotiable safety 
 - `scripts/install.sh` on a real Linux host: flags, consent and sudo scope, the distribution package mappings, and the self-verification step.
 - The use-case detail panel shipped in PR #6, to the extent Suite D touches it.
 
+**In scope — Round 3 (new)**
+- **Live ingestion into a real LogRhythm deployment.** Every transport test in Rounds 1 and 2 used a loopback receiver, so nothing in this plan has ever proved that a real SIEM identifies the log source, parses the CEF, or fires on it.
+- Event-time correctness on a live send: `--anchor now` versus the default fixed anchor, and the stale-anchor warning.
+- MPE parsing fidelity against the field-mapping table in `docs/fortigate-cef-reference.md`, which is the oracle for what each field is supposed to become.
+- Resolving the two `[Unverified]` FortiGate signature IDs (`dns:dns-query` 54803, SSL-VPN `tunnel-up` 39947) against a real parser.
+- Whether the detection a technique targets actually fires on the malicious pattern **and stays quiet on the benign baseline**.
+
 **Out of scope**
-- Live SIEM ingestion (LogRhythm). All transport tests use loopback receivers. [Inference] a real-collector smoke is a separate, operator-run step.
+- **Authoring or tuning the LogRhythm AIE rules themselves.** Replicant exercises a detection; it does not write one. A rule that does not exist in the lab is a gap in the lab, not a defect in Replicant, and is recorded as such.
+- SIEMs other than LogRhythm. The blueprint is explicit that LogRhythm is first; Splunk, Sentinel and Elastic are not covered here.
 - Web UI scenario support. Deferred fast-follow per `docs/phase4-scenario-composition-design.md` §13; the SPA and `web/server.py` carry zero scenario surface today. CHAIN-16 asserts that absence rather than testing function.
 - macOS and Windows installer support, container images, systemd units, and system-wide `/opt` deployment. All stated non-goals in `docs/linux-install-script-design.md` §9.
 - Ad-hoc scenario chains from CLI arguments (curated catalog only) and the optional LLM advisor seam. Both deferred, §13.
@@ -62,15 +71,23 @@ mkdir -p out                                   # Suite F writes scenario CEF to 
 - [ ] Ability to snapshot and roll back the VM between cases. INST-06/07/11/17 deliberately leave the host in a changed or failed state.
 - [ ] **Status 2026-07-21: NOT MET.** No Linux host is available. Every Suite G case except INST-03 and INST-04 is BLOCKED. `scripts/install.sh` has never been executed on Linux.
 
+**Suite H entry criteria (live SIEM — additional)**
+- [ ] A LogRhythm deployment DJR controls and is authorised to send test data into. Suite H writes synthetic events into a real log store; they are indistinguishable from production data to anyone who did not run the test, so the destination must be a lab, not a customer or a shared production estate.
+- [ ] A syslog log source configured for the sending host, and a FortiGate MPE policy available to it. FortiGate first: it is the only vendor whose golden lines are confirmed rather than `[Unverified]`.
+- [ ] Network path from the Replicant host to the collector on the chosen port, and a way to observe arrival independent of the SIEM UI (a packet capture, or the collector's own counters). SIEM-11 needs this to prove the egress claim rather than infer it.
+- [ ] At least one AIE rule or alarm in the lab that corresponds to a technique's `ndr_uc`. Without one, SIEM-08 and SIEM-09 cannot run and Round 3 stops at "parses correctly", which is a weaker claim than the one this suite exists to make.
+- [ ] A marker to bound the test window (a note of the start time, or a dedicated log source), so events from this suite can be separated from whatever else the lab ingests.
+- [ ] **Status 2026-07-29: NOT MET.** No live SIEM has been available at any point in this project. Every Suite H case is **BLOCKED**. Replicant has never sent a single event to a real SIEM.
+
 ## 3. Requirement traceability matrix (RTM)
 
 | Req | Requirement (source) | Test case(s) | Owner |
 |-----|----------------------|--------------|-------|
-| SR-1 | Only egress is the operator-configured collector; fail closed if none (CLAUDE.md safety 1) | SAFE-01, CORE-07, CHAIN-11, INST-14 | Claude |
-| SR-2 | All entities synthetic — RFC1918 + 192.0.2/24, 198.51.100/24, 203.0.113/24; non-resolvable DNS (safety 2) | SAFE-02, CORE-06, CHAIN-15 | Claude |
+| SR-1 | Only egress is the operator-configured collector; fail closed if none (CLAUDE.md safety 1) | SAFE-01, CORE-07, CHAIN-11, INST-14, SIEM-11 | Both |
+| SR-2 | All entities synthetic — RFC1918 + 192.0.2/24, 198.51.100/24, 203.0.113/24; non-resolvable DNS (safety 2) | SAFE-02, CORE-06, CHAIN-15, SIEM-12 | Both |
 | SR-3 | No real attacks — writes log strings only (safety 3) | SAFE-03 | Claude |
-| SR-4 | Respect eps cap, default 2000 (safety 4) | SAFE-04, CORE-08, CHAIN-14 | Claude |
-| SR-5 | Every run writes a manifest (seed, technique, params, entities, target, counts, times) (safety 5) | SAFE-05, CORE-05, CHAIN-05, INST-16 | Claude |
+| SR-4 | Respect eps cap, default 2000 (safety 4) | SAFE-04, CORE-08, CHAIN-14, SIEM-07 | Both |
+| SR-5 | Every run writes a manifest (seed, technique, params, entities, target, counts, times) (safety 5) | SAFE-05, CORE-05, CHAIN-05, INST-16, SIEM-13 | Both |
 | FR-1 | 11 techniques REP-001..011, each unique `ndr_uc` (phase 2) | CORE-01 | Claude |
 | FR-2 | 3 vendors selectable on CLI, menu, web (phase 3) | CORE-04, TUI-03, UI-03, CHAIN-13 | Both |
 | FR-3 | 3 transports UDP/TCP/TLS + loopback test (phase 2) | CORE-03 | Claude |
@@ -88,7 +105,13 @@ mkdir -p out                                   # Suite F writes scenario CEF to 
 | IN-3 | Documented flags behave as documented; `--dry-run` changes nothing (§5) | INST-03, INST-05, INST-08..10 | DJR |
 | IN-4 | Distro package mappings actually reach Python ≥ 3.11 and Node ≥ 18 — **known gap, see DEF-004** | INST-06, INST-07 | DJR |
 | IN-5 | Verification proves a working install without leaving loopback or the repository (§6) | INST-14, INST-15, INST-16 | DJR |
-| QG-1 | 235 tests green | CORE-10 | Claude |
+| LR-1 | A real collector receives what Replicant sends, over the chosen transport, with no loss at the tested rate (blueprint: syslog to a SIEM, LogRhythm first) | SIEM-01, SIEM-07, SIEM-13 | DJR |
+| LR-2 | A live SIEM identifies the log source and applies the intended vendor MPE policy without hand-tuning the parser | SIEM-02, SIEM-03 | DJR |
+| LR-3 | Parsed fields match the vendor reference's field-mapping table; the `[Unverified]` signature IDs resolve or are corrected | SIEM-04, SIEM-10, SIEM-14 | DJR |
+| LR-4 | Event time reaching the SIEM is correct for a live send (`--anchor now`), and a stale anchor warns before emitting (`STALE_ANCHOR_DAYS = 2`) | SIEM-05, SIEM-06 | DJR |
+| LR-5 | Live sends respect the eps cap and do not overrun the collector (safety 4, on real infrastructure rather than loopback) | SIEM-07 | DJR |
+| LR-6 | The targeted detection fires on the malicious pattern **and does not fire on the benign baseline** | SIEM-08, SIEM-09 | DJR |
+| QG-1 | Full test suite green; the count is recorded per round, not fixed (Round 1: 179, Round 2: 235, Round 3: 526 Python + 89 frontend) | CORE-10 | Claude |
 | QG-2 | black / ruff / mypy clean | CORE-11 | Claude |
 | QG-3 | Frontend builds | WEB-00 | Claude |
 | QG-4 | `shellcheck scripts/install.sh` clean | INST-00 | Claude |
@@ -220,7 +243,34 @@ New in r2. Covers `scripts/install.sh` (PR #8) against `docs/linux-install-scrip
 | INST-18 | IN-1 | ERR trap names the failing step | Induce a failure in an **unguarded** command. Dropping the network during pip does NOT reach the trap: every substantive command is `\|\| die`-guarded and dies cleanly (see OBS-E). Use `chmod 000 /usr/bin/mktemp` after a green baseline, which models a read-only or full `/tmp` | Exactly three stderr lines: `installation failed during "<step>"`, then `line N, exit C: <command>`, then the `--dry-run` hint. Confirms `set -E` is live. More than three means the trap is also firing inside a subshell (DEF-007) | |
 | INST-19 | IN-1 | Clean output when not a TTY | `./scripts/install.sh --dry-run > log 2>&1`, then again with `NO_COLOR=1` | No ANSI escape sequences in either log | |
 
-## 11. Pre-execution findings (from recon, before formal run)
+## 11. Suite H — Live SIEM ingestion (DJR-driven, requires a LogRhythm lab)
+
+New in r3. This is the **oldest open item in the project**; it predates v0.1.0 and has never had pass criteria written against it.
+
+**Replicant has never sent a single event to a real SIEM.** Every transport case in Rounds 1 and 2 used an in-process loopback receiver, which proves framing and delivery and nothing else. It cannot tell you whether LogRhythm identifies the log source, whether the MPE policy parses the CEF, which metadata fields populate, or whether a rule fires. Those are the product's entire reason for existing, and they are currently unmeasured.
+
+**Executability today: every case is BLOCKED** pending a LogRhythm deployment. Do not record any case as passed on the basis of a loopback receiver, a `--to-file` inspection, or the golden-line tests. Those already pass and are not evidence for anything in this suite.
+
+**Order matters.** Run these in sequence and stop at the first failure; SIEM-04 onward are meaningless if SIEM-03 shows the message is not being parsed. Use FortiGate throughout unless a case says otherwise.
+
+| ID | Req | Objective | Steps | Expected | Result |
+|----|-----|-----------|-------|----------|--------|
+| SIEM-01 | LR-1 | One benign line arrives | `replicant connect --host <collector> --port 514 --transport udp --test` | Exactly **one** message reaches the collector and is searchable in LogRhythm. Record the ingestion lag. One, not zero and not several: the test sends a single benign `traffic:forward accept` line | |
+| SIEM-02 | LR-2 | Log source identified as FortiGate | Inspect the log source LogRhythm assigned to the sending host | Identified as a Fortinet FortiGate syslog source, **not** Unknown and not a generic syslog catch-all. Record the exact log source type and the MPE policy applied. If it lands as Unknown, that is a High defect: it means the syslog framing or header does not look like FortiGate to the platform | |
+| SIEM-03 | LR-2 | MPE parses rather than shelving it | Search for the message and read its classification | Message is parsed and classified, not filed as Unidentified. Record the Common Event assigned. A message that ingests but does not parse is a **fail**: it is invisible to every rule that keys on a field | |
+| SIEM-04 | LR-3 | Field mapping matches the oracle | Run REP-001 low with `--anchor now`. Compare LogRhythm's parsed metadata against the field-mapping table in `docs/fortigate-cef-reference.md` | Source/destination IP, source/destination port, protocol, action, bytes in/out, and device identity all populate the fields the reference says they map to. **Compare field by field against the table, not by eye.** Any mismatch is a defect against the reference doc; record which side is wrong before changing either | |
+| SIEM-05 | LR-4 | **Event time is correct on a live send** | Run once with `--anchor now`, once with the default fixed anchor. Compare the event time LogRhythm records against the receipt time | With `--anchor now`: event time within minutes of receipt. With the default: event time roughly a year in the past. **This case is the reason the suite exists.** That exact condition once made every recent-window rule silent, which is indistinguishable from a detection that does not work. If `--anchor now` does not produce a current event time, everything downstream of it is unreliable | |
+| SIEM-06 | LR-4 | Stale anchor warns before emitting | Start a live send with the default anchor | The CLI prints the stale-anchor warning **before** any event is transmitted (`STALE_ANCHOR_DAYS = 2`, `replicant/config/settings.py`). A warning printed after the fact does not count | |
+| SIEM-07 | LR-1, LR-5, SR-4 | Rate is survivable and capped | `--rate 50`, then step up (200, 500) watching the collector | No drops and no queue growth at each step. Record the lab's ceiling. Note the `eps_cap` default is **2000**, which is likely well above what a lab collector wants; the cap governs sending, so a live send is throttled where a `--no-send` run is not | |
+| SIEM-08 | LR-6 | **A detection actually fires** | Pick a technique whose `ndr_uc` maps to a rule that exists in the lab (`replicant list` prints the mapping). Run it at an intensity the rule should catch | The alarm fires within its evaluation window, and its evidence points at the synthetic entities from the run. Record the technique, the rule, the intensity, and the time to alarm | |
+| SIEM-09 | LR-6 | **The benign baseline does not fire it** | Same rule. Run only the technique's benign baseline, or a technique whose baseline covers the same log type | The rule stays quiet. This is the case that distinguishes a detection from an alarm that fires on everything, and it is why `benign_baseline` is generated rather than merely documented. A rule that fires on both SIEM-08 and SIEM-09 has a false-positive problem the lab should know about | |
+| SIEM-10 | LR-3 | Resolve the two `[Unverified]` signature IDs | Run REP-004 (`dns:dns-query`) and REP-007 (`event:vpn`, includes a `tunnel-up` success). Read what the parser makes of signature **54803** and **39947** | Either the parser accepts them, in which case the `[Unverified]` markers in `replicant/profiles/fortigate.py:53,55` come off, or it does not, in which case the correct values are recorded and the code, the reference doc and the CHANGELOG are all corrected together. `dns-response` 54802 and `login-fail` 39426 are already confirmed and serve as the control | |
+| SIEM-11 | SR-1 | Egress is the collector and nothing else | Packet-capture the sending host for the duration of a live run | Traffic to the configured collector only. No DNS resolution of the synthetic domains, no connection to any documentation-range address, no telemetry anywhere. This is safety rule 1 tested against real infrastructure instead of a loopback socket | |
+| SIEM-12 | SR-2 | What lands in the SIEM is synthetic | Query the ingested events for source and destination addresses and any domains | Addresses confined to RFC1918 and the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). Domains under the IANA documentation domains or `.invalid`. **Nothing routable and nothing real.** An analyst finding these later must be able to tell they were synthetic | |
+| SIEM-13 | LR-1, SR-5 | Manifest reconciles with what arrived | After a completed run, compare `manifests/<run>.json` against the SIEM's event count for the window | The manifest's event count matches the number ingested. A shortfall is loss and needs SIEM-07 revisited; an excess means the window caught something else. The manifest is the reproduction recipe, so attach it to every recorded result | |
+| SIEM-14 | LR-3 | Palo Alto and Check Point, if the lab has them | Repeat SIEM-02..04 with `--vendor paloalto` and `--vendor checkpoint` against matching log sources | Optional and **expected to be skipped**. Both profiles' golden lines are `[Unverified]` and have never been checked against a live build (3 PA markers, 4 CP). Any result here is a bonus; a failure is a known-unknown being resolved, not a regression | |
+
+## 12. Pre-execution findings (from recon, before formal run)
 
 Round 1 recon surfaced 5 issues. All five were re-verified against `main` @ `0af51f7` on 2026-07-21; three are now closed. Round 2 recon adds three more.
 
@@ -240,12 +290,12 @@ Round 1 recon surfaced 5 issues. All five were re-verified against `main` @ `0af
 | OBS-005 | Info | — | Menu scenario path cannot write to a file and has no intensity override | `replicant/cli/menu.py:126-132` | Not a defect. `_run_scenario` hardcodes `to_file=None`; the CLI is a strict superset of the menu, which is the direction the CLAUDE.md parity rule requires (anything the menu does, `replicant` does headless). Recorded so it is not re-raised as a bug. |
 | OBS-006 | Info | — | Web UI has no scenario surface at all | `webui/src`, `replicant/web/server.py` | Deferred fast-follow per `docs/phase4-scenario-composition-design.md` §13. **CHAIN-16 revised 2026-07-29.** It previously read "grep for `scenario` returns zero hits", which was never a correct test and is now demonstrably wrong: `replicant/web/server.py` imports `replicant.scenario.engine` for `implemented_technique_ids`, so the grep already returns a hit with no scenario feature present. CHAIN-16 now asserts the thing it actually meant, that the candidate routes 404 and no scenario control exists in the UI. |
 
-## 12. Defect management
+## 13. Defect management
 
 Severity: **Critical** (safety-rule breach, data leak, crash on core path) → **High** (surface unusable / wrong CEF) → **Medium** (functional deviation w/ workaround) → **Low** (cosmetic/minor) → **Trivial** (docs/typo).
 Any Critical against a safety rule is an automatic **No-Go** and blocks release. Each defect logged with: id, severity, priority, steps to reproduce, expected vs actual, location, owner.
 
-## 13. Exit criteria & Go/No-Go
+## 14. Exit criteria & Go/No-Go
 
 ### Round 1 — Phases 1/1.5/2/3 (automated portion signed GO, 2026-07-19)
 - [x] Suite A + B + E: 100% pass (Claude).
@@ -264,9 +314,21 @@ Any Critical against a safety rule is an automatic **No-Go** and blocks release.
 
 **Blocking note:** Round 2 cannot reach Go while Suite G is unexecutable. A Linux VM is the single dependency. Until then the honest status is *Round 2 authored, not run*, and the product should not be described as having a validated Linux install path.
 
+### Round 3 — Live SIEM ingestion (authored 2026-07-29, not started)
+
+- [ ] SIEM-01..06 pass. These are the gate: delivery, identification, parsing, field fidelity, and event time. A failure in any of them stops the round, because the cases after them assume the events are being parsed correctly.
+- [ ] SIEM-07 passes and the lab's practical rate ceiling is **recorded**, not just observed.
+- [ ] SIEM-08 and SIEM-09 both pass **as a pair**. SIEM-08 alone is not a result: a rule that fires on the technique and also on its benign baseline has told you nothing about whether it detects anything. If the lab has no matching rule, both are marked BLOCKED rather than passed, and Round 3 is explicitly recorded as reaching "parses correctly" and no further.
+- [ ] SIEM-10 dispositioned. Either the two `[Unverified]` markers come off, or the correct signature IDs are recorded and `replicant/profiles/fortigate.py`, `docs/fortigate-cef-reference.md`, the technique catalog and the CHANGELOG are corrected **together**. Changing one of the four is the failure mode this project keeps hitting.
+- [ ] SIEM-11, SIEM-12, SIEM-13 pass. These are safety rules 1, 2 and 5 tested against real infrastructure for the first time. **Any failure here is Critical and an automatic No-Go**, under the existing rule in §13.
+- [ ] SIEM-14 run or explicitly skipped, with the reason recorded.
+- [ ] QG-1 (526 Python + 89 frontend green), QG-2, QG-3, QG-4 all green on the commit under test.
+
+**Blocking note:** Round 3 cannot start without a LogRhythm deployment, which is the single dependency and has never been available. Until it runs, the honest status is *Round 3 authored, not run*, and **Replicant must not be described as validated against a SIEM, or as having working detections**. Passing golden-line tests proves the CEF matches a reference document; it does not prove a parser accepts it or a rule fires on it. Those are different claims and only Suite H tests the second one.
+
 **Sign-off:** QA lead (Claude) records automated results; DJR signs the manual + overall Go/No-Go.
 
-## 14. Execution log
+## 15. Execution log
 
 ### Automated run 1 — 2026-07-19 (on `main` @ `8fe3d31`, PR #5 merge commit)
 
