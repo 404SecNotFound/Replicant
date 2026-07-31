@@ -24,6 +24,7 @@ is bound to exactly one :class:`CollectorProfile` and never opens any other targ
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 import ssl
 import struct
@@ -111,6 +112,17 @@ def route_for(dest: str, route_table: Path = PROC_NET_ROUTE) -> Route | None:
     try:
         target = struct.unpack("<L", socket.inet_aton(dest))[0]
     except OSError:
+        return None
+
+    # Loopback never appears in /proc/net/route: the kernel keeps those routes in
+    # the `local` table and this file is the main table only. Without this, a
+    # collector on 127.0.0.1 falls through to the default route and is reported as
+    # going via the gateway, which is both wrong and the noisiest possible false
+    # positive for anyone testing against a local listener.
+    try:
+        if ipaddress.ip_address(dest).is_loopback:
+            return Route(interface="lo", gateway=None)
+    except ValueError:
         return None
 
     best: tuple[int, Route] | None = None

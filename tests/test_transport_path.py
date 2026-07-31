@@ -222,3 +222,22 @@ class TestOffSubnetWarning:
             emitter.close()
 
         assert sent == len(delivered)
+
+
+def test_loopback_is_direct_even_though_it_is_absent_from_the_route_table(
+    routes: Path,
+) -> None:
+    """Caught by CI, not locally: /proc/net/route is the MAIN table only.
+
+    Loopback routes live in the kernel's `local` table, so 127.0.0.1 matches only
+    the default route and reads as going via the gateway. macOS has no
+    /proc/net/route at all, so this passed on the development machine and failed
+    on Linux, which is exactly the class of bug the containerised CI jobs exist
+    to catch.
+    """
+
+    route = route_for("127.0.0.1", routes)
+
+    assert route is not None
+    assert route.is_direct
+    assert route.interface == "lo"
