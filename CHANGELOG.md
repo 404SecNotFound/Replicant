@@ -6,6 +6,12 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-31
+
+Two things a live LogRhythm test found, and neither was a bug in what Replicant
+generates. The events were always right; when they arrived, and whether the interface
+could be read, were not.
+
 ### Added: events are sent when the plan says they happen
 
 Measured against a live LogRhythm collector: REP-001 at low intensity delivered **49
@@ -753,6 +759,7 @@ This project uses MITRE ATT&CK. Copyright 2026 The MITRE Corporation. Reproduced
 
 Licensed under the Apache License 2.0. Third-party notices are in [`NOTICE`](NOTICE).
 
+[0.4.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.4.0
 [0.3.1]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.3.1
 [0.3.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.3.0
 [0.2.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.2.0
