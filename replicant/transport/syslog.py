@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import socket
 import ssl
+import struct
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from types import TracebackType
 
 from replicant.core.models import CollectorProfile
@@ -52,6 +54,95 @@ _LEVEL_TO_SYSLOG_SEVERITY: dict[str, int] = {
     "information": 6,
     "debug": 7,
 }
+
+
+PROC_NET_ROUTE = Path("/proc/net/route")
+
+
+def local_source_for(host: str, port: int) -> tuple[str, int] | None:
+    """The local address the kernel would use to reach ``host``.
+
+    ``connect`` on a UDP socket **sends nothing**. It performs the route lookup
+    and binds a local address, which is the whole point here and is what keeps
+    this compatible with safety rule 1: no datagram leaves, and the only address
+    involved is the collector the operator configured.
+
+    Returns None when the route lookup fails, since a diagnostic that raises is
+    worse than one that stays quiet.
+    """
+
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect((host, port))
+            name = probe.getsockname()
+            return (str(name[0]), int(name[1]))
+        finally:
+            probe.close()
+    except OSError:
+        return None
+
+
+def route_interface_for(dest: str, route_table: Path = PROC_NET_ROUTE) -> str | None:
+    """The interface the kernel would send to ``dest`` on. Linux only, best effort.
+
+    Reads the kernel routing table directly rather than shelling out to ``ip``,
+    which keeps this dependency-free and safe to call from a library. Addresses in
+    ``/proc/net/route`` are hex words in host byte order, so they compare directly
+    against ``inet_aton`` unpacked little-endian. [Unverified] on a big-endian
+    host, where the two would disagree; the failure mode is a missing interface
+    name in one log line, not a wrong one, because a mismatch simply finds no route.
+
+    Returns None on any other platform, which is why every caller treats the
+    interface as optional.
+    """
+
+    try:
+        target = struct.unpack("<L", socket.inet_aton(dest))[0]
+    except OSError:
+        return None
+
+    best: tuple[int, str] | None = None
+    try:
+        with route_table.open(encoding="ascii") as handle:
+            for index, row in enumerate(handle):
+                if index == 0:  # header
+                    continue
+                fields = row.split()
+                if len(fields) < 8:
+                    continue
+                try:
+                    network = int(fields[1], 16)
+                    mask = int(fields[7], 16)
+                except ValueError:
+                    continue
+                if (target & mask) == network:
+                    # Longest prefix wins, exactly as the kernel decides it, so a
+                    # specific route beats the default route rather than racing it.
+                    bits = bin(mask).count("1")
+                    if best is None or bits > best[0]:
+                        best = (bits, fields[0])
+    except OSError:
+        return None
+    return best[1] if best else None
+
+
+def describe_path(host: str, port: int) -> str:
+    """One line naming both ends of the path, plus the interface when known.
+
+    Exists because a destination on its own never looks wrong. A live lab session
+    was lost to a collector configured as ``10.20.0.125`` when the collector was
+    ``10.0.20.125``: two transposed octets. Replicant logged the destination on
+    every run and it read as perfectly ordinary. It only became obvious beside the
+    source address, which a packet capture showed and this did not.
+    """
+
+    source = local_source_for(host, port)
+    if source is None:
+        return f"{host}:{port} (no route)"
+    interface = route_interface_for(host)
+    via = f" via {interface}" if interface else ""
+    return f"{source[0]} -> {host}:{port}{via}"
 
 
 @dataclass
@@ -103,9 +194,8 @@ class SyslogEmitter:
         if self._sock is not None:
             return
         _log.info(
-            "connecting to collector %s:%d over %s",
-            self.profile.host,
-            self.profile.port,
+            "connecting to collector %s over %s",
+            describe_path(self.profile.host, self.profile.port),
             self.profile.transport,
         )
         if self.profile.transport == "udp":
