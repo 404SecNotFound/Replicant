@@ -21,6 +21,8 @@
 // token: TOKEN is "" then, the header goes out empty, and the cookie carries the
 // request instead.
 
+import type { PaceChoice, PlanPreview } from "./pacing";
+
 export const TOKEN = new URLSearchParams(window.location.search).get("token") || "";
 
 /** Return `href` without its `token` parameter, or null if it had none. */
@@ -227,13 +229,35 @@ export interface RunBody {
   collector?: Collector | null;
   vendor?: string | null;
   anchor?: string | null;
+  /** Events per second. Null uses the configured cap. */
+  rate?: number | null;
+  /** Delivery shape. Null lets the server pick from the destination. */
+  pace?: PaceChoice | null;
+  /** Compresses the plan timeline, event times included. Plan pacing only. */
+  speed?: number;
 }
 
 export const startRun = (body: RunBody) =>
-  api<{ run_id: string; total: number }>("/api/runs", {
+  api<{
+    run_id: string;
+    total: number;
+    pace: PaceChoice;
+    speed: number;
+    projected_s: number;
+    plan_span_s: number;
+  }>("/api/runs", {
     method: "POST",
     body: JSON.stringify(body),
   });
+
+/**
+ * How long this run would take, without starting it.
+ *
+ * Takes the same body as `startRun`, so the figures shown beside the pacing
+ * options cannot describe a different run than the one that starts.
+ */
+export const getPlanPreview = (body: RunBody) =>
+  api<PlanPreview>("/api/plan", { method: "POST", body: JSON.stringify(body) });
 
 export const stopRun = (runId: string) =>
   api<{ ok: boolean }>(`/api/runs/${runId}/stop`, { method: "POST" });

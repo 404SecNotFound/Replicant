@@ -107,7 +107,9 @@ def test_a_sending_run_does_not_warn_about_the_destination(tmp_path: Path) -> No
         from replicant.core.models import CollectorProfile
 
         collector = CollectorProfile(host="127.0.0.1", port=sock.getsockname()[1], transport="udp")
-        _run(tmp_path, collector=collector)
+        # Burst: the subject is which destination messages get logged, not the
+        # schedule, and a live send now defaults to plan pacing.
+        _run(tmp_path, collector=collector, pace="burst")
     finally:
         sock.close()
 

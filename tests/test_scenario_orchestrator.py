@@ -147,7 +147,15 @@ def test_scenario_loopback_udp_delivers(tmp_path: Path) -> None:
     orch = _orch(tmp_path)
     collector = CollectorProfile(name="t", host="127.0.0.1", port=port, transport="udp")
     result = orch.run_scenario(
-        ScenarioRunRequest(scenario_id="SCEN-001", seed=1337, collector=collector, no_send=False),
+        # Burst: what is under test is loopback delivery, not the schedule. A live
+        # send now defaults to plan pacing, and SCEN-001 is a multi-hour timeline.
+        ScenarioRunRequest(
+            scenario_id="SCEN-001",
+            seed=1337,
+            collector=collector,
+            no_send=False,
+            pace="burst",
+        ),
         SCEN,
     )
     # Join before close: let the receiver's own 2s recv timeout drain whatever is
@@ -197,7 +205,15 @@ def test_scenario_loopback_tcp_delivers_every_event(tmp_path: Path) -> None:
     orch = _orch(tmp_path)
     collector = CollectorProfile(name="t", host="127.0.0.1", port=port, transport="tcp")
     result = orch.run_scenario(
-        ScenarioRunRequest(scenario_id="SCEN-001", seed=1337, collector=collector, no_send=False),
+        # Burst: what is under test is loopback delivery, not the schedule. A live
+        # send now defaults to plan pacing, and SCEN-001 is a multi-hour timeline.
+        ScenarioRunRequest(
+            scenario_id="SCEN-001",
+            seed=1337,
+            collector=collector,
+            no_send=False,
+            pace="burst",
+        ),
         SCEN,
     )
     thread.join(timeout=10)

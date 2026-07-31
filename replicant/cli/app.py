@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
@@ -93,6 +94,18 @@ _err_console = Console(stderr=True)
 def _fail(message: str) -> None:
     """Print an operator-facing error to stderr. Callers still return their own exit code."""
     _err_console.print(message)
+
+
+def _first_error(exc: ValidationError) -> str:
+    """The readable half of a pydantic failure.
+
+    A request model rejecting a flag combination is an operator error, not a
+    stack trace: the raw ValidationError buries one sentence under a type name, a
+    location tuple and a documentation URL.
+    """
+
+    message = str(exc.errors()[0]["msg"])
+    return message.removeprefix("Value error, ")
 
 
 def _load_catalog(settings: Settings, console: Console) -> Catalog | None:
@@ -198,6 +211,23 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--to-file", metavar="PATH", help="mirror CEF payloads to a file")
     run.add_argument("--no-send", action="store_true", help="do not send to a collector")
     run.add_argument("--rate", type=int, help="events-per-second cap override")
+    run.add_argument(
+        "--pace",
+        choices=["burst", "plan"],
+        help="delivery shape. 'plan' reproduces the gaps the plan's own timeline "
+        "holds, so a four hour beacon takes four hours; 'burst' sends as fast as "
+        "--rate allows and ignores those gaps. Defaults to plan when sending to a "
+        "collector, burst for --to-file",
+    )
+    run.add_argument(
+        "--speed",
+        type=float,
+        default=1.0,
+        metavar="N",
+        help="compress the plan timeline N times (plan pacing only). Event times "
+        "compress with it, so a rule keyed on five minute gaps will not match a "
+        "run compressed 60x. Real time to validate a rule, compressed for a smoke test",
+    )
     run.add_argument("--host", help="collector host (ad-hoc, instead of a saved profile)")
     run.add_argument("--port", type=int, default=514)
     run.add_argument("--transport", choices=["udp", "tcp", "tls"], default="udp")
@@ -233,6 +263,8 @@ def build_parser() -> argparse.ArgumentParser:
     scen_run.add_argument("--to-file", dest="to_file")
     scen_run.add_argument("--no-send", dest="no_send", action="store_true")
     scen_run.add_argument("--rate", type=int)
+    scen_run.add_argument("--pace", choices=["burst", "plan"])
+    scen_run.add_argument("--speed", type=float, default=1.0, metavar="N")
     scen_run.add_argument("--host")
     scen_run.add_argument("--port", type=int, default=514)
     scen_run.add_argument("--transport", choices=["udp", "tcp", "tls"], default="udp")
@@ -344,18 +376,37 @@ def cmd_run(
     if warning:
         console.print(f"[yellow]note[/yellow]: {warning}")
 
-    request = RunRequest(
-        technique_id=args.id,
-        intensity=args.intensity,
-        seed=args.seed if args.seed is not None else settings.default_seed,
-        duration=args.duration,
-        to_file=args.to_file,
-        no_send=args.no_send,
-        rate_override=args.rate,
-        collector=collector,
-        anchor_epoch=anchor,
-    )
+    try:
+        request = RunRequest(
+            technique_id=args.id,
+            intensity=args.intensity,
+            seed=args.seed if args.seed is not None else settings.default_seed,
+            duration=args.duration,
+            to_file=args.to_file,
+            no_send=args.no_send,
+            rate_override=args.rate,
+            collector=collector,
+            anchor_epoch=anchor,
+            pace=args.pace,
+            speed=args.speed,
+        )
+    except ValidationError as exc:
+        _fail(f"[red]run refused[/red]: {_first_error(exc)}")
+        return 1
+
     orchestrator = Orchestrator(catalog, settings)
+    # Said before the run, not after it. Plan pacing turns a three second run into
+    # a four hour one, and an operator who finds that out by watching a prompt not
+    # come back has been surprised by their own tool.
+    try:
+        preview = orchestrator.preview_pacing(
+            request, sending=not args.no_send and collector is not None
+        )
+    except (RuntimeError, NotImplementedError) as exc:
+        _fail(f"[red]run refused[/red]: {exc}")
+        return 1
+    console.print(preview.describe())
+
     try:
         result = orchestrator.run(request)
     except (RuntimeError, NotImplementedError) as exc:
@@ -428,17 +479,33 @@ def cmd_scenario(
     if warning:
         console.print(f"[yellow]note[/yellow]: {warning}")
 
-    request = ScenarioRunRequest(
-        scenario_id=args.id,
-        seed=args.seed if args.seed is not None else settings.default_seed,
-        intensity_override=args.intensity,
-        to_file=args.to_file,
-        no_send=args.no_send,
-        rate_override=args.rate,
-        collector=collector,
-        anchor_epoch=anchor,
-    )
+    try:
+        request = ScenarioRunRequest(
+            scenario_id=args.id,
+            seed=args.seed if args.seed is not None else settings.default_seed,
+            intensity_override=args.intensity,
+            to_file=args.to_file,
+            no_send=args.no_send,
+            rate_override=args.rate,
+            collector=collector,
+            anchor_epoch=anchor,
+            pace=args.pace,
+            speed=args.speed,
+        )
+    except ValidationError as exc:
+        _fail(f"[red]run refused[/red]: {_first_error(exc)}")
+        return 1
+
     orchestrator = Orchestrator(catalog, settings)
+    try:
+        preview = orchestrator.preview_scenario_pacing(
+            request, scenarios, sending=not args.no_send and collector is not None
+        )
+    except (RuntimeError, NotImplementedError) as exc:
+        _fail(f"[red]run refused[/red]: {exc}")
+        return 1
+    console.print(preview.describe())
+
     try:
         result = orchestrator.run_scenario(request, scenarios)
     except (RuntimeError, NotImplementedError) as exc:

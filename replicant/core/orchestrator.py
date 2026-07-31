@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -51,6 +51,15 @@ from replicant.core.models import (
     ScenarioManifest,
     ScenarioRunRequest,
     ScenarioStageRecord,
+)
+from replicant.core.pacing import (
+    SPEED_WITHOUT_PLAN,
+    Pace,
+    compress_timeline,
+    format_span,
+    projected_seconds,
+    resolve_pace,
+    send_offsets,
 )
 from replicant.entities.model import EntityModel
 from replicant.obs.log import RateCounter, get_logger
@@ -80,6 +89,46 @@ class RunResult:
 
     def summary(self) -> str:
         return human_summary(self.manifest, self.manifest_path)
+
+
+@dataclass
+class PacingPreview:
+    """What a run will cost on the wall clock, worked out before it starts.
+
+    Plan pacing turns a three second run into a four hour one. That is the whole
+    point of it and it must never be a surprise, so the CLI prints this before the
+    first event and the web form shows it before the operator commits.
+    """
+
+    event_count: int
+    #: The span the plan's own event times cover, before any compression.
+    plan_span_s: int
+    #: The span the rendered timestamps will actually claim. Equal to
+    #: ``plan_span_s`` unless a speed compressed them, and the two differ for a
+    #: reason worth showing: under burst the timestamps still claim the full span
+    #: while delivery takes a fraction of a second, which is precisely why a burst
+    #: run cannot satisfy a rule keyed on the interval between events.
+    compressed_span_s: int
+    #: How long delivery actually takes at this pace, speed and rate cap.
+    projected_s: float
+    #: The same figure for every pace, not only the selected one. A form that
+    #: could price only the current choice would either show a stale number for
+    #: the other option or blank it while a request is in flight, and the point of
+    #: the control is to let an operator compare the two before committing.
+    projected_by_pace: dict[str, float]
+    pace: Pace
+    speed: float
+
+    def describe(self) -> str:
+        if self.pace == "plan":
+            shape = "plan timeline" + ("" if self.speed == 1.0 else f" compressed {self.speed:g}x")
+        else:
+            shape = "burst, plan timeline ignored"
+        return (
+            f"pacing: {shape}. {self.event_count} events spanning "
+            f"{format_span(self.plan_span_s)} of event time; this run will take "
+            f"{format_span(self.projected_s)}."
+        )
 
 
 @dataclass
@@ -259,6 +308,7 @@ class Orchestrator:
 
         target, transport = self._describe_target(request, send)
         eps_cap = request.rate_override or self.settings.eps_cap
+        pace = self._resolve_pace(request.pace, request.speed, sending=send)
 
         started_at = now_dubai_iso()
         count, stopped = self._emit(
@@ -267,6 +317,8 @@ class Orchestrator:
             collector=request.collector,
             to_file=file_path,
             eps_cap=eps_cap,
+            pace=pace,
+            speed=request.speed,
             on_event=on_event,
             on_progress=on_progress,
         )
@@ -294,6 +346,8 @@ class Orchestrator:
             ended_at=ended_at,
             anchor_epoch=plan.anchor_epoch,
             warmup_note=warmup,
+            pace=pace,
+            speed=request.speed,
         )
         manifest_path = write_manifest(manifest, self.settings.manifest_dir)
         return RunResult(manifest, manifest_path, count, plan, stopped)
@@ -306,10 +360,15 @@ class Orchestrator:
         collector: CollectorProfile | None,
         to_file: str | None,
         eps_cap: int,
+        pace: Pace = "burst",
+        speed: float = 1.0,
         on_event: EventCallback | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> tuple[int, bool]:
         """Render + send/write a list of events. Shared by run() and run_scenario()."""
+        # Compression moves the event times, not only the schedule, so it has to
+        # happen before anything renders. See replicant.core.pacing.
+        events = compress_timeline(events, speed)
         count = 0
         stopped = False
         sink = FileSink(to_file) if to_file else None
@@ -367,44 +426,80 @@ class Orchestrator:
                 sink.open()
             if emitter is not None:
                 emitter.connect()
-            # Evenly paced, one event every 1/rate seconds.
+            # Each event waits for its own slot. Two things decide that slot.
             #
-            # This replaces a fixed-window limiter that ran at full speed until
-            # the window filled and then slept out the remainder. Two things were
-            # wrong with it, and a live LogRhythm test found both:
+            # The rate cap is the flood guard: no two sends are ever closer than
+            # 1/eps_cap. It replaced a fixed-window limiter that a live LogRhythm
+            # test caught doing two wrong things at once. It only throttled on
+            # REACHING the cap, so a run shorter than the cap was never paced at
+            # all: 1000 events against a cap of 2000 left as 670 KB in about 0.4
+            # seconds, measured, with zero send errors and nothing arriving. And
+            # when it did engage it delivered the second's budget as a spike then
+            # slept, which is not what a firewall does and not what a receive
+            # buffer expects.
             #
-            # 1. It only throttled on reaching the cap. A run SHORTER than the cap
-            #    was never paced at all. 1000 events against a cap of 2000 left as
-            #    fast as the socket would take them: 670 KB in about 0.4 seconds,
-            #    measured, with zero send errors and nothing arriving at the SIEM.
-            # 2. Even when it did engage, it delivered the second's budget as a
-            #    burst followed by silence. A firewall trickles; a receiver sized
-            #    for the average still loses the spike.
+            # The pace decides the shape. Burst asks only for the cap. Plan
+            # reproduces the gaps the plan itself holds, which is the difference
+            # between a beacon and a snapshot of one: the same lab test delivered
+            # 49 events in 3 seconds carrying 238 minutes of event times, so any
+            # rule keyed on the interval between callbacks had nothing to match.
             #
-            # A deadline schedule fixes both. Each send waits until its own slot,
-            # and the slot advances from the previous DEADLINE rather than from
-            # the current time, so a slow send is absorbed instead of compounding
-            # into drift. If the loop falls more than one interval behind (a long
-            # GC pause, a blocked socket) the schedule resyncs to now rather than
-            # trying to catch up with a burst, which would recreate the problem it
-            # exists to prevent.
-            #
-            # The rate is now a target, not just a ceiling, so the delivered shape
-            # matches what an operator asked for instead of only its average.
+            # Both arrive as one precomputed list of offsets from the first send.
+            # The arithmetic, and its tests, are in replicant.core.pacing.
             interval = 1.0 / eps_cap if eps_cap > 0 else 0.0
-            next_due = time.monotonic()
-            if emitter is not None and interval > 0.0:
+            offsets = send_offsets(events, pace=pace, interval=interval)
+            # A slow send must not turn into a catch-up burst, which would recreate
+            # the problem the schedule exists to prevent. Past this much lag the
+            # baseline moves to now, leaving every remaining gap intact.
+            resync_after = interval if interval > 0.0 else 0.001
+            started = time.monotonic()
+            # The time of the last actual send, which is what safety rule 4 is
+            # really about. The offsets alone are only a plan: once real work runs
+            # late, consecutive events whose slots have both passed would fire back
+            # to back and the cap would be a number in a log line rather than a
+            # property of the wire. Measured from the send, so it holds whatever
+            # rendering costs.
+            last_sent: float | None = None
+            if emitter is not None and total:
                 _log.info(
-                    "pacing %d events at %d/s, one every %.2f ms, evenly spaced rather "
-                    "than sent as a burst",
+                    "pacing %d events: %s, cap %d/s, projected wall clock %s",
                     total,
+                    (
+                        f"plan timeline at {speed:g}x"
+                        if pace == "plan"
+                        else "burst, plan timeline ignored"
+                    ),
                     eps_cap,
-                    interval * 1000.0,
+                    format_span(projected_seconds(offsets)),
                 )
-            for event in events:
+            for index, event in enumerate(events):
                 if self._stop.is_set():
                     stopped = True
                     break
+                # Wait for this event's slot BEFORE rendering it, not after.
+                #
+                # The wait used to sit between the render and the send. That was
+                # harmless while every gap was a few milliseconds and is not once a
+                # gap can be minutes: the event stream, the progress count and the
+                # events-per-second readout would all race ahead of delivery. That
+                # is the same "the readout measures rendering, not delivery" defect
+                # that cost a live session. Waiting first makes the whole iteration
+                # advance at the rate the collector is actually being fed.
+                if emitter is not None and offsets:
+                    due = started + offsets[index]
+                    if last_sent is not None:
+                        due = max(due, last_sent + interval)
+                    now = time.monotonic()
+                    if due > now:
+                        # Event.wait, not time.sleep: a plan-paced gap can be
+                        # minutes long and the kill switch has to be able to end it
+                        # rather than being noticed whenever the sleep happens to
+                        # finish.
+                        if self._stop.wait(due - now):
+                            stopped = True
+                            break
+                    elif now - due > resync_after:
+                        started = now - offsets[index]
                 header, extension = self.profile.render(event)
                 line = to_cef(header, extension)
                 if on_event is not None:
@@ -412,20 +507,11 @@ class Orchestrator:
                 if sink is not None:
                     sink.write(line)
                 if emitter is not None:
-                    # Wait for this event's slot before sending, so the collector
-                    # sees a stream. See the pacing note above the loop.
-                    if interval > 0.0:
-                        now = time.monotonic()
-                        if next_due > now:
-                            time.sleep(next_due - now)
-                            now = time.monotonic()
-                        next_due += interval
-                        if next_due < now:
-                            next_due = now
                     # The framed size, which only the emitter knows: the syslog
                     # envelope adds a PRI, a timestamp and a hostname to the CEF
                     # payload, so len(line) would understate what goes on the wire.
                     sent_bytes = emitter.send(line, level=event.level)
+                    last_sent = time.monotonic()
                     rate.add(sent_bytes)
                     total_sends += 1
                     total_bytes += sent_bytes
@@ -452,6 +538,96 @@ class Orchestrator:
             if emitter is not None:
                 emitter.close()
         return count, stopped
+
+    def preview_pacing(self, request: RunRequest, *, sending: bool) -> PacingPreview:
+        """How long this run will take, and refuse it now if it cannot be run.
+
+        Builds the plan a second time, which ``run`` will build again. That is a
+        pure CPU cost with no I/O, and it buys the operator the one thing the old
+        behaviour never gave them: the duration before the commitment rather than
+        after it.
+        """
+
+        plan = self.build_plan(request)
+        return self._pacing_preview(
+            plan.events,
+            pace=request.pace,
+            speed=request.speed,
+            rate_override=request.rate_override,
+            sending=sending,
+        )
+
+    def preview_scenario_pacing(
+        self,
+        request: ScenarioRunRequest,
+        scenario_catalog: ScenarioCatalog,
+        *,
+        sending: bool,
+    ) -> PacingPreview:
+        """The same, for a scenario. A scenario is a longer timeline, so the
+        duration matters there more than for a single technique, not less."""
+
+        composed = compose(
+            scenario_catalog.by_id(request.scenario_id),
+            self.catalog.by_id,
+            self.engine,
+            request.seed,
+            request.anchor_epoch or self.settings.anchor_epoch,
+            self.entities,
+            intensity_override=request.intensity_override,
+        )
+        return self._pacing_preview(
+            composed.events,
+            pace=request.pace,
+            speed=request.speed,
+            rate_override=request.rate_override,
+            sending=sending,
+        )
+
+    def _pacing_preview(
+        self,
+        events: Sequence[EventRecord],
+        *,
+        pace: Pace | None,
+        speed: float,
+        rate_override: int | None,
+        sending: bool,
+    ) -> PacingPreview:
+        resolved = self._resolve_pace(pace, speed, sending=sending)
+        eps_cap = rate_override or self.settings.eps_cap
+        interval = 1.0 / eps_cap if eps_cap > 0 else 0.0
+        compressed = compress_timeline(events, speed)
+        # Burst reads only the count, so compression cannot change its figure.
+        by_pace = {
+            "plan": projected_seconds(send_offsets(compressed, pace="plan", interval=interval)),
+            "burst": projected_seconds(send_offsets(events, pace="burst", interval=interval)),
+        }
+        return PacingPreview(
+            event_count=len(events),
+            plan_span_s=(events[-1].eventtime - events[0].eventtime) if events else 0,
+            compressed_span_s=(
+                (compressed[-1].eventtime - compressed[0].eventtime) if compressed else 0
+            ),
+            projected_s=by_pace[resolved],
+            projected_by_pace=by_pace,
+            pace=resolved,
+            speed=speed,
+        )
+
+    def _resolve_pace(self, pace: Pace | None, speed: float, *, sending: bool) -> Pace:
+        """Pick the pace, and refuse a speed that could not do anything.
+
+        The request model already rejects an explicit ``pace='burst'`` beside a
+        speed. This catches the case a field validator cannot see: no pace named at
+        all, resolving to burst because the only destination is a file, with a
+        speed that would then be silently discarded. A control whose output cannot
+        change is decoration, so it is an error rather than a no-op.
+        """
+
+        resolved = resolve_pace(pace, sending=sending)
+        if resolved == "burst" and speed != 1.0:
+            raise RuntimeError(SPEED_WITHOUT_PLAN)
+        return resolved
 
     def _describe_target(
         self, request: RunRequest | ScenarioRunRequest, send: bool
@@ -504,6 +680,7 @@ class Orchestrator:
         )
         target, transport = self._describe_target(request, send)
         eps_cap = request.rate_override or self.settings.eps_cap
+        pace = self._resolve_pace(request.pace, request.speed, sending=send)
 
         started_at = now_dubai_iso()
         count, stopped = self._emit(
@@ -512,6 +689,8 @@ class Orchestrator:
             collector=request.collector,
             to_file=request.to_file,
             eps_cap=eps_cap,
+            pace=pace,
+            speed=request.speed,
             on_event=on_event,
             on_progress=on_progress,
         )
@@ -553,6 +732,8 @@ class Orchestrator:
             anchor_epoch=composed.anchor_epoch,
             warmup_note=self._scenario_note(composed),
             coverage=coverage,
+            pace=pace,
+            speed=request.speed,
         )
         manifest_path = write_scenario_manifest(manifest, self.settings.manifest_dir)
         advisory_path = write_advisory(advisory_text, manifest_path)

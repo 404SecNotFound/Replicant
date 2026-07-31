@@ -128,6 +128,8 @@ def test_orchestrator_frames_syslog_with_vendor_hostname(monkeypatch, tmp_path: 
     settings = Settings(vendor="checkpoint", manifest_dir=str(tmp_path))
     orch = Orchestrator(CATALOG, settings)
     collector = CollectorProfile(host="127.0.0.1", port=9999, transport="udp")
-    req = RunRequest(technique_id="REP-001", intensity="low", collector=collector)
+    # Burst: the subject is the syslog frame's hostname, not the schedule, and a
+    # live send now defaults to the plan's own 238 minute timeline.
+    req = RunRequest(technique_id="REP-001", intensity="low", collector=collector, pace="burst")
     orch.run(req)
     assert captured["hostname"] == "CP-LAB-GW-01"

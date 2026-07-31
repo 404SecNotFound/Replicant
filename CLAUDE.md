@@ -52,6 +52,10 @@ replicant run REP-001 --intensity medium --duration 30m --seed 1337
 replicant run REP-004 --intensity high --to-file ./out/dns.log --no-send
 replicant run REP-001 --vendor checkpoint --to-file ./out/cp.log --no-send
 
+replicant run REP-001 --anchor now --pace plan            # real time: a 4h beacon takes 4h
+replicant run REP-001 --anchor now --pace plan --speed 60  # same shape, 4h becomes 4m
+replicant run REP-001 --anchor now --pace burst            # all at once, plan timeline ignored
+
 replicant scenario list
 replicant scenario show SCEN-001              # dry preview, writes nothing
 replicant scenario run SCEN-001 --seed 1337 --to-file ./out/s1.log --no-send
@@ -91,6 +95,30 @@ Output convention: command results go to stdout, operator-facing errors go to st
   Two conventions worth keeping:
   1. **Measure contrast on the rendered page, not on the token table.** The tokens were verified; their *usage* was not, and the audit found four defects in the shipped **dark** theme, including `--text-4` used as body text at 2.78:1 against its own documented rule.
   2. **A grid or flex item needs `min-w-0` before `overflow-x-auto` inside it can work.** Default `min-width: auto` refuses to shrink below the content, so one long CEF line scrolled the whole page to 3452px at 375px wide.
+
+- Plan-timed pacing (complete): the emit loop honours the plan's own per-event times.
+  `--pace {burst,plan}` and `--speed N`, defaulting to plan when sending to a collector
+  and burst for `--to-file`, with the same choice as a labelled radio group in the web
+  run form. The arithmetic is pure and lives in `replicant/core/pacing.py`; the emit
+  loop in `replicant/core/orchestrator.py` only does the waiting. `POST /api/plan`
+  prices a run without starting it, which is what lets each option carry its own
+  duration on screen.
+
+  **Invariant to preserve: with `--pace plan` and `--anchor now`, an event is sent at
+  the moment its own timestamp says it happened, at any speed.** `--speed` therefore
+  rewrites event times as well as the schedule. Compressing only the schedule would
+  reproduce the original defect at 1/60 scale.
+
+  Three conventions this established:
+  1. **`--rate` and `--pace` compose, they do not compete.** Rate is the flood guard and
+     enters the schedule as a floor on spacing; pace sets the shape. Never conflate them
+     in a UI, they answer different questions.
+  2. **A rate cap enforced only against a schedule is not enforced.** Deadlines computed
+     from a fixed baseline let late events fire back to back. The floor is measured
+     against the previous *actual* send.
+  3. **`eventtime` is integer epoch seconds**, so one second is the finest gap a plan can
+     express and a hard ceiling on useful compression. Past the plan's own gap size every
+     event collapses into the same second.
 
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 

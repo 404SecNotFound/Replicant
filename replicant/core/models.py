@@ -25,8 +25,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from replicant.core.pacing import MAX_SPEED, SPEED_WITHOUT_PLAN, Pace
 from replicant.resources import SCENARIO_CATALOG
 
 Intensity = Literal["low", "medium", "high"]
@@ -175,6 +176,19 @@ class RunRequest(BaseModel):
     collector: CollectorProfile | None = None
     anchor_epoch: int | None = None
     param_overrides: dict[str, Any] = Field(default_factory=dict)
+    # How the plan's own timeline reaches the wire. None resolves by destination
+    # (plan to a collector, burst to a file) in replicant.core.pacing.resolve_pace,
+    # so an operator who does not know the option exists still gets a stream rather
+    # than a snapshot.
+    pace: Pace | None = None
+    # Compresses the plan's timeline, event times included. 1.0 is untouched.
+    speed: float = Field(default=1.0, gt=0, le=MAX_SPEED)
+
+    @model_validator(mode="after")
+    def _speed_needs_a_timeline(self) -> RunRequest:
+        if self.pace == "burst" and self.speed != 1.0:
+            raise ValueError(SPEED_WITHOUT_PLAN)
+        return self
 
 
 class RunManifest(BaseModel):
@@ -196,6 +210,12 @@ class RunManifest(BaseModel):
     ended_at: str
     anchor_epoch: int
     warmup_note: str | None = None
+    # How the events were delivered. Two runs of the same seed and technique can
+    # now put very different shapes on the wire, so the shape is part of the audit
+    # record (safety rule 5). Defaulted, so manifests written before this existed
+    # still load: they were all burst.
+    pace: str = "burst"
+    speed: float = 1.0
 
 
 def load_catalog(path: str | Path) -> Catalog:
@@ -279,6 +299,16 @@ class ScenarioRunRequest(BaseModel):
     rate_override: int | None = Field(default=None, gt=0)
     collector: CollectorProfile | None = None
     anchor_epoch: int | None = None
+    # Same rules as RunRequest: a scenario is a longer timeline, so pacing matters
+    # more there, not less.
+    pace: Pace | None = None
+    speed: float = Field(default=1.0, gt=0, le=MAX_SPEED)
+
+    @model_validator(mode="after")
+    def _speed_needs_a_timeline(self) -> ScenarioRunRequest:
+        if self.pace == "burst" and self.speed != 1.0:
+            raise ValueError(SPEED_WITHOUT_PLAN)
+        return self
 
 
 class ScenarioStageRecord(BaseModel):
@@ -318,3 +348,6 @@ class ScenarioManifest(BaseModel):
     anchor_epoch: int
     warmup_note: str | None = None
     coverage: dict[str, Any] = Field(default_factory=dict)
+    # See RunManifest: the delivered shape is part of the audit record.
+    pace: str = "burst"
+    speed: float = 1.0
