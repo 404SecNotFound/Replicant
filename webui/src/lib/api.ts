@@ -156,6 +156,34 @@ export interface DocContent {
 export const getDocs = () => api<DocsIndex>("/api/docs");
 export const getDoc = (id: string) => api<DocContent>(`/api/docs/${encodeURIComponent(id)}`);
 
+/** The four operator-facing modes, least to most severe. */
+export type LogLevel = "debug" | "verbose" | "info" | "warning";
+
+export interface LogEntry {
+  seq: number;
+  ts: number;
+  level: LogLevel;
+  logger: string;
+  message: string;
+}
+
+export interface LogsResponse {
+  level: LogLevel;
+  levels: LogLevel[];
+  entries: LogEntry[];
+  /** Pass back as `after` to fetch only what has arrived since. */
+  cursor: number;
+}
+
+export const getLogs = (after = 0, limit = 500) =>
+  api<LogsResponse>(`/api/logs?after=${after}&limit=${limit}`);
+
+export const setLogLevel = (level: LogLevel) =>
+  api<{ level: LogLevel }>("/api/logs/level", {
+    method: "PUT",
+    body: JSON.stringify({ level }),
+  });
+
 export interface TechniqueSample {
   technique_id: string;
   vendor: string;

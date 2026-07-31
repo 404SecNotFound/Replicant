@@ -101,6 +101,51 @@ The lists are written out twice on purpose: a YAML anchor would say it once, but
 GitHub Actions does not support anchors while PyYAML does, so the guard would have
 resolved the alias and passed against a workflow GitHub rejected.
 
+### Added: a Logs tab, and logging for it to show
+
+Replicant had no logging. Not a quiet logger, none: `grep -rn "import logging"` over
+the package returned nothing. That went unnoticed until the first live LogRhythm test,
+where a run reported **921 events per second sent** while the collector received
+nothing, and the tool could say no more than that.
+
+It was not lying. For UDP, `sendto` reports that the kernel accepted a datagram, not
+that anything received it, so "sent" was the strongest honest claim in the code. The
+fix is to record the things that distinguish the cases.
+
+- **`replicant/obs/log.py`**: stdlib logging plus a bounded in-memory ring buffer.
+  Four modes, matching the four an operator asked for: `debug`, `verbose`, `info`,
+  `warning`. VERBOSE is a custom level at 15, between DEBUG and INFO, because a line
+  per datagram is higher volume than a diagnostic and lower value than a warning.
+- **Instrumentation that answers the question that prompted it**: the resolved
+  destination and transport at connect; the framed byte count per send; cumulative
+  sends, bytes, errors and oversize counts; a once-per-second throughput line; and the
+  burst width when the rate cap fires, which is the part an events-per-second figure
+  hides.
+- **Two warnings that name a cause rather than a symptom.** A datagram above 1472
+  bytes will fragment, and fragments are dropped by more collectors and middleboxes
+  than most people expect, which is a common reason a short connect test arrives and
+  full CEF lines do not. And an event time more than two days from now while the
+  syslog header is stamped now, which makes events look absent rather than late on a
+  SIEM keying on parsed event time.
+- **`GET /api/logs`, `GET /api/logs/stream`, `PUT /api/logs/level`**, behind the same
+  token guard as everything else, plus a Logs tab with the mode selector, pause,
+  copy and follow-tail.
+
+Three deliberate constraints:
+
+1. **Nothing here performs I/O beyond memory.** Safety rule 1 says the only egress is
+   the operator's collector, so records live in this process and are read back over
+   the existing localhost API.
+2. **`propagate` is off.** Under systemd stdout is the journal. This project has
+   already leaked the web token that way once; a logger defaulting to writing every
+   record there would be the same mistake twice.
+3. **Redaction happens on write, not on render.** A record scrubbed at display time is
+   still sitting in memory in the clear for every other reader. `test_web_logs.py`
+   asserts the token cannot be read back through the API.
+
+`SyslogEmitter.send` now returns the framed byte count instead of `None`, and a failed
+send is counted and reported before being re-raised rather than passing silently.
+
 ### Notes
 
 The eps signal readout was verified mid-run against a real loopback collector, since

@@ -116,8 +116,10 @@ def test_orchestrator_frames_syslog_with_vendor_hostname(monkeypatch, tmp_path: 
         def connect(self) -> None:  # pragma: no cover - trivial
             pass
 
-        def send(self, line: str, level: str) -> None:  # pragma: no cover - trivial
-            pass
+        def send(self, line: str, level: str) -> int:  # pragma: no cover - trivial
+            # Returns the framed byte count, matching SyslogEmitter.send. The
+            # orchestrator sums these for its per-second throughput line.
+            return len(line)
 
         def close(self) -> None:  # pragma: no cover - trivial
             pass

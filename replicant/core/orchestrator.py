@@ -28,6 +28,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from replicant import __version__
@@ -52,6 +53,7 @@ from replicant.core.models import (
     ScenarioStageRecord,
 )
 from replicant.entities.model import EntityModel
+from replicant.obs.log import RateCounter, get_logger
 from replicant.profiles.base import VendorProfile
 from replicant.profiles.checkpoint import CheckPointProfile
 from replicant.profiles.fortigate import FortiGateDevice, FortiGateProfile
@@ -61,6 +63,8 @@ from replicant.scenario.composer import ComposedPlan, compose
 from replicant.scenario.engine import ScenarioEngine, ScenarioPlan
 from replicant.transport.filesink import FileSink
 from replicant.transport.syslog import SyslogEmitter
+
+_log = get_logger("run")
 
 ProgressCallback = Callable[[int, int], None]
 EventCallback = Callable[[str, EventRecord], None]
@@ -298,6 +302,29 @@ class Orchestrator:
             else None
         )
         total = len(events)
+        rate = RateCounter()
+        total_sends = 0
+        total_bytes = 0
+        if emitter is not None and events:
+            # The anchor is the first thing to check when a SIEM shows nothing, so
+            # it goes on the record at the start of every live run rather than
+            # being something the operator has to remember they chose.
+            first = datetime.fromtimestamp(events[0].eventtime, tz=UTC)
+            drift_days = (datetime.now(tz=UTC) - first).days
+            _log.info(
+                "live run: %d events, eps_cap=%d, first eventtime %s UTC (%d days from now)",
+                total,
+                eps_cap,
+                first.strftime("%Y-%m-%d %H:%M:%S"),
+                drift_days,
+            )
+            if abs(drift_days) >= 2:
+                _log.warning(
+                    "event time is %d days from now while the syslog header is stamped now. "
+                    "A SIEM keying on parsed event time will not match recent-window rules, "
+                    "and the events will look absent rather than late. Use anchor 'now'.",
+                    drift_days,
+                )
         try:
             if sink is not None:
                 sink.open()
@@ -329,11 +356,42 @@ class Orchestrator:
                 if sink is not None:
                     sink.write(line)
                 if emitter is not None:
-                    emitter.send(line, level=event.level)
+                    # The framed size, which only the emitter knows: the syslog
+                    # envelope adds a PRI, a timestamp and a hostname to the CEF
+                    # payload, so len(line) would understate what goes on the wire.
+                    sent_bytes = emitter.send(line, level=event.level)
+                    rate.add(sent_bytes)
+                    total_sends += 1
+                    total_bytes += sent_bytes
                     in_window += 1
+                    # Once a second, what actually went out. This is the line that
+                    # would have answered "921 sent, nothing arrived": it reports
+                    # bytes beside the count, and the burst width, which is the
+                    # part the eps figure hides.
+                    if rate.due():
+                        sent, byte_count, _, elapsed = rate.take()
+                        _log.info(
+                            "emitted %d events (%d bytes) in %.2fs; cumulative %d sends, %d bytes",
+                            sent,
+                            byte_count,
+                            elapsed,
+                            total_sends,
+                            total_bytes,
+                        )
                     if eps_cap > 0 and in_window >= eps_cap:
                         elapsed = time.monotonic() - window_start
                         if elapsed < 1.0:
+                            # The burst width, which is what a collector sees. The
+                            # cap is a per-second average; the loop delivers it as
+                            # a spike followed by silence, and a receive buffer
+                            # that copes with the average can still lose the spike.
+                            _log.debug(
+                                "rate cap hit: %d events in %.3fs, sleeping %.3fs. "
+                                "The collector receives this as a burst, not a stream.",
+                                in_window,
+                                elapsed,
+                                1.0 - elapsed,
+                            )
                             time.sleep(1.0 - elapsed)
                         window_start = time.monotonic()
                         in_window = 0

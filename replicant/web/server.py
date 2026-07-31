@@ -69,6 +69,7 @@ from replicant.config.settings import (
 )
 from replicant.core.models import Catalog, CollectorProfile, Intensity, RunRequest, Transport
 from replicant.core.orchestrator import Orchestrator, effective_identity
+from replicant.obs import log as obs_log
 from replicant.scenario.engine import implemented_technique_ids
 from replicant.web.pty_bridge import bridge_terminal
 from replicant.web.runner import RunInProgressError, RunManager
@@ -285,6 +286,22 @@ def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
     return out
 
 
+SSE_KEEPALIVE = ": keepalive\n\n"
+
+
+def sse_log_line(entry: obs_log.LogEntry) -> str:
+    """One log record as a server-sent event.
+
+    Module level, and separate from the endpoint, because the log stream has no
+    natural end: driving it through a test client to check the wire format means
+    reading from a generator that never stops. Testing the formatting here and
+    the buffer semantics through the JSON endpoint covers the same ground without
+    a test that can only be ended by a timeout.
+    """
+
+    return f"data: {json.dumps(entry.as_dict())}\n\n"
+
+
 def create_app(
     catalog: Catalog,
     settings: Settings,
@@ -293,6 +310,8 @@ def create_app(
 ) -> FastAPI:
     policy = policy or AccessPolicy()
     app = FastAPI(title="Replicant", version=__version__, docs_url=None, redoc_url=None)
+    # Idempotent, so a test that builds several apps does not stack handlers.
+    obs_log.install()
     manager = RunManager(catalog, settings)
     base_orchestrator = Orchestrator(catalog, settings)
 
@@ -599,6 +618,59 @@ def create_app(
                 yield f"data: {json.dumps(item)}\n\n"
                 if item["type"] in ("done", "error"):
                     break
+
+        return StreamingResponse(
+            generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # -- logs ------------------------------------------------------------------
+    #
+    # The buffer is in this process, so these endpoints read memory and never
+    # touch the network. Safety rule 1 is unaffected: no new egress exists here.
+
+    @app.get("/api/logs", dependencies=[Depends(require_token)])
+    def logs_index(after: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=5000)) -> Any:
+        entries = obs_log.snapshot(after=after, limit=limit)
+        return {
+            "level": obs_log.current_level(),
+            "levels": list(obs_log.LEVEL_NAMES),
+            "entries": [entry.as_dict() for entry in entries],
+            # The client tails from here. Sent explicitly rather than inferred from
+            # the last entry, so an empty page still advances the cursor.
+            "cursor": entries[-1].seq if entries else after,
+        }
+
+    @app.put("/api/logs/level", dependencies=[Depends(require_token)])
+    def set_log_level(payload: dict[str, str]) -> Any:
+        level = payload.get("level", "")
+        try:
+            obs_log.set_level(level)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        obs_log.get_logger("web").info("log level set to %s", level)
+        return {"level": obs_log.current_level()}
+
+    @app.get("/api/logs/stream", dependencies=[Depends(require_token)])
+    def stream_logs(request: Request, after: int = Query(0, ge=0)) -> StreamingResponse:
+        async def generator() -> Any:
+            cursor = after
+            # Unlike the run stream, this one has no natural end: the log buffer
+            # outlives every run. Without the disconnect check each closed Logs
+            # tab would leave a task polling the ring for the life of the process.
+            while not await request.is_disconnected():
+                entries = obs_log.snapshot(after=cursor)
+                if entries:
+                    cursor = entries[-1].seq
+                    for entry in entries:
+                        yield sse_log_line(entry)
+                else:
+                    yield SSE_KEEPALIVE
+                # Polling the ring rather than fanning out per-subscriber queues.
+                # One buffer, many readers, each holding only an integer cursor,
+                # so a slow client cannot stall the emit loop.
+                await asyncio.sleep(0.4)
 
         return StreamingResponse(
             generator(),
