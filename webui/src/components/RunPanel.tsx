@@ -264,6 +264,17 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   const canRun = technique.implemented && !running;
   const pct = total > 0 ? Math.min(100, Math.round((count / total) * 100)) : running ? 5 : 0;
 
+  // The button says where the events go. Two switches above it decided that
+  // silently before, and a run with both off renders everything and delivers
+  // nothing while looking identical to a working run: same event stream, same
+  // progress, same eps figure, because all three measure rendering. That cost a
+  // live lab session, with tcpdump showing no packets and nothing explaining why.
+  const destinationLabel = sending
+    ? `Run and send to ${collector?.host}:${collector?.port}`
+    : toFile
+      ? "Run and write to file"
+      : "Run without sending";
+
   return (
     <div className="mx-auto max-w-[900px]">
       <div className="u-label mb-3">Arm run</div>
@@ -343,6 +354,18 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           No collector configured. Sends fail closed. Connect one, or write to file.
         </p>
       )}
+      {/* Stated before the run, not after it. The same warning goes in the Logs
+          tab from the orchestrator, so it is present wherever the operator looks. */}
+      {collector && !sending && !toFile && (
+        <div
+          role="status"
+          className="mt-2.5 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-[12px] leading-relaxed text-signal"
+        >
+          No destination selected. This run will render events and neither send nor write
+          them, and the readout will still show a rate, because it measures rendering. Turn
+          on Collector to send to {collector.host}:{collector.port}.
+        </div>
+      )}
       {anchorNotice(anchor, sending, anchorEpoch) && (
         <div
           role="status"
@@ -367,7 +390,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-[13px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Play className="h-3.5 w-3.5" />
-          Start run
+          {destinationLabel}
         </button>
         <button
           onClick={handleStop}

@@ -145,3 +145,34 @@ def test_the_stream_carries_the_token_through_redaction() -> None:
 
     line = sse_log_line(obs_log.snapshot()[-1])
     assert TOKEN not in line
+
+
+def test_a_run_with_no_destination_is_flagged_in_the_response(client: TestClient) -> None:
+    """The API says where the events went, rather than leaving the client to infer it."""
+
+    body = client.post(
+        "/api/runs",
+        json={"technique_id": "REP-001", "intensity": "low", "no_send": True},
+        headers=HEADERS,
+    ).json()
+
+    assert body["destination"] == "none"
+    assert "no destination" in body["destination_warning"].lower()
+
+
+def test_a_file_run_reports_its_destination_without_a_warning(
+    client: TestClient, tmp_path: Path
+) -> None:
+    body = client.post(
+        "/api/runs",
+        json={
+            "technique_id": "REP-001",
+            "intensity": "low",
+            "no_send": True,
+            "to_file": str(tmp_path / "out.log"),
+        },
+        headers=HEADERS,
+    ).json()
+
+    assert body["destination"] == "file"
+    assert body["destination_warning"] is None
