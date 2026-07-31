@@ -26,10 +26,19 @@ from __future__ import annotations
 
 import socket
 import ssl
+from dataclasses import dataclass
 from datetime import datetime
 from types import TracebackType
 
 from replicant.core.models import CollectorProfile
+from replicant.obs.log import get_logger, verbose
+
+_log = get_logger("transport")
+
+# Ethernet MTU 1500, minus 20 bytes of IPv4 header and 8 of UDP. A datagram above
+# this fragments, and fragments are dropped by more middleboxes and collectors
+# than most people expect. TCP does not care, so the check is UDP-only.
+UDP_SAFE_PAYLOAD = 1472
 
 # FortiOS level name -> syslog numeric severity (RFC 3164). PRI = facility*8 + sev.
 _LEVEL_TO_SYSLOG_SEVERITY: dict[str, int] = {
@@ -45,6 +54,31 @@ _LEVEL_TO_SYSLOG_SEVERITY: dict[str, int] = {
 }
 
 
+@dataclass
+class SendStats:
+    """What actually happened on the socket, as opposed to what was attempted.
+
+    ``sends`` counts datagrams handed to the kernel, which for UDP is the only
+    thing this process can honestly claim. ``oversize`` is the interesting one
+    during a live test: it counts payloads that will fragment, which is a common
+    reason a collector receives the small connect-test line and none of the real
+    ones.
+    """
+
+    sends: int = 0
+    bytes: int = 0
+    errors: int = 0
+    oversize: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "sends": self.sends,
+            "bytes": self.bytes,
+            "errors": self.errors,
+            "oversize": self.oversize,
+        }
+
+
 class SyslogEmitter:
     """Frames CEF payloads into RFC 3164 syslog and sends them to one collector."""
 
@@ -58,14 +92,31 @@ class SyslogEmitter:
         self.hostname = hostname
         self.connect_timeout = connect_timeout
         self._sock: socket.socket | None = None
+        self.stats = SendStats()
+        # Warn once per emitter, not once per datagram. A run that fragments
+        # fragments every line, and 36000 identical warnings buries the buffer.
+        self._warned_oversize = False
 
     # -- lifecycle -------------------------------------------------------------
 
     def connect(self) -> None:
         if self._sock is not None:
             return
+        _log.info(
+            "connecting to collector %s:%d over %s",
+            self.profile.host,
+            self.profile.port,
+            self.profile.transport,
+        )
         if self.profile.transport == "udp":
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Says nothing about reachability. Recorded because an operator
+            # reading the log needs to know that this line is not evidence of a
+            # working path: UDP has no connect, no handshake and no ack.
+            _log.debug(
+                "udp socket open; no handshake exists, so delivery is unconfirmed "
+                "until something on the collector side counts it"
+            )
         elif self.profile.transport == "tcp":
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(self.connect_timeout)
@@ -93,6 +144,13 @@ class SyslogEmitter:
         if self._sock is not None:
             self._sock.close()
             self._sock = None
+            _log.info(
+                "collector socket closed: %d sends, %d bytes, %d errors, %d oversize",
+                self.stats.sends,
+                self.stats.bytes,
+                self.stats.errors,
+                self.stats.oversize,
+            )
 
     def __enter__(self) -> SyslogEmitter:
         self.connect()
@@ -117,14 +175,52 @@ class SyslogEmitter:
         timestamp = f"{stamp.strftime('%b')} {stamp.day:2d} {stamp.strftime('%H:%M:%S')}"
         return f"<{self.pri(level)}>{timestamp} {self.hostname} {payload}".encode()
 
-    def send(self, payload: str, level: str = "notice") -> None:
+    def send(self, payload: str, level: str = "notice") -> int:
+        """Send one framed line. Returns the byte count handed to the socket.
+
+        The return value and the counters exist because "sent" was previously the
+        strongest claim available, and for UDP it is a weak one: ``sendto``
+        reports that the kernel accepted the datagram, not that anything received
+        it. Recording the size is what makes the fragmentation case visible.
+        """
+
         self.connect()
         assert self._sock is not None
         data = self.frame(payload, level)
-        if self.profile.transport == "udp":
-            self._sock.sendto(data, (self.profile.host, self.profile.port))
-        else:
-            self._sock.sendall(data + b"\n")
+        size = len(data)
+
+        if self.profile.transport == "udp" and size > UDP_SAFE_PAYLOAD:
+            self.stats.oversize += 1
+            if not self._warned_oversize:
+                self._warned_oversize = True
+                _log.warning(
+                    "datagram is %d bytes, above the %d-byte non-fragmenting limit. "
+                    "IP will fragment it, and collectors and middleboxes drop fragments. "
+                    "This is a common reason a short connect test arrives and full CEF "
+                    "lines do not. Consider tcp transport for lines this long.",
+                    size,
+                    UDP_SAFE_PAYLOAD,
+                )
+
+        try:
+            if self.profile.transport == "udp":
+                self._sock.sendto(data, (self.profile.host, self.profile.port))
+            else:
+                self._sock.sendall(data + b"\n")
+        except OSError as exc:
+            # Counted and reported, then re-raised. Swallowing it here would turn
+            # a broken run into a silent one, which is the failure this whole
+            # module exists to stop.
+            self.stats.errors += 1
+            _log.warning(
+                "send failed after %d ok: %s (%s)", self.stats.sends, exc, type(exc).__name__
+            )
+            raise
+
+        self.stats.sends += 1
+        self.stats.bytes += size
+        verbose(_log, "sent %d bytes level=%s", size, level)
+        return size
 
     def send_test(self, payload: str) -> bool:
         """Send one line; return transport success.

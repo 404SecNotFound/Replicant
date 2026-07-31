@@ -48,6 +48,12 @@ const DocsView = lazy(() =>
   import("@/components/DocsView").then((m) => ({ default: m.DocsView })),
 );
 
+// The Logs tab polls only while it is mounted, so lazy-loading it also means an
+// operator who never opens it never starts the poll.
+const LogsView = lazy(() =>
+  import("@/components/LogsView").then((m) => ({ default: m.LogsView })),
+);
+
 const MARK = (
   <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
     <rect x="1.2" y="1.2" width="19.6" height="19.6" rx="5.4" className="stroke-muted-foreground" strokeWidth="1.3" opacity="0.5" />
@@ -61,7 +67,7 @@ const MARK = (
   </svg>
 );
 
-type Tab = "emitter" | "docs" | "terminal";
+type Tab = "emitter" | "docs" | "logs" | "terminal";
 
 export default function App() {
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
@@ -185,6 +191,10 @@ export default function App() {
         <nav className="flex gap-4 sm:gap-6">
           {navItem("emitter", "Emitter")}
           {navItem("docs", "Docs")}
+          {/* Always available. Unlike the terminal this needs no websocket and no
+              loopback bind, and it is most wanted precisely when a remote bind
+              means the operator cannot see the process's own output. */}
+          {navItem("logs", "Logs")}
           {/* The server refuses the terminal websocket on a non-loopback bind, so
               showing the tab there would offer a control that can only fail. */}
           {config.terminal_enabled && navItem("terminal", "Terminal")}
@@ -284,6 +294,18 @@ export default function App() {
             }
           >
             <DocsView />
+          </Suspense>
+        </div>
+      ) : tab === "logs" ? (
+        <div className="flex min-h-[420px] flex-1 p-3 sm:p-4 lg:min-h-0">
+          <Suspense
+            fallback={
+              <div className="grid h-full w-full place-items-center text-sm text-muted-foreground">
+                Loading logs…
+              </div>
+            }
+          >
+            <LogsView />
           </Suspense>
         </div>
       ) : (
