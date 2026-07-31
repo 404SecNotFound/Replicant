@@ -6,6 +6,71 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Added: events are sent when the plan says they happen
+
+Measured against a live LogRhythm collector: REP-001 at low intensity delivered **49
+events in about 3 seconds**, carrying event times spread over **238 minutes**. The
+plan has always held a per-event `eventtime`. The emit loop ignored it and fired as
+fast as the rate cap allowed, so what arrived was a snapshot claiming to be four
+hours of history. No interval-keyed detection can work on that: a beacon rule asking
+for N callbacks at a regular interval over M minutes sees every callback at once.
+
+- **`--pace {burst,plan}`.** `plan` reproduces the gaps the plan's own timeline holds,
+  so a four hour beacon takes four hours. `burst` is the previous behaviour, kept
+  because a file has no wall clock to reproduce.
+- **The default follows the destination**: plan when sending to a collector, burst for
+  `--to-file`. An operator who has never heard of the option still gets a stream.
+- **`--speed N` compresses the timeline, event times included.** Compressing only the
+  schedule would re-create the original defect at 1/60 scale, shipping events stamped
+  238 minutes ahead and delivering them in four. Moving both keeps one invariant that
+  holds at any speed: with `--pace plan --anchor now`, an event is sent at the moment
+  its own timestamp says it happened. Verified over a real socket: a 14280 second plan
+  at 1428x delivered 49 datagrams over 10.0 seconds carrying a 10 second event-time
+  span, with **nothing future-dated**.
+- **The cost is stated, not buried.** Compression preserves relative timing and changes
+  absolute intervals, so a rule keyed on five minute gaps will not match a run
+  compressed 60x. Real time to validate a rule, compressed for a smoke test.
+- **`--rate` is unchanged and composes rather than competes.** It stays the flood guard
+  and enters the schedule as a floor on spacing, so a plan holding several events in
+  one second still cannot deliver them together. The two answer different questions and
+  are kept apart in the UI.
+- **The web form prices both options at once.** `POST /api/plan` builds the plan without
+  running it, so each option carries its own duration (`Plan time 3h 58m` beside
+  `Burst 0.2s`) with the consequence written underneath. Radio buttons rather than a
+  dropdown, because a dropdown hides the alternative and the comparison is the point.
+- Every run manifest now records `pace` and `speed` (safety rule 5): the same seed and
+  technique can now put very different shapes on the wire.
+
+Three things this work established, worth keeping:
+
+1. **A default that is right for the product can still be wrong for the caller.** Making
+   plan the default turned four test files into hangs, because a live-send test that
+   was never about pacing inherited a 238 minute timeline. The fix was to make those
+   tests name `pace="burst"`, which reads better than the silence it replaced.
+2. **`eventtime` is integer epoch seconds, so one second is the finest gap a plan can
+   express.** That is a real ceiling on compression, not a test artifact: past roughly
+   the plan's own gap size, every event collapses into the same second. It also bounds
+   how short an honest plan-paced integration test can be.
+3. **A rate cap enforced only against a schedule is not enforced.** The first
+   implementation computed each event's slot from a fixed baseline, so once real work
+   ran late, consecutive events whose slots had both passed fired back to back and the
+   cap became a number in a log line. It is now measured against the previous actual
+   send.
+4. **A default is a change to every caller that never named the value.** The
+   installer's loopback verification runs `replicant run REP-001 --intensity low
+   --host 127.0.0.1` to prove a socket works. It stopped being a smoke test and became
+   a 238 minute wait, and two container jobs in CI sat on it until they were cancelled.
+   Shipped, then found by running it, not by review: the local suite was green because
+   the four *test* files that broke had already been fixed, and the script had no test.
+   `tests/test_shipped_commands.py` now fails if any unattended script sends to a
+   collector without naming a pace.
+5. **Two guards can cancel each other out.** Adding that runtime floor then masked the
+   catch-up check sitting beside it: once the loop ran late the floor set the deadline
+   to roughly now, so a lag measured against that deadline read zero and never fired. A
+   600ms stall was silently paid back by compressing the gaps that followed, which is
+   the shape distortion plan pacing exists to prevent. Each guard was correct on its
+   own, and the pair was not. Found by a test that stalls the emitter deliberately.
+
 ### Added: a light theme, and a responsive layout
 
 The web UI was dark-only. A light palette existed in the stylesheet but it was the

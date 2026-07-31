@@ -79,6 +79,11 @@ def _run(tmp_path: Path, rate: int | None) -> None:
             intensity="low",
             collector=CollectorProfile(host="127.0.0.1", port=5514, transport="udp"),
             rate_override=rate,
+            # Named, not inherited. Sending to a collector now defaults to plan
+            # pacing, and REP-001 low is a 238 minute plan. What these tests are
+            # about is the rate cap, which is the whole of burst pacing and the
+            # floor under plan pacing, so burst is the pace that isolates it.
+            pace="burst",
         )
     )
 

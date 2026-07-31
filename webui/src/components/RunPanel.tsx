@@ -25,9 +25,17 @@ import {
 } from "@/components/ui/select";
 import { SignalReadout } from "@/components/SignalReadout";
 import { cn } from "@/lib/utils";
-import { startRun, stopRun, getRunStatus, runEventsUrl, type Collector, type Manifest, type Technique } from "@/lib/api";
+import { startRun, stopRun, getRunStatus, getPlanPreview, runEventsUrl, type Collector, type Manifest, type RunBody, type Technique } from "@/lib/api";
 import { pollRunUntilTerminal } from "@/lib/runLifecycle";
 import { anchorNotice, defaultAnchor, type AnchorChoice } from "@/lib/anchor";
+import {
+  defaultPace,
+  fmtSpan,
+  paceConsequence,
+  projectedFor,
+  type PaceChoice,
+  type PlanPreview,
+} from "@/lib/pacing";
 
 interface Props {
   technique: Technique | null;
@@ -75,6 +83,12 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   // rate every collector can ingest, and a live LogRhythm test lost an entire
   // run to that difference with no way to turn it down from this form.
   const [rate, setRate] = useState("");
+  // How the plan's own timeline reaches the wire, and how much it is compressed.
+  // Unset until the destination is known, then defaulted from it, the same way
+  // the anchor control follows the destination.
+  const [pace, setPace] = useState<PaceChoice>(defaultPace(false));
+  const [speed, setSpeed] = useState("1");
+  const [preview, setPreview] = useState<PlanPreview | null>(null);
 
   const [running, setRunning] = useState(false);
   const [count, setCount] = useState(0);
@@ -121,6 +135,79 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   useEffect(() => {
     setAnchor(defaultAnchor(sending));
   }, [sending]);
+
+  // Same rule for the pace. A collector is the only place the delivered shape
+  // matters, and a file has no wall clock to reproduce, so the destination picks
+  // the default rather than the operator having to know the option exists.
+  useEffect(() => {
+    setPace(defaultPace(sending));
+  }, [sending]);
+
+  const speedNum = Math.max(1, Number(speed) || 1);
+  // Burst has no timeline to compress. The server refuses that combination
+  // rather than ignoring it, so the form never sends one it already knows is
+  // contradictory.
+  const effectiveSpeed = pace === "plan" ? speedNum : 1;
+
+  function buildBody(): RunBody | null {
+    if (!technique) return null;
+    return {
+      technique_id: technique.id,
+      intensity,
+      duration: duration.trim() || null,
+      seed: Number(seed),
+      to_file: toFile ? filePath : null,
+      no_send: !(sendToCollector && collector),
+      collector: sendToCollector ? collector : null,
+      vendor,
+      anchor,
+      // Blank means the configured cap. Sent as a number so the server's
+      // gt=0 constraint rejects nonsense rather than silently flooding.
+      rate: rate.trim() ? Number(rate.trim()) : null,
+      pace,
+      speed: effectiveSpeed,
+    };
+  }
+
+  // Price the run before it starts, using the same body the run itself will use
+  // so the two cannot describe different runs. Debounced because the server has
+  // to build the plan to answer, and REP-004 at high intensity is 180,000 events.
+  useEffect(() => {
+    const body = buildBody();
+    if (!body) {
+      setPreview(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      getPlanPreview(body)
+        .then((next) => {
+          if (!cancelled) setPreview(next);
+        })
+        .catch(() => {
+          // A failed preview leaves the control describing the shape of the
+          // answer without inventing numbers for it.
+          if (!cancelled) setPreview(null);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    technique,
+    intensity,
+    duration,
+    seed,
+    anchor,
+    rate,
+    pace,
+    effectiveSpeed,
+    sending,
+    toFile,
+    filePath,
+  ]);
 
   useEffect(() => {
     if (!running) return;
@@ -176,20 +263,8 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
     if (!technique) return;
     reset();
     setRunSending(sending);
-    const body = {
-      technique_id: technique.id,
-      intensity,
-      duration: duration.trim() || null,
-      seed: Number(seed),
-      to_file: toFile ? filePath : null,
-      no_send: !(sendToCollector && collector),
-      collector: sendToCollector ? collector : null,
-      vendor,
-      anchor,
-      // Blank means the configured cap. Sent as a number so the server's
-      // gt=0 constraint rejects nonsense rather than silently flooding.
-      rate: rate.trim() ? Number(rate.trim()) : null,
-    };
+    const body = buildBody();
+    if (!body) return;
     try {
       const { run_id, total: est } = await startRun(body);
       runIdRef.current = run_id;
@@ -369,6 +444,70 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
             </label>
           </div>
         </div>
+      </div>
+
+      {/* Pacing.
+          Its own row rather than a seventh column in the grid above: the choice
+          is only meaningful with its consequence written beside it, and a
+          sentence does not fit in a 92px cell.
+
+          Radio buttons rather than a dropdown. A dropdown shows one option and
+          hides the other, and the entire value here is the comparison: the same
+          plan is four hours one way and a fifth of a second the other. Both
+          durations are on screen at once for that reason. */}
+      <div className="mt-3 rounded-lg border p-3">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <span className="u-label">Pacing</span>
+          <div role="radiogroup" aria-label="Pacing" className="flex flex-wrap gap-4">
+            {(["plan", "burst"] as const).map((choice) => {
+              const projected = projectedFor(choice, preview);
+              return (
+                <label
+                  key={choice}
+                  className="flex items-center gap-2 text-[12.5px] text-muted-foreground"
+                >
+                  <input
+                    type="radio"
+                    name="pace"
+                    className="h-3.5 w-3.5 accent-signal"
+                    checked={pace === choice}
+                    onChange={() => setPace(choice)}
+                  />
+                  <span>
+                    {choice === "plan" ? "Plan time" : "Burst"}
+                    {projected !== null && (
+                      <b className="ml-1.5 font-mono text-[11.5px] font-medium text-foreground">
+                        {fmtSpan(projected)}
+                      </b>
+                    )}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          {pace === "plan" && (
+            <div className="flex items-center gap-2">
+              <label className="u-label" htmlFor="speed">
+                Speed
+              </label>
+              <Input
+                id="speed"
+                className="h-8 w-16 font-mono text-[12px]"
+                inputMode="numeric"
+                title="Compress the plan timeline. Event times compress with it."
+                value={speed}
+                onChange={(e) => setSpeed(e.target.value)}
+              />
+              <span className="text-[12px] text-text-3">x</span>
+            </div>
+          )}
+        </div>
+        <p
+          data-testid="pace-consequence"
+          className="mt-2 text-[12px] leading-relaxed text-muted-foreground"
+        >
+          {paceConsequence(pace, speedNum, preview)}
+        </p>
       </div>
 
       {!collector && (

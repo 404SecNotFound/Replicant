@@ -20,6 +20,8 @@ only here (the CLI can do everything the menu can).
 
 from __future__ import annotations
 
+from typing import cast
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
@@ -39,6 +41,7 @@ from replicant.core.models import (
     load_scenario_catalog,
 )
 from replicant.core.orchestrator import Orchestrator
+from replicant.core.pacing import Pace
 from replicant.entities.model import EntityModel
 from replicant.scenario.advisory import build_advisory
 from replicant.scenario.composer import compose
@@ -243,8 +246,28 @@ def _params_flow(
     duration = Prompt.ask("  Duration (e.g. 2m, 30m; blank uses the preset)", default="")
     dry_run = Confirm.ask("  Dry run to file only (no send)?", default=collector is None)
     to_file = None
+    pace: Pace | None = None
+    speed = 1.0
     if dry_run:
         to_file = Prompt.ask("  Output file", default="./out/replicant.log")
+    else:
+        # Only asked when the events are going somewhere with a clock. A file has
+        # no wall time to reproduce, so the question would have no answer worth
+        # having, and the resolution is left to the orchestrator either way.
+        console.print(
+            "  [dim]plan = reproduce the gaps in the plan's timeline; "
+            "burst = send as fast as the rate cap allows[/dim]"
+        )
+        pace = cast(Pace, Prompt.ask("  Pacing", choices=["plan", "burst"], default="plan"))
+        if pace == "plan":
+            raw = Prompt.ask(
+                "  Speed (1 = real time; higher compresses event times with the schedule)",
+                default="1",
+            )
+            try:
+                speed = max(1.0, float(raw))
+            except ValueError:
+                speed = 1.0
     return RunRequest(
         technique_id=technique_id,
         intensity=intensity,
@@ -253,6 +276,8 @@ def _params_flow(
         to_file=to_file,
         no_send=dry_run,
         collector=None if dry_run else collector,
+        pace=pace,
+        speed=speed,
     )
 
 
@@ -264,6 +289,19 @@ def _run_technique(orchestrator: Orchestrator, request: RunRequest, console: Con
         return
     total = len(plan.events)
     console.print(f"  estimated events: [bold]{total}[/bold]  (anchor {plan.anchor_epoch})")
+    # The count alone made a 238 minute run look identical to a three second one,
+    # and this prompt is the last point at which the operator can decline. An
+    # interactive interface is the worst place to hide a four hour commitment.
+    try:
+        preview = orchestrator.preview_pacing(
+            request,
+            sending=not request.no_send and request.collector is not None,
+            plan=plan,
+        )
+    except (RuntimeError, NotImplementedError) as exc:
+        console.print(f"  [red]cannot run[/red]: {exc}")
+        return
+    console.print(f"  {preview.describe()}")
     if not Confirm.ask("  Start run?", default=True):
         return
 

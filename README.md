@@ -346,6 +346,26 @@ replicant scenario run SCEN-001 --anchor now --host 10.20.0.50 --port 514
 
 The web UI exposes the same choice as an **Anchor** control in the run form, defaulting to `now` for a live send and `fixed` for file output, and shows the consequence before you start the run rather than after.
 
+### Pacing: when the events actually leave
+
+The anchor decides what time an event *claims*. Pacing decides when it *arrives*, and the two have to agree or an interval-keyed rule has nothing to work with.
+
+A plan carries a per-event time. REP-001 at low intensity is 49 events spread over 238 minutes, and Replicant used to send all 49 as fast as the rate cap allowed: a three second burst carrying four hours of timestamps. A beacon rule asking for N callbacks at a regular interval over M minutes sees every callback at once, so it never fires, or fires on the wrong shape.
+
+```bash
+replicant run REP-001 --anchor now --pace plan --host 10.20.0.50   # 4h beacon takes 4h
+replicant run REP-001 --anchor now --pace plan --speed 60 --host 10.20.0.50   # 4h in 4m
+replicant run REP-001 --anchor now --pace burst --host 10.20.0.50  # all at once
+```
+
+- **`plan`** reproduces the plan's own gaps. Event time equals send time throughout, and nothing is future-dated. This is the default whenever events go to a collector.
+- **`burst`** is the old behaviour: as fast as `--rate` allows, plan timeline ignored. The default for `--to-file`, where the wall clock means nothing.
+- **`--speed N`** compresses the timeline **including the event times**, so the payload never claims a spread it did not deliver. The tradeoff is real and worth stating: compression preserves *relative* timing and changes *absolute* intervals, so a rule keyed on five minute gaps will not match a run compressed 60x. Use real time to validate a rule, a compressed run for a smoke test.
+
+`--rate` is unrelated and unchanged. It is the events-per-second flood guard protecting your collector, and it acts as a floor on how close two sends can ever be, under either pace. Pacing sets the shape; rate sets the ceiling.
+
+The run form carries the same choice as a **Pacing** control, with both options priced from your actual plan (`Plan time 3h 58m` beside `Burst 0.2s`) and the consequence written underneath, so the duration is visible before you commit rather than discovered by watching a prompt not come back.
+
 The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP, TCP, and TLS transport, catalog validation, the orchestrator end-to-end, and the web API.
 
 ```bash

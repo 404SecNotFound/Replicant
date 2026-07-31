@@ -52,7 +52,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from starlette.requests import HTTPConnection
 from starlette.websockets import WebSocket
 
@@ -68,7 +68,8 @@ from replicant.config.settings import (
     web_token_path,
 )
 from replicant.core.models import Catalog, CollectorProfile, Intensity, RunRequest, Transport
-from replicant.core.orchestrator import Orchestrator, effective_identity
+from replicant.core.orchestrator import Orchestrator, PacingPreview, effective_identity
+from replicant.core.pacing import MAX_SPEED, SPEED_WITHOUT_PLAN, Pace
 from replicant.obs import log as obs_log
 from replicant.scenario.engine import implemented_technique_ids
 from replicant.web.pty_bridge import bridge_terminal
@@ -260,6 +261,17 @@ class RunBody(BaseModel):
     # no way to slow it down without dropping to a terminal. None means the
     # configured eps cap.
     rate: int | None = Field(default=None, gt=0)
+    # Delivery shape. None lets the server decide from the destination, which is
+    # the same rule the CLI follows, resolved in one place so the two surfaces
+    # cannot drift. See replicant.core.pacing.resolve_pace.
+    pace: Pace | None = None
+    speed: float = Field(default=1.0, gt=0, le=MAX_SPEED)
+
+    @model_validator(mode="after")
+    def _speed_needs_a_timeline(self) -> RunBody:
+        if self.pace == "burst" and self.speed != 1.0:
+            raise ValueError(SPEED_WITHOUT_PLAN)
+        return self
 
 
 def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
@@ -538,8 +550,14 @@ def create_app(
             "line": orch.build_test_line(),
         }
 
-    @app.post("/api/runs", dependencies=[Depends(require_token)])
-    def start_run(body: RunBody) -> dict[str, Any]:
+    def _run_request(body: RunBody) -> tuple[RunRequest, bool]:
+        """One RunBody becomes one RunRequest, for the preview and the run alike.
+
+        Shared so the figures the form shows before a run cannot describe a
+        different run than the one that starts. Also returns whether events will
+        actually reach a collector, which is what decides the default pace.
+        """
+
         try:
             catalog.by_id(body.technique_id)
         except KeyError as exc:
@@ -569,19 +587,69 @@ def create_app(
             collector=collector,
             anchor_epoch=anchor,
             rate_override=body.rate,
+            pace=body.pace,
+            speed=body.speed,
         )
+        return request, (not body.no_send and collector is not None)
+
+    def _preview(body: RunBody) -> tuple[RunRequest, bool, PacingPreview]:
+        request, sending = _run_request(body)
         try:
-            handle = manager.start(request, settings=_settings_for(body.vendor))
+            preview = _orchestrator_for(body.vendor).preview_pacing(request, sending=sending)
+        except (RuntimeError, NotImplementedError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return request, sending, preview
+
+    @app.post("/api/plan", dependencies=[Depends(require_token)])
+    def preview_plan(body: RunBody) -> dict[str, Any]:
+        """How long this run would take, without starting it.
+
+        The run form needs real numbers to put beside each pacing option. Without
+        them the control could only say "this may take a while", and the lesson
+        this project keeps relearning is that the defects here are labels rather
+        than logic. Takes the same body as POST /api/runs so the two cannot drift.
+        """
+
+        _, _, preview = _preview(body)
+        return {
+            "event_count": preview.event_count,
+            "plan_span_s": preview.plan_span_s,
+            "compressed_span_s": preview.compressed_span_s,
+            "projected_s": preview.projected_s,
+            "projected_by_pace": preview.projected_by_pace,
+            "pace": preview.pace,
+            "speed": preview.speed,
+        }
+
+    @app.post("/api/runs", dependencies=[Depends(require_token)])
+    def start_run(body: RunBody) -> dict[str, Any]:
+        request, sending, preview = _preview(body)
+        anchor = request.anchor_epoch or settings.anchor_epoch
+        try:
+            handle = manager.start(
+                request,
+                settings=_settings_for(body.vendor),
+                # The preview just built this plan; REP-004 high is 180,000 events
+                # and 1.6 seconds, so it is not worth building twice.
+                total=preview.event_count,
+            )
         except RunInProgressError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (RuntimeError, NotImplementedError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        sending = not body.no_send and collector is not None
         return {
             "run_id": handle.run_id,
             "total": handle.total,
             "anchor_epoch": anchor,
             "anchor_warning": stale_anchor_warning(anchor, sending=sending),
+            # The pace the server actually resolved, not the one the client hoped
+            # for. A client that guesses the default wrong would otherwise label a
+            # four hour run as a three second one.
+            "pace": preview.pace,
+            "speed": preview.speed,
+            "projected_s": preview.projected_s,
+            "projected_by_pace": preview.projected_by_pace,
+            "plan_span_s": preview.plan_span_s,
             # Where the events actually go, decided by the server rather than
             # restated by the client. A run with neither destination is a render
             # with no output, and it looks exactly like a working run in the event

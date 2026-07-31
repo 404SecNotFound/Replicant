@@ -100,7 +100,21 @@ class RunManager:
             for rid in terminal_ids[: max(0, len(terminal_ids) - MAX_TERMINAL_RETAINED)]:
                 del self._runs[rid]
 
-    def start(self, request: RunRequest, settings: Settings | None = None) -> RunHandle:
+    def start(
+        self,
+        request: RunRequest,
+        settings: Settings | None = None,
+        total: int | None = None,
+    ) -> RunHandle:
+        """Start a run. ``total`` skips a plan build the caller has already done.
+
+        Building the plan is pure CPU but not free: REP-004 at high intensity is
+        180,000 events and about 1.6 seconds. The endpoint now previews the run to
+        price its pacing before starting it, and that preview already knows the
+        count, so passing it through keeps a start at the two builds it always
+        cost rather than three.
+        """
+
         # One active run at a time: reject before doing any work so a second start
         # cannot spin up a second limiter against the same collector.
         with self._lock:
@@ -110,7 +124,8 @@ class RunManager:
         self._evict_terminal()
 
         orchestrator = Orchestrator(self.catalog, settings or self.settings)
-        total = len(orchestrator.build_plan(request))
+        if total is None:
+            total = len(orchestrator.build_plan(request))
         events: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=QUEUE_MAXSIZE)
         handle = RunHandle(
             run_id=uuid.uuid4().hex,
