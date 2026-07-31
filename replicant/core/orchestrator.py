@@ -486,9 +486,8 @@ class Orchestrator:
                 # that cost a live session. Waiting first makes the whole iteration
                 # advance at the rate the collector is actually being fed.
                 if emitter is not None and offsets:
-                    due = started + offsets[index]
-                    if last_sent is not None:
-                        due = max(due, last_sent + interval)
+                    plan_due = started + offsets[index]
+                    due = plan_due if last_sent is None else max(plan_due, last_sent + interval)
                     now = time.monotonic()
                     if due > now:
                         # Event.wait, not time.sleep: a plan-paced gap can be
@@ -498,7 +497,18 @@ class Orchestrator:
                         if self._stop.wait(due - now):
                             stopped = True
                             break
-                    elif now - due > resync_after:
+                        now = time.monotonic()
+                    # Behind the plan by more than one slot: move the baseline to
+                    # now so every REMAINING gap survives intact.
+                    #
+                    # The lag is measured against the plan's own deadline and not
+                    # against `due`. Once the loop runs late the rate floor sets
+                    # `due` to roughly now, so a test against `due` reads a lag of
+                    # zero, never fires, and the schedule quietly pays the delay
+                    # back by squeezing the gaps that follow. A stall has to move
+                    # the run later, not distort the shape after it, because
+                    # reproducing that shape is the whole reason for plan pacing.
+                    if now - plan_due > resync_after:
                         started = now - offsets[index]
                 header, extension = self.profile.render(event)
                 line = to_cef(header, extension)

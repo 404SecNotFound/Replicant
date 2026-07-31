@@ -303,6 +303,56 @@ def test_burst_pacing_ignores_the_plan_and_finishes_sooner(
     assert max(burst) < 0.5
 
 
+class StallingEmitter(RecordingEmitter):
+    """Records sends, and is slow for the first few of them.
+
+    Models a host that falls behind: a blocked socket, a long GC pause, a loaded
+    runner. The schedule has to survive that without distorting itself.
+    """
+
+    STALL_COUNT = 20
+    STALL_S = 0.03
+
+    def send(self, line: str, level: str) -> int:
+        if len(RecordingEmitter.sends) < self.STALL_COUNT:
+            time.sleep(self.STALL_S)
+        return super().send(line, level)
+
+
+def test_a_stall_delays_the_run_rather_than_compressing_what_follows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Falling behind must not be paid back by squeezing later gaps.
+
+    A run that stalls has two ways out. It can shift everything later and keep
+    every remaining gap intact, or it can catch up by delivering the backlog at
+    the cap rate, which distorts the shape exactly where the stall happened. The
+    second is a catch-up burst, and reproducing the plan's shape is the entire
+    reason this mode exists, so the first is the only correct answer.
+
+    REP-002 has roughly 800ms of slack in every second, so a 600ms stall is
+    absorbable: a run that catches up finishes in the plan's own 5 seconds and
+    one that does not finishes 600ms later.
+    """
+
+    monkeypatch.setattr("replicant.core.orchestrator.SyslogEmitter", StallingEmitter)
+    _run(tmp_path, pace="plan")
+
+    sends = RecordingEmitter.sends
+    span = sends[-1] - sends[0]
+    planned_span = sum(_planned_gaps(tmp_path))
+    stalled_for = StallingEmitter.STALL_COUNT * StallingEmitter.STALL_S
+
+    assert span > planned_span + stalled_for * 0.6, (
+        f"run spanned {span:.2f}s after a {stalled_for:.2f}s stall in a "
+        f"{planned_span:.0f}s plan: the delay was absorbed by compressing later gaps"
+    )
+    # And the plan's own second boundaries are still there, unsquashed.
+    assert len([gap for gap in _gaps(sends) if gap > 0.5]) == len(
+        [gap for gap in _planned_gaps(tmp_path) if gap >= 1.0]
+    )
+
+
 def test_speed_compresses_the_event_times_that_get_rendered(tmp_path: Path) -> None:
     """Compression end to end, without waiting for it.
 

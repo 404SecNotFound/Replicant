@@ -115,7 +115,10 @@ Output convention: command results go to stdout, operator-facing errors go to st
      in a UI, they answer different questions.
   2. **A rate cap enforced only against a schedule is not enforced.** Deadlines computed
      from a fixed baseline let late events fire back to back. The floor is measured
-     against the previous *actual* send.
+     against the previous *actual* send. Its catch-up check is measured against the
+     *plan's* deadline, not the floored one: measuring both against the same value makes
+     the floor mask the catch-up guard, and a stall then gets paid back by squeezing the
+     gaps after it.
   3. **`eventtime` is integer epoch seconds**, so one second is the finest gap a plan can
      express and a hard ceiling on useful compression. Past the plan's own gap size every
      event collapses into the same second.

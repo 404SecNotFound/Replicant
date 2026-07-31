@@ -56,6 +56,12 @@ Three things this work established, worth keeping:
    ran late, consecutive events whose slots had both passed fired back to back and the
    cap became a number in a log line. It is now measured against the previous actual
    send.
+4. **Two guards can cancel each other out.** Adding that runtime floor then masked the
+   catch-up check sitting beside it: once the loop ran late the floor set the deadline
+   to roughly now, so a lag measured against that deadline read zero and never fired. A
+   600ms stall was silently paid back by compressing the gaps that followed, which is
+   the shape distortion plan pacing exists to prevent. Each guard was correct on its
+   own, and the pair was not. Found by a test that stalls the emitter deliberately.
 
 ### Added: a light theme, and a responsive layout
 
