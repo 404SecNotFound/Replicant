@@ -70,6 +70,11 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   const [toFile, setToFile] = useState(false);
   const [filePath, setFilePath] = useState("./out/replicant.log");
   const [anchor, setAnchor] = useState<AnchorChoice>(defaultAnchor(false));
+  // Events per second, blank meaning the configured cap. Exposed because the
+  // default is a ceiling suited to protecting a collector from a flood, not a
+  // rate every collector can ingest, and a live LogRhythm test lost an entire
+  // run to that difference with no way to turn it down from this form.
+  const [rate, setRate] = useState("");
 
   const [running, setRunning] = useState(false);
   const [count, setCount] = useState(0);
@@ -181,6 +186,9 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       collector: sendToCollector ? collector : null,
       vendor,
       anchor,
+      // Blank means the configured cap. Sent as a number so the server's
+      // gt=0 constraint rejects nonsense rather than silently flooding.
+      rate: rate.trim() ? Number(rate.trim()) : null,
     };
     try {
       const { run_id, total: est } = await startRun(body);
@@ -280,10 +288,10 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       <div className="u-label mb-3">Arm run</div>
 
       {/* controls */}
-      {/* Five controls. At lg they sit on one row at their natural widths; below
+      {/* Six controls. At lg they sit on one row at their natural widths; below
           that the fixed track list is wider than the viewport, so it reflows to
           four and then two columns rather than overflowing sideways. */}
-      <div className="mt-[18px] grid grid-cols-2 items-end gap-3 border-y py-[18px] sm:grid-cols-4 lg:grid-cols-[132px_92px_92px_112px_1fr]">
+      <div className="mt-[18px] grid grid-cols-2 items-end gap-3 border-y py-[18px] sm:grid-cols-4 lg:grid-cols-[132px_92px_92px_92px_112px_1fr]">
         <div>
           <label className="u-label mb-1.5 block">Intensity</label>
           <Select value={intensity} onValueChange={setIntensity}>
@@ -320,6 +328,20 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
             className="h-9 font-mono text-[13px]"
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="u-label mb-1.5 block" htmlFor="rate">
+            Rate
+          </label>
+          <Input
+            id="rate"
+            className="h-9 font-mono text-[13px]"
+            placeholder={`${epsCap}/s`}
+            inputMode="numeric"
+            title="Events per second. Blank uses the configured cap. Lower it if your collector drops events."
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
           />
         </div>
         <div>
