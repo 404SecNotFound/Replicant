@@ -549,16 +549,18 @@ class Orchestrator:
                 emitter.close()
         return count, stopped
 
-    def preview_pacing(self, request: RunRequest, *, sending: bool) -> PacingPreview:
+    def preview_pacing(
+        self, request: RunRequest, *, sending: bool, plan: ScenarioPlan | None = None
+    ) -> PacingPreview:
         """How long this run will take, and refuse it now if it cannot be run.
 
-        Builds the plan a second time, which ``run`` will build again. That is a
-        pure CPU cost with no I/O, and it buys the operator the one thing the old
-        behaviour never gave them: the duration before the commitment rather than
-        after it.
+        Builds the plan unless the caller already has one. Building is pure CPU
+        with no I/O, but REP-004 at high intensity is 180,000 events and about
+        1.6 seconds, so a caller holding a plan should pass it rather than pay
+        for it twice.
         """
 
-        plan = self.build_plan(request)
+        plan = plan or self.build_plan(request)
         return self._pacing_preview(
             plan.events,
             pace=request.pace,
