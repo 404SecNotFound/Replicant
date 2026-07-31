@@ -350,21 +350,40 @@ class Orchestrator:
                 sink.open()
             if emitter is not None:
                 emitter.connect()
-            # Fixed-window rate limit, and the guarantee is worth stating exactly:
-            # this bounds events per DISCRETE one-second window, not per sliding
-            # second. Sends run at full speed until the window fills, then the
-            # loop sleeps out the remainder, so events cluster at the head of each
-            # window. A sliding second that straddles a boundary can therefore
-            # exceed the cap: measured once at 59 against a cap of 50 while the
-            # overall delivered rate held at 49.94/s.
+            # Evenly paced, one event every 1/rate seconds.
             #
-            # That is acceptable for the purpose (protecting an operator's
-            # collector from a sustained flood) and is documented as a
-            # fixed-window average in the README and CHANGELOG. Anything relying
-            # on an instantaneous ceiling needs a token bucket instead, which is
-            # deliberately not what this is.
-            window_start = time.monotonic()
-            in_window = 0
+            # This replaces a fixed-window limiter that ran at full speed until
+            # the window filled and then slept out the remainder. Two things were
+            # wrong with it, and a live LogRhythm test found both:
+            #
+            # 1. It only throttled on reaching the cap. A run SHORTER than the cap
+            #    was never paced at all. 1000 events against a cap of 2000 left as
+            #    fast as the socket would take them: 670 KB in about 0.4 seconds,
+            #    measured, with zero send errors and nothing arriving at the SIEM.
+            # 2. Even when it did engage, it delivered the second's budget as a
+            #    burst followed by silence. A firewall trickles; a receiver sized
+            #    for the average still loses the spike.
+            #
+            # A deadline schedule fixes both. Each send waits until its own slot,
+            # and the slot advances from the previous DEADLINE rather than from
+            # the current time, so a slow send is absorbed instead of compounding
+            # into drift. If the loop falls more than one interval behind (a long
+            # GC pause, a blocked socket) the schedule resyncs to now rather than
+            # trying to catch up with a burst, which would recreate the problem it
+            # exists to prevent.
+            #
+            # The rate is now a target, not just a ceiling, so the delivered shape
+            # matches what an operator asked for instead of only its average.
+            interval = 1.0 / eps_cap if eps_cap > 0 else 0.0
+            next_due = time.monotonic()
+            if emitter is not None and interval > 0.0:
+                _log.info(
+                    "pacing %d events at %d/s, one every %.2f ms, evenly spaced rather "
+                    "than sent as a burst",
+                    total,
+                    eps_cap,
+                    interval * 1000.0,
+                )
             for event in events:
                 if self._stop.is_set():
                     stopped = True
@@ -376,6 +395,16 @@ class Orchestrator:
                 if sink is not None:
                     sink.write(line)
                 if emitter is not None:
+                    # Wait for this event's slot before sending, so the collector
+                    # sees a stream. See the pacing note above the loop.
+                    if interval > 0.0:
+                        now = time.monotonic()
+                        if next_due > now:
+                            time.sleep(next_due - now)
+                            now = time.monotonic()
+                        next_due += interval
+                        if next_due < now:
+                            next_due = now
                     # The framed size, which only the emitter knows: the syslog
                     # envelope adds a PRI, a timestamp and a hostname to the CEF
                     # payload, so len(line) would understate what goes on the wire.
@@ -383,11 +412,8 @@ class Orchestrator:
                     rate.add(sent_bytes)
                     total_sends += 1
                     total_bytes += sent_bytes
-                    in_window += 1
-                    # Once a second, what actually went out. This is the line that
-                    # would have answered "921 sent, nothing arrived": it reports
-                    # bytes beside the count, and the burst width, which is the
-                    # part the eps figure hides.
+                    # Once a second, what actually went out. Bytes beside the count,
+                    # so "sent" can be checked against what the collector received.
                     if rate.due():
                         sent, byte_count, _, elapsed = rate.take()
                         _log.info(
@@ -398,23 +424,6 @@ class Orchestrator:
                             total_sends,
                             total_bytes,
                         )
-                    if eps_cap > 0 and in_window >= eps_cap:
-                        elapsed = time.monotonic() - window_start
-                        if elapsed < 1.0:
-                            # The burst width, which is what a collector sees. The
-                            # cap is a per-second average; the loop delivers it as
-                            # a spike followed by silence, and a receive buffer
-                            # that copes with the average can still lose the spike.
-                            _log.debug(
-                                "rate cap hit: %d events in %.3fs, sleeping %.3fs. "
-                                "The collector receives this as a burst, not a stream.",
-                                in_window,
-                                elapsed,
-                                1.0 - elapsed,
-                            )
-                            time.sleep(1.0 - elapsed)
-                        window_start = time.monotonic()
-                        in_window = 0
                 count += 1
                 if on_progress is not None and count % 100 == 0:
                     on_progress(count, total)

@@ -255,6 +255,11 @@ class RunBody(BaseModel):
     # the deterministic default; everything else goes through the same parse_anchor
     # the CLI uses, so the two surfaces cannot drift.
     anchor: str | None = None
+    # Events per second. The CLI has had `--rate` since Phase 1; the form had no
+    # equivalent, so an operator whose collector could not digest the default had
+    # no way to slow it down without dropping to a terminal. None means the
+    # configured eps cap.
+    rate: int | None = Field(default=None, gt=0)
 
 
 def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
@@ -563,6 +568,7 @@ def create_app(
             no_send=body.no_send,
             collector=collector,
             anchor_epoch=anchor,
+            rate_override=body.rate,
         )
         try:
             handle = manager.start(request, settings=_settings_for(body.vendor))
