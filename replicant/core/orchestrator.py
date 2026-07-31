@@ -161,15 +161,20 @@ class Orchestrator:
 
     # -- connection test -------------------------------------------------------
 
-    def build_test_event(self) -> EventRecord:
-        """A benign traffic:forward accept to a benign external (safety: no adversary)."""
+    def build_test_event(self, *, eventtime: int | None = None) -> EventRecord:
+        """A benign traffic:forward accept to a benign external (safety: no adversary).
+
+        ``eventtime`` defaults to the configured anchor, which keeps
+        ``/api/connect/test``'s preview and the unit tests deterministic. The live
+        send passes the current time instead: see :meth:`send_test`.
+        """
 
         return EventRecord(
             log_type="traffic",
             subtype="forward",
             action="accept",
             level="notice",
-            eventtime=self.settings.anchor_epoch,
+            eventtime=eventtime if eventtime is not None else self.settings.anchor_epoch,
             src=self.entities.internal_hosts[0],
             spt=51544,
             dst=self.entities.benign_external[0],
@@ -189,8 +194,8 @@ class Orchestrator:
             },
         )
 
-    def build_test_line(self) -> str:
-        header, extension = self.profile.render(self.build_test_event())
+    def build_test_line(self, *, eventtime: int | None = None) -> str:
+        header, extension = self.profile.render(self.build_test_event(eventtime=eventtime))
         return to_cef(header, extension)
 
     def render_line(self, event: EventRecord) -> str:
@@ -199,10 +204,22 @@ class Orchestrator:
         return to_cef(header, extension)
 
     def send_test(self, collector: CollectorProfile) -> bool:
-        """Send one benign test line to the collector; return transport success."""
+        """Send one benign test line to the collector; return transport success.
 
-        line = self.build_test_line()
+        Stamped **now**, not with the deterministic anchor.
+
+        The anchor exists so a seeded run reproduces byte for byte, which matters
+        for ``--to-file`` artifacts and the golden tests. It is exactly wrong here.
+        This datagram's whole job is to prove ingestion, and it was carrying an
+        event time 381 days in the past while the syslog header said now: on a SIEM
+        keying on parsed event time the operator's one proof lands over a year back
+        and reads as never arriving. Found in a live LogRhythm capture, where the
+        run events were correctly stamped and only the test was stale.
+        """
+
+        line = self.build_test_line(eventtime=int(datetime.now(tz=UTC).timestamp()))
         with SyslogEmitter(collector, hostname=self.syslog_hostname) as emitter:
+            _log.info("connect test: one benign line, stamped now")
             return emitter.send_test(line)
 
     # -- planning / running ----------------------------------------------------

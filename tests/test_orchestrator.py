@@ -15,12 +15,14 @@
 
 from __future__ import annotations
 
+import re
+import time
 from pathlib import Path
 
 import pytest
 
 from replicant.config.settings import Settings
-from replicant.core.models import RunRequest, load_catalog
+from replicant.core.models import CollectorProfile, RunRequest, load_catalog
 from replicant.core.orchestrator import Orchestrator
 
 CATALOG = load_catalog(
@@ -217,3 +219,52 @@ def test_build_test_line_is_benign_accept(tmp_path: Path) -> None:
     assert "traffic:forward accept" in line
     # benign external destination (documentation range), not the adversary pool
     assert " dst=198.51.100." in line
+
+
+def test_the_connect_test_is_stamped_now_not_with_the_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one datagram whose job is proving ingestion must not be 381 days stale.
+
+    Found in a live LogRhythm capture: run events carried a current eventtime and
+    the connect test carried the 2025 anchor, so the operator's proof of delivery
+    would file itself over a year in the past on any SIEM keying on event time.
+    """
+
+    orchestrator = _orchestrator(tmp_path)
+    sent: list[str] = []
+
+    class CapturingEmitter:
+        def __init__(self, collector: object, hostname: str) -> None:
+            pass
+
+        def __enter__(self) -> CapturingEmitter:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            pass
+
+        def send_test(self, line: str) -> bool:
+            sent.append(line)
+            return True
+
+    monkeypatch.setattr("replicant.core.orchestrator.SyslogEmitter", CapturingEmitter)
+    orchestrator.send_test(CollectorProfile(host="127.0.0.1", port=514, transport="udp"))
+
+    match = re.search(r"FTNTFGTeventtime=(\d+)", sent[0])
+    assert match is not None
+    stamped = int(match.group(1))
+    drift = abs(time.time() - stamped)
+    assert drift < 120, f"connect test is {drift / 86400:.0f} days from now"
+    assert stamped != _orchestrator(tmp_path).settings.anchor_epoch
+
+
+def test_the_test_line_preview_stays_deterministic(tmp_path: Path) -> None:
+    """The API preview and the golden tests still need a fixed value."""
+
+    orchestrator = _orchestrator(tmp_path)
+    first = orchestrator.build_test_line()
+    second = orchestrator.build_test_line()
+
+    assert first == second
+    assert f"FTNTFGTeventtime={orchestrator.settings.anchor_epoch}" in first
