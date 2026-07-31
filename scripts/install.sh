@@ -794,10 +794,15 @@ with open(out, "a") as fh:
   # Default plan, no --duration override: REP-001 low has interval_s 300, so a
   # short window such as 2m would truncate the plan down to a single callback at
   # t=0 and prove nothing. The default plan (duration_min 240) fires about 49
-  # events in well under a second, since eps_cap is 2000 and the pacing loop only
-  # sleeps once a 1-second window is full, so it is both a stronger delivery
-  # signal and still fast.
-  if ! verify_cmd "loopback send" "$bin" run REP-001 --intensity low \
+  # events, which is a far stronger delivery signal.
+  #
+  # --pace burst is what keeps it fast, and it has to be explicit. A live send
+  # now defaults to reproducing the plan's own timeline, and REP-001 low spans
+  # 238 minutes, so an installer that leaves the pace unstated hangs for four
+  # hours verifying a socket. What this step proves is that datagrams reach a
+  # listener; the shape they arrive in is not the claim, so burst is both the
+  # fast answer and the correct one.
+  if ! verify_cmd "loopback send" "$bin" run REP-001 --intensity low --pace burst \
        --host 127.0.0.1 --port "$port" --transport udp; then
     kill "$LISTENER_PID" 2>/dev/null || true
     die "$EX_VERIFY" "loopback send failed"

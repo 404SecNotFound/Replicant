@@ -56,7 +56,15 @@ Three things this work established, worth keeping:
    ran late, consecutive events whose slots had both passed fired back to back and the
    cap became a number in a log line. It is now measured against the previous actual
    send.
-4. **Two guards can cancel each other out.** Adding that runtime floor then masked the
+4. **A default is a change to every caller that never named the value.** The
+   installer's loopback verification runs `replicant run REP-001 --intensity low
+   --host 127.0.0.1` to prove a socket works. It stopped being a smoke test and became
+   a 238 minute wait, and two container jobs in CI sat on it until they were cancelled.
+   Shipped, then found by running it, not by review: the local suite was green because
+   the four *test* files that broke had already been fixed, and the script had no test.
+   `tests/test_shipped_commands.py` now fails if any unattended script sends to a
+   collector without naming a pace.
+5. **Two guards can cancel each other out.** Adding that runtime floor then masked the
    catch-up check sitting beside it: once the loop ran late the floor set the deadline
    to roughly now, so a lag measured against that deadline read zero and never fired. A
    600ms stall was silently paid back by compressing the gaps that followed, which is
