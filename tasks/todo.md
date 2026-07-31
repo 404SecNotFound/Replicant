@@ -1,3 +1,28 @@
+# How to read this file
+
+A reverse-chronological work log, newest first. Each `#` heading is one session or branch.
+It is **not** a live backlog, and it was misreading as one: most unticked boxes below were
+left unticked when a session ended, while the work itself shipped later under a different
+heading. Reconciled against the tree on 2026-07-30, so a box now means what it says.
+
+**Actually open, as of 2026-07-30. Four items, none of them blocking:**
+
+- **Flip repository visibility to public. DJR only**, never autonomous. (Publish prep, item 9)
+- **Rename the `technique.fortigate` binding** to a neutral name. Optional cleanup, still
+  present at `replicant/core/models.py:98`. The values are already vendor-neutral; only the
+  field name is not. (Phase 3)
+- **Off-hours/business-hours weighting** beyond REP-005, which already emits off-hours.
+  Deferred, not scheduled. (Phase 2)
+- **Plan-twice cost in `RunManager.start`.** `replicant/web/runner.py:113` builds the plan
+  once to get an event total, and the run then builds it again. Minor, measurable only on
+  large plans. (Safety hardening)
+
+Everything else here is done. The v0.1.1 deferred list is fully closed, and there is no open
+engineering backlog: what remains on the project needs DJR at a terminal, a LogRhythm lab, or
+real vendor appliances. Live UAT status belongs in `tasks/uat-plan.md`, not here.
+
+---
+
 # Light theme + responsive layout (complete, 2026-07-29, branch: feat/webui-light-theme)
 
 The last genuinely open engineering item on the backlog. Off `main` at `83775d6`
@@ -97,7 +122,7 @@ collector is unthrottled and finishes too fast to observe: a loopback UDP sink o
 
 ---
 
-# Web UI access + navigation (in progress, 2026-07-28, branch: feat/webui-access)
+# Web UI access + navigation (complete, 2026-07-28/29, branch: feat/webui-access, shipped in v0.3.0)
 
 Source: `tasks/webui-access-and-nav-spec.md` (DJR, 2026-07-28). Plan approved 2026-07-28.
 Split into two stacked PRs. Every change test-first. Branch off `main` (edac9fe), 443 tests green.
@@ -278,7 +303,7 @@ with the token stripped after load.
 
 ---
 
-# Safety-hardening before public flip (in progress, 2026-07-22, branch: fix/safety-hardening)
+# Safety-hardening before public flip (complete, 2026-07-22, branch: fix/safety-hardening, merged as PR #1)
 
 Source: accurate code review pasted 2026-07-22. Scope: safety-truth blockers only;
 packaging / numeric-ranges / bundle / Apache-headers / coverage deferred to v0.1.1.
@@ -316,11 +341,19 @@ Backlog (was "v0.1.1", pulled forward on request 2026-07-23, branch chore/close-
 - [x] NOTICE: IBM Plex OFL 1.1 + shadcn/ui + Radix MIT attribution. DONE.
 - [x] Bundle lazy-load: xterm split out (578kB -> 288kB main + 292kB async terminal chunk). DONE.
 - [x] Broader frontend coverage: +3 api-client tests (token/error/run-status). DONE.
-- [ ] Wheel/asset packaging + clean-install smoke: DEFERRED to v0.1.1 by decision. Needs
+- [x] Wheel/asset packaging + clean-install smoke: DEFERRED to v0.1.1 by decision. Needs
       relocating the catalogs into the package (48 refs / 21 files), risky right before the
       irreversible flip, and v0.1.0 ships git-clone + editable install (not the wheel). Recorded
       in CHANGELOG Known limitations.
-- [ ] Minor, still deferred: plan-twice cost in RunManager.start; stale replicant.egg-info.
+      **DONE in v0.3.1**, and it was not optional in the end: the published 0.3.0 wheel
+      installed and then failed `catalog not found` on every command. `replicant/resources.py`
+      is now the only thing that knows where runtime files live, guarded by
+      `tests/test_packaging.py` and a `wheel` CI job.
+- [ ] Minor, still deferred: plan-twice cost in RunManager.start. `replicant/web/runner.py:113`
+      calls `orchestrator.build_plan(request)` purely to get an event total, and the run then
+      plans again. Still open on 2026-07-30. (The "stale replicant.egg-info" half of this item
+      is moot: it is a local build artifact and `.gitignore:4` covers `*.egg-info/`, so it has
+      never been tracked.)
 
 ## Review
 
@@ -368,9 +401,9 @@ Goal: make Replicant fit to publish as a public GitHub repo with a tagged releas
 - [x] 4. **DEF-005 found and fixed** (nobody predicted this one). The apt path lacked `--no-install-recommends` and pulled a GUI desktop stack (tilix, GTK, icon themes) onto a headless server. Added `--no-install-recommends` / `--setopt=install_weak_deps=False`. Regression check: `GUI_LEAK=0`.
 - [x] 5. **Front-page accuracy.** README headline, tagline, vendor badge and the positioning paragraph all claimed FortiGate-only; the product has shipped three vendors since Phase 3. Corrected, plus an honest supported-distribution table that labels what is verified and what is not.
 - [x] 6. **Quality gate green:** 235 tests, black, ruff, mypy (32 files), shellcheck, `bash -n`, frontend build.
-- [ ] 7. Stale `pyproject.toml` description (still says "FortiGate CEF firewall telemetry generator").
-- [ ] 8. Release notes / tag for v0.1.0.
-- [ ] 9. Flip repository visibility to public. **Requires DJR.** Not something to do without an explicit go.
+- [x] 7. Stale `pyproject.toml` description (still says "FortiGate CEF firewall telemetry generator"). **Fixed**; it now names all three vendors.
+- [x] 8. Release notes / tag for v0.1.0. **Done**, and superseded since: tags `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.3.1` all exist, and `v0.3.1` is the published Latest release. The `v0.2.0` release stays an **unpublished draft on purpose**, because its tree predates the vendor trademark notices.
+- [ ] 9. Flip repository visibility to public. **Requires DJR.** Not something to do without an explicit go. **Still open**; the repo is private, now on GitHub Pro.
 
 Deliberately NOT done: DEF-003 (dead `implemented` UI state, Trivial) and OBS-002 (no frontend test runner, Info). Neither blocks a v0.1.0 publish; both are recorded in the UAT plan for disposition.
 
@@ -433,7 +466,7 @@ Safety re-checked: only egress is the configured collector; all entities synthet
 
 ---
 
-# Phase 2 - full catalog + hardening (in progress, branch: phase-2b)
+# Phase 2 - full catalog + hardening (complete, branch: phase-2b; catalog has since grown 11 -> 24 in v0.2.0)
 
 Session goal: finish the last four techniques (REP-007/009/008/011), then TLS transport + docs. Order: 007 -> 009 -> 008 -> 011 (011 last so the two "unimplemented" guard tests flip exactly once). One commit per technique off main; user merges via PR.
 
@@ -477,16 +510,21 @@ Safety re-checked: only egress is the configured collector; all entities synthet
 
 ---
 
-# Phase 1.5 - Web UI + embedded terminal (in progress)
+# Phase 1.5 - Web UI + embedded terminal (complete, shipped and merged)
 
 User chose: React + Vite + Tailwind + shadcn frontend, and a FULL embedded TTY terminal (xterm.js + PTY/websocket bridge running the real Rich menu). Web server binds 127.0.0.1 on a random port. Both interfaces call the same Orchestrator.
 
-- [ ] W1. Orchestrator: add optional `on_event(line, event)` callback (backward-compatible) so the web layer streams serialized lines without re-implementing run logic.
-- [ ] W2. `replicant/web/` FastAPI backend: catalog/config/connect-test/run(SSE stream)/stop/manifest endpoints + `/ws/terminal` PTY bridge. Localhost bind + per-session token. `[web]` optional deps.
-- [ ] W3. `replicant/web/pty_bridge.py`: spawn `replicant menu` in a PTY, async read/write over websocket, window resize.
-- [ ] W4. `replicant web` CLI verb: bind 127.0.0.1:0, print URL with token, open browser, serve built frontend.
-- [ ] W5. `webui/` Vite React-TS + Tailwind + shadcn-style components: connection card, catalog table, run panel with live event stream + Stop, manifest view, Terminal tab (xterm.js) with a Dashboard/Terminal switch.
-- [ ] W6. Backend tests (FastAPI TestClient): catalog, connect-test loopback, run stream, stop, token guard. on_event unit test.
+W1-W6 all shipped; only W7 was ever ticked. Verified present on 2026-07-30. Two details
+below were superseded later and are left as written rather than edited: the bind is no
+longer a random port (v0.3.0 fixed it at **9787** and allows a non-loopback bind), and the
+per-session token became a persistent one in `~/.config/replicant/web-token`.
+
+- [x] W1. Orchestrator: add optional `on_event(line, event)` callback (backward-compatible) so the web layer streams serialized lines without re-implementing run logic.
+- [x] W2. `replicant/web/` FastAPI backend: catalog/config/connect-test/run(SSE stream)/stop/manifest endpoints + `/ws/terminal` PTY bridge. Localhost bind + per-session token. `[web]` optional deps.
+- [x] W3. `replicant/web/pty_bridge.py`: spawn `replicant menu` in a PTY, async read/write over websocket, window resize.
+- [x] W4. `replicant web` CLI verb: bind 127.0.0.1:0, print URL with token, open browser, serve built frontend.
+- [x] W5. `webui/` Vite React-TS + Tailwind + shadcn-style components: connection card, catalog table, run panel with live event stream + Stop, manifest view, Terminal tab (xterm.js) with a Dashboard/Terminal switch.
+- [x] W6. Backend tests (FastAPI TestClient): catalog, connect-test loopback, run stream, stop, token guard. on_event unit test.
 - [x] W7. Build frontend, wire server to serve dist, verify end-to-end in the in-app browser (run a technique + open the terminal). Update README + report.
 
 Safety: localhost-only bind, per-session token on API + WS, Host-header check (DNS-rebinding guard). Web runs use the same fail-closed Orchestrator, eps cap, and manifest.
@@ -516,23 +554,28 @@ Build order follows the kickoff prompt: scaffold -> models -> CEF serializer (+g
 
 ## Tasks
 
-- [ ] 1. Scaffold: `pyproject.toml` (Apache-2.0, py3.11+), package layout, `.gitignore`, `README.md`, Apache header on every source file. LICENSE/NOTICE already present and correct.
-- [ ] 2. `core/models.py`: Pydantic v2 models (CefHeader, Technique, CollectorProfile, Entity, EventRecord, RunRequest, RunManifest). Catalog loader + validation.
-- [ ] 3. `cef/serializer.py`: header + extension escaping (blueprint s9). No vendor knowledge.
-  - [ ] tests: escaping unit tests from ArcSight examples (pipe/backslash/equals split header vs extension).
-- [ ] 4. `profiles/base.py` (VendorProfile interface, CefHeader) + `profiles/fortigate.py` (7 record templates, severity map, logid->sigid).
-  - [ ] tests: `test_cef_serializer.py` golden - reproduce the 7 reference CEF payloads byte for byte via profile+serializer.
-  - [ ] tests: `test_fortigate_profile.py` - severity mapping, sig-id derivation, field names.
-- [ ] 5. `entities/model.py`: seeded synthetic pools (internal hosts RFC1918, adversary/benign external docs ranges, resolver, ports, users, interfaces, device identity).
-- [ ] 6. `scenario/distributions.py` + `scenario/engine.py`: deterministic, no I/O. Plans for REP-001, REP-002, REP-004.
-  - [ ] tests: `test_scenario_engine.py` - determinism (same seed == same plan), distribution bounds, cardinality, held/varied fields.
-- [ ] 7. `transport/syslog.py` (UDP/TCP + send_test, RFC3164 framing) + `transport/filesink.py`.
-  - [ ] tests: `test_transport_loopback.py` - in-process UDP + TCP receiver, lines arrive intact, no external collector.
-- [ ] 8. `core/orchestrator.py` + `audit/manifest.py` + `config/settings.py`: request->plan->emit, manifest (seed/technique/params/target/counts/times UTC+04:00), kill switch, fail-closed.
-- [ ] 9. `cli/app.py` (list, connect, run) + `cli/menu.py` (Rich flow). Menu calls Orchestrator only.
-- [ ] 10. `tests/test_catalog_valid.py`: every entry parses, ndr_uc unique.
-- [ ] 11. Quality gate: black, ruff, mypy clean; pytest green. Run the 3 techniques to file; confirm acceptance criteria 1-10.
-- [ ] 12. README + hand-back report (built / how to run / test+lint status / [Unverified] sig IDs / deviations).
+All twelve shipped in Phase 1 and have been in `main` since; the boxes were simply never
+ticked. Verified present on 2026-07-30. Note that item 1's `data/technique-catalog.yaml`
+path moved into the package in v0.3.1 (`replicant/data/`), and the catalog has grown from
+3 techniques to 24, so read these as the original plan rather than as current shape.
+
+- [x] 1. Scaffold: `pyproject.toml` (Apache-2.0, py3.11+), package layout, `.gitignore`, `README.md`, Apache header on every source file. LICENSE/NOTICE already present and correct.
+- [x] 2. `core/models.py`: Pydantic v2 models (CefHeader, Technique, CollectorProfile, Entity, EventRecord, RunRequest, RunManifest). Catalog loader + validation.
+- [x] 3. `cef/serializer.py`: header + extension escaping (blueprint s9). No vendor knowledge.
+  - [x] tests: escaping unit tests from ArcSight examples (pipe/backslash/equals split header vs extension).
+- [x] 4. `profiles/base.py` (VendorProfile interface, CefHeader) + `profiles/fortigate.py` (7 record templates, severity map, logid->sigid).
+  - [x] tests: `test_cef_serializer.py` golden - reproduce the 7 reference CEF payloads byte for byte via profile+serializer.
+  - [x] tests: `test_fortigate_profile.py` - severity mapping, sig-id derivation, field names.
+- [x] 5. `entities/model.py`: seeded synthetic pools (internal hosts RFC1918, adversary/benign external docs ranges, resolver, ports, users, interfaces, device identity).
+- [x] 6. `scenario/distributions.py` + `scenario/engine.py`: deterministic, no I/O. Plans for REP-001, REP-002, REP-004.
+  - [x] tests: `test_scenario_engine.py` - determinism (same seed == same plan), distribution bounds, cardinality, held/varied fields.
+- [x] 7. `transport/syslog.py` (UDP/TCP + send_test, RFC3164 framing) + `transport/filesink.py`.
+  - [x] tests: `test_transport_loopback.py` - in-process UDP + TCP receiver, lines arrive intact, no external collector.
+- [x] 8. `core/orchestrator.py` + `audit/manifest.py` + `config/settings.py`: request->plan->emit, manifest (seed/technique/params/target/counts/times UTC+04:00), kill switch, fail-closed.
+- [x] 9. `cli/app.py` (list, connect, run) + `cli/menu.py` (Rich flow). Menu calls Orchestrator only.
+- [x] 10. `tests/test_catalog_valid.py`: every entry parses, ndr_uc unique.
+- [x] 11. Quality gate: black, ruff, mypy clean; pytest green. Run the 3 techniques to file; confirm acceptance criteria 1-10.
+- [x] 12. README + hand-back report (built / how to run / test+lint status / [Unverified] sig IDs / deviations).
 
 ## Key correctness decisions (locked from the reference)
 
