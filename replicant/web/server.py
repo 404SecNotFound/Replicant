@@ -570,12 +570,24 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (RuntimeError, NotImplementedError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        sending = not body.no_send and collector is not None
         return {
             "run_id": handle.run_id,
             "total": handle.total,
             "anchor_epoch": anchor,
-            "anchor_warning": stale_anchor_warning(
-                anchor, sending=not body.no_send and collector is not None
+            "anchor_warning": stale_anchor_warning(anchor, sending=sending),
+            # Where the events actually go, decided by the server rather than
+            # restated by the client. A run with neither destination is a render
+            # with no output, and it looks exactly like a working run in the event
+            # stream and the eps readout, so it has to be said in words.
+            "destination": ("collector" if sending else "file" if body.to_file else "none"),
+            "destination_warning": (
+                None
+                if sending or body.to_file
+                else (
+                    "This run has no destination. Events will be rendered and neither sent "
+                    "nor written, and the readout below measures rendering, not delivery."
+                )
             ),
         }
 

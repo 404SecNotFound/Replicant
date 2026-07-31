@@ -305,6 +305,26 @@ class Orchestrator:
         rate = RateCounter()
         total_sends = 0
         total_bytes = 0
+        # A run with no destination renders every event and delivers none of them.
+        # It is legitimate (a dry render still produces a plan, a count and a
+        # manifest) but it is indistinguishable from a working run unless it says
+        # so: the event stream, the progress and the events-per-second readout are
+        # all identical, because they measure rendering rather than delivery.
+        #
+        # This cost a live lab session. A run reported 921 events per second while
+        # tcpdump saw nothing, because the destination switch was off and nothing
+        # anywhere said so. WARNING rather than an exception, since refusing would
+        # break dry renders that legitimately want no output.
+        if emitter is None and sink is None:
+            _log.warning(
+                "no destination: rendering %d events and sending none. Nothing will reach a "
+                "collector and nothing will be written to disk. The events-per-second figure "
+                "below measures rendering, not delivery. Enable a collector or a file.",
+                total,
+            )
+        elif emitter is None and sink is not None:
+            _log.info("writing %d events to %s, not sending to any collector", total, to_file)
+
         if emitter is not None and events:
             # The anchor is the first thing to check when a SIEM shows nothing, so
             # it goes on the record at the start of every live run rather than
