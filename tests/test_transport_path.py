@@ -33,6 +33,7 @@ from replicant.transport.syslog import (
     SyslogEmitter,
     describe_path,
     local_source_for,
+    route_for,
     route_interface_for,
 )
 
@@ -130,3 +131,94 @@ class TestDescribePath:
         assert "->" in connect_lines[0]
         assert f"127.0.0.1:{port}" in connect_lines[0]
         assert "over udp" in connect_lines[0]
+
+
+class TestRouteGateway:
+    def test_a_directly_connected_destination_has_no_gateway(self, routes: Path) -> None:
+        route = route_for("10.0.20.125", routes)
+
+        assert route is not None
+        assert route.interface == "ens33"
+        assert route.gateway is None
+        assert route.is_direct
+
+    def test_a_routed_destination_names_the_gateway(self, routes: Path) -> None:
+        """The lab's transposed address. It leaves via the router."""
+
+        route = route_for("10.20.0.125", routes)
+
+        assert route is not None
+        assert route.gateway == "10.0.20.1"
+        assert not route.is_direct
+
+    def test_an_unroutable_address_returns_none(self, tmp_path: Path) -> None:
+        assert route_for("10.0.20.125", tmp_path / "absent") is None
+
+
+class TestOffSubnetWarning:
+    def _emitter(self, host: str, port: int) -> SyslogEmitter:
+        return SyslogEmitter(CollectorProfile(host=host, port=port, transport="udp"))
+
+    def test_a_direct_collector_produces_no_warning(self) -> None:
+        listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        listener.bind(("127.0.0.1", 0))
+        try:
+            emitter = self._emitter("127.0.0.1", listener.getsockname()[1])
+            emitter.connect()
+            emitter.close()
+        finally:
+            listener.close()
+
+        warnings = [e.message for e in obs_log.snapshot() if e.level == "warning"]
+        assert [w for w in warnings if "segment" in w] == []
+
+    def test_a_routed_collector_warns_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from replicant.transport import syslog as syslog_mod
+
+        monkeypatch.setattr(
+            syslog_mod,
+            "route_for",
+            lambda host, table=None: syslog_mod.Route(interface="ens33", gateway="10.0.20.1"),
+        )
+        listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        listener.bind(("127.0.0.1", 0))
+        try:
+            emitter = self._emitter("127.0.0.1", listener.getsockname()[1])
+            for _ in range(3):
+                emitter.connect()
+                emitter.send("CEF:0|x|y|z|1|n|3|")
+                listener.recvfrom(65535)
+        finally:
+            listener.close()
+            emitter.close()
+
+        warnings = [e.message for e in obs_log.snapshot() if e.level == "warning"]
+        segment = [w for w in warnings if "segment" in w]
+        # Once per emitter. A legitimate routed collector costs one line per run.
+        assert len(segment) == 1
+        assert "gateway 10.0.20.1" in segment[0]
+        assert "ens33" in segment[0]
+        # It must say why 0 errors is not reassurance, which is the trap.
+        assert "0 errors" in segment[0]
+
+    def test_the_warning_never_refuses_the_send(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A collector on another subnet is an ordinary, correct deployment."""
+
+        from replicant.transport import syslog as syslog_mod
+
+        monkeypatch.setattr(
+            syslog_mod,
+            "route_for",
+            lambda host, table=None: syslog_mod.Route(interface="ens33", gateway="10.0.20.1"),
+        )
+        listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        listener.bind(("127.0.0.1", 0))
+        try:
+            emitter = self._emitter("127.0.0.1", listener.getsockname()[1])
+            sent = emitter.send("CEF:0|x|y|z|1|n|3|")
+            delivered, _ = listener.recvfrom(65535)
+        finally:
+            listener.close()
+            emitter.close()
+
+        assert sent == len(delivered)

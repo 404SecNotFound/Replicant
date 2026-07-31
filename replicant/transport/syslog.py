@@ -83,6 +83,66 @@ def local_source_for(host: str, port: int) -> tuple[str, int] | None:
         return None
 
 
+@dataclass(frozen=True)
+class Route:
+    """How the kernel would reach a destination.
+
+    ``gateway`` is None when the destination is directly connected, which is the
+    distinction that matters: a datagram to a directly-connected host goes over
+    the local segment, while anything else is handed to a router and its fate is
+    out of this machine's hands.
+    """
+
+    interface: str
+    gateway: str | None
+
+    @property
+    def is_direct(self) -> bool:
+        return self.gateway is None
+
+
+def _hex_to_ip(value: int) -> str:
+    return socket.inet_ntoa(struct.pack("<L", value))
+
+
+def route_for(dest: str, route_table: Path = PROC_NET_ROUTE) -> Route | None:
+    """Longest-prefix match from the kernel's own table. Linux only, best effort."""
+
+    try:
+        target = struct.unpack("<L", socket.inet_aton(dest))[0]
+    except OSError:
+        return None
+
+    best: tuple[int, Route] | None = None
+    try:
+        with route_table.open(encoding="ascii") as handle:
+            for index, row in enumerate(handle):
+                if index == 0:  # header
+                    continue
+                fields = row.split()
+                if len(fields) < 8:
+                    continue
+                try:
+                    network = int(fields[1], 16)
+                    gateway = int(fields[2], 16)
+                    mask = int(fields[7], 16)
+                except ValueError:
+                    continue
+                if (target & mask) == network:
+                    bits = bin(mask).count("1")
+                    if best is None or bits > best[0]:
+                        best = (
+                            bits,
+                            Route(
+                                interface=fields[0],
+                                gateway=_hex_to_ip(gateway) if gateway else None,
+                            ),
+                        )
+    except OSError:
+        return None
+    return best[1] if best else None
+
+
 def route_interface_for(dest: str, route_table: Path = PROC_NET_ROUTE) -> str | None:
     """The interface the kernel would send to ``dest`` on. Linux only, best effort.
 
@@ -140,9 +200,14 @@ def describe_path(host: str, port: int) -> str:
     source = local_source_for(host, port)
     if source is None:
         return f"{host}:{port} (no route)"
-    interface = route_interface_for(host)
-    via = f" via {interface}" if interface else ""
-    return f"{source[0]} -> {host}:{port}{via}"
+    route = route_for(host)
+    if route is None:
+        return f"{source[0]} -> {host}:{port}"
+    # "direct" vs "via <gateway>" is the distinction that would have caught the
+    # transposed address: the correct collector was directly connected, the
+    # mistyped one was handed to a router.
+    hop = "direct" if route.is_direct else f"gateway {route.gateway}"
+    return f"{source[0]} -> {host}:{port} via {route.interface} ({hop})"
 
 
 @dataclass
@@ -187,6 +252,7 @@ class SyslogEmitter:
         # Warn once per emitter, not once per datagram. A run that fragments
         # fragments every line, and 36000 identical warnings buries the buffer.
         self._warned_oversize = False
+        self._warned_off_subnet = False
 
     # -- lifecycle -------------------------------------------------------------
 
@@ -198,6 +264,7 @@ class SyslogEmitter:
             describe_path(self.profile.host, self.profile.port),
             self.profile.transport,
         )
+        self._warn_if_off_subnet()
         if self.profile.transport == "udp":
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             # Says nothing about reachability. Recorded because an operator
@@ -221,6 +288,40 @@ class SyslogEmitter:
             self._sock.connect((self.profile.host, self.profile.port))
         else:  # pragma: no cover - Transport literal forbids other values
             raise ValueError(f"unsupported transport: {self.profile.transport}")
+
+    def _warn_if_off_subnet(self) -> None:
+        """Say so when the collector is not on this host's segment.
+
+        A warning, never a refusal. A SIEM collector on another subnet is an
+        ordinary, correct deployment, and rejecting it would break more setups
+        than it saved. But it is also what a mistyped address looks like, and
+        three separate transpositions of one lab address (``10.20.0.125`` and
+        ``10.20.0.127`` for a collector at ``10.0.20.125``) each cost hours,
+        because a routed destination fails exactly like a correct one: the
+        datagram leaves, the kernel reports success, and nothing comes back.
+
+        Once per emitter, so a legitimate routed collector costs one line per run
+        rather than one per datagram.
+        """
+
+        if self._warned_off_subnet:
+            return
+        route = route_for(self.profile.host)
+        if route is None or route.is_direct:
+            return
+        self._warned_off_subnet = True
+        source = local_source_for(self.profile.host, self.profile.port)
+        origin = source[0] if source else "this host"
+        _log.warning(
+            "collector %s is NOT on this host's segment (%s). Datagrams leave via "
+            "gateway %s on %s, and a router silently discarding them looks identical "
+            "to success here: UDP has no acknowledgement, so sends will report 0 errors "
+            "either way. If the collector should be local, check the address.",
+            self.profile.host,
+            origin,
+            route.gateway,
+            route.interface,
+        )
 
     def _tls_context(self) -> ssl.SSLContext:
         context = ssl.create_default_context(cafile=self.profile.tls_cafile)
