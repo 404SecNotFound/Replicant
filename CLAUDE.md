@@ -123,6 +123,27 @@ Output convention: command results go to stdout, operator-facing errors go to st
      express and a hard ceiling on useful compression. Past the plan's own gap size every
      event collapses into the same second.
 
+- Duration across the catalog and scenarios (complete): `--duration` works on all 24
+  techniques and on scenarios. Four builders ignored it (REP-005, REP-014, REP-019,
+  REP-023) and are fixed; `tests/test_duration.py` asserts all 24 by parameter.
+  `compose()` takes `duration_s` and runs two passes when given one, scaling stage
+  offsets and per-stage windows.
+
+  **The rule to apply to any new technique: `--duration` bounds the span, and where the
+  interval between events IS the detection signal, preserve the interval and let the
+  event count fall.** That is what separates it from `--speed`, which preserves the count
+  and divides the intervals. Only duration produces a shorter window a rule can still
+  fire on.
+
+  Two conventions this established:
+  1. **A technique pinned to an absolute window outranks the requested duration.** REP-005
+     is off-hours and off-hours is 00:00-06:00, so a longer request is capped and a
+     scenario containing it cannot compress below its whole-day alignment jump. Both are
+     recorded in the manifest rather than silently returned.
+  2. **A flag that works on most entries is worse than one that works on none**, because
+     the operator learns to trust it. Catalog-wide behaviour needs a parametrized test
+     over the whole catalog, not a test of one representative entry.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 Vendor licensing position (trademarks, the `[Constructed]` golden lines, the field-mapping tables, the CEF spec's terms) is settled in `docs/prior-art-and-licensing.md` section 3. **Standing constraint: never claim CEF certification, CEF compliance, or ArcSight validation.**

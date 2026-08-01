@@ -574,7 +574,12 @@ class ScenarioEngine:
         service, app = port_service(dpt)
 
         off_start = _off_hours_start(anchor)
-        off_window_s = 6 * 3600  # 00:00-06:00 UTC+04:00
+        # 00:00-06:00 UTC+04:00, and that window is the signal rather than a
+        # detail: the transfer is suspicious because of when it happens. A
+        # shorter duration narrows the window inside off-hours, which stays
+        # faithful. A longer one is capped instead of honoured, because spilling
+        # into the working day would destroy the property being demonstrated.
+        off_window_s = min(duration_override_s, 6 * 3600) if duration_override_s else 6 * 3600
         per_session_out = total_out_bytes // max(sessions, 1)
 
         events: list[EventRecord] = []
@@ -1458,13 +1463,20 @@ class ScenarioEngine:
         duration_override_s: int | None,
     ) -> _BuilderResult:
         sessions = int(preset["sessions"])
+        share_interval_s = int(preset["share_interval_s"])
+        dpt = int(preset["dpt"])
+        # Sessions run back to back, so the span is sessions * session_s. A
+        # duration is a request for the TOTAL, and reading it as the per-session
+        # length silently multiplied it by the session count: 2h asked, 6h
+        # planned. Divided here, floored at one share so a session still
+        # exchanges something. The share interval itself is never rescaled; a
+        # steady exchange every share_interval_s is what separates a miner from
+        # exfiltration.
         session_s = (
-            duration_override_s
+            max(duration_override_s // max(sessions, 1), share_interval_s)
             if duration_override_s is not None
             else int(preset["session_min"]) * 60
         )
-        share_interval_s = int(preset["share_interval_s"])
-        dpt = int(preset["dpt"])
 
         src = str(rng.choice(entities.internal_hosts))
         dst = str(rng.choice(entities.adversary_external))
@@ -1973,6 +1985,15 @@ class ScenarioEngine:
             total_probes = self.max_events
             truncated = True
 
+        # The span is the probe count times the gap, and the LONG GAP is the
+        # evasion: TRW converges on a few attempts from one source, so stretching
+        # them out is the technique. Shrinking the gap to fit a window would
+        # emulate a scan nobody is trying to hide. The probe count gives way
+        # instead.
+        mean_gap_s = (gap_lo + gap_hi) / 2.0
+        if duration_override_s is not None and mean_gap_s > 0:
+            total_probes = max(1, min(total_probes, int(duration_override_s / mean_gap_s)))
+
         pool = entities.internal_hosts
         sources = [
             pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(src_pool_size, len(pool)))
@@ -2336,6 +2357,13 @@ class ScenarioEngine:
         if sessions > self.max_events:
             sessions = self.max_events
             truncated = True
+
+        # Sessions are one interval apart, so the span is sessions * interval_s.
+        # The interval is the beacon, so a shorter window means fewer callbacks
+        # at the same cadence, never the same number of callbacks closer
+        # together: an interval-keyed rule has to still have something to key on.
+        if duration_override_s is not None:
+            sessions = max(1, min(sessions, duration_override_s // max(interval_s, 1) + 1))
 
         src = str(rng.choice(entities.internal_hosts))
         dst = str(rng.choice(entities.adversary_external))

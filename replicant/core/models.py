@@ -293,6 +293,11 @@ class ScenarioRunRequest(BaseModel):
     scenario_id: str
     seed: int = 1337
     intensity_override: Intensity | None = None
+    # How long the whole chain should take. Scales stage offsets and each stage's
+    # own window, so the chain keeps its order and every technique in it keeps
+    # its characteristic interval. Unrelated to `speed`, which divides intervals
+    # instead of reducing counts.
+    duration: str | None = None
     to_file: str | None = None
     no_send: bool = False
     # Positive when present; a non-positive value would disable the rate limiter.
@@ -351,3 +356,6 @@ class ScenarioManifest(BaseModel):
     # See RunManifest: the delivered shape is part of the audit record.
     pace: str = "burst"
     speed: float = 1.0
+    # The window the chain was asked to cover. Two runs of the same scenario and
+    # seed can now span very different amounts of time (safety rule 5).
+    duration: str | None = None

@@ -263,6 +263,12 @@ def build_parser() -> argparse.ArgumentParser:
     scen_run.add_argument("--to-file", dest="to_file")
     scen_run.add_argument("--no-send", dest="no_send", action="store_true")
     scen_run.add_argument("--rate", type=int)
+    scen_run.add_argument(
+        "--duration",
+        help="how long the whole chain should take, e.g. 2h. Scales stage offsets "
+        "and each stage's window, so the order and the per-technique intervals "
+        "survive and each stage simply emits fewer events",
+    )
     scen_run.add_argument("--pace", choices=["burst", "plan"])
     scen_run.add_argument("--speed", type=float, default=1.0, metavar="N")
     scen_run.add_argument("--host")
@@ -484,6 +490,7 @@ def cmd_scenario(
             scenario_id=args.id,
             seed=args.seed if args.seed is not None else settings.default_seed,
             intensity_override=args.intensity,
+            duration=args.duration,
             to_file=args.to_file,
             no_send=args.no_send,
             rate_override=args.rate,
