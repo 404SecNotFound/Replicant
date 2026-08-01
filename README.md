@@ -166,6 +166,9 @@ Compose several techniques into one ordered, multi-stage attack chain that share
 replicant scenario list
 replicant scenario show SCEN-001
 replicant scenario run SCEN-001 --seed 1337 --to-file ./out/s1.log --no-send
+
+# ask the whole chain to fit a window, then deliver it over that window
+replicant scenario run SCEN-003 --duration 2h --anchor now --pace plan --host 10.20.0.50
 ```
 
 Every scenario run writes an advisory coverage document beside its manifest: it maps the chain to ATT&CK tactics, names the cross-stage correlation key, and flags uncovered tactics. The advisory is context only; you author the detection design.
@@ -363,6 +366,28 @@ replicant run REP-001 --anchor now --pace burst --host 10.20.0.50  # all at once
 - **`--speed N`** compresses the timeline **including the event times**, so the payload never claims a spread it did not deliver. The tradeoff is real and worth stating: compression preserves *relative* timing and changes *absolute* intervals, so a rule keyed on five minute gaps will not match a run compressed 60x. Use real time to validate a rule, a compressed run for a smoke test.
 
 `--rate` is unrelated and unchanged. It is the events-per-second flood guard protecting your collector, and it acts as a floor on how close two sends can ever be, under either pace. Pacing sets the shape; rate sets the ceiling.
+
+### Duration: how much of the behaviour to emulate
+
+`--duration` says how long the simulated activity should last. It works on every one of the 24 techniques and on scenarios:
+
+```bash
+replicant run REP-001 --duration 2h --anchor now --pace plan --host 10.20.0.50        # 2h of C2 beacon
+replicant scenario run SCEN-003 --duration 2h --anchor now --pace plan --host 10.20.0.50  # 2h kill chain
+```
+
+**Duration and `--speed` are not two ways of doing the same thing, and the difference decides whether a detection can fire.**
+
+| | event count | intervals | use it for |
+|---|---|---|---|
+| `--duration 2h` | falls | **preserved** | pointing a rule at a shorter but genuine window |
+| `--speed 6` | preserved | **divided by 6** | a fast smoke test, when interval fidelity does not matter |
+
+A 2-hour C2 beacon under `--duration` is 24 callbacks five minutes apart. The same thing under `--speed` is 240 callbacks fifty seconds apart, which is not a beacon any interval-keyed rule will recognise. Where the gap between events *is* the signal, duration is what you want.
+
+For a scenario, duration scales the stage offsets and each stage's own window together, so the kill chain keeps its order and its relative spacing while every technique inside it keeps its characteristic interval.
+
+One thing deliberately resists scaling. A stage pinned to an absolute window answers to the clock rather than to the scenario: REP-005 is off-hours bulk transfer and off-hours is 00:00-06:00, so SCEN-001 cannot be compressed below that jump. The run says so in its manifest rather than quietly returning something longer than you asked for. Asking a single off-hours technique for more than six hours is capped at the window for the same reason.
 
 The run form carries the same choice as a **Pacing** control, with both options priced from your actual plan (`Plan time 3h 58m` beside `Burst 0.2s`) and the consequence written underneath, so the duration is visible before you commit rather than discovered by watching a prompt not come back.
 

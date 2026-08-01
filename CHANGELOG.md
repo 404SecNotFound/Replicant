@@ -6,6 +6,51 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Fixed: four use cases ignored `--duration`
+
+Replicant emulates a TTP by writing the logs it would have produced, so the shape has
+to be faithful, and duration is half the shape. Four of the twenty-four use cases
+silently planned the wrong length:
+
+- **REP-005** pinned itself to a fixed six hour off-hours window and ignored the flag.
+- **REP-014** read the value as a *per-session* length and then multiplied it by the
+  session count, so 2h asked produced 6h planned.
+- **REP-019** derived its span from a probe count times a random gap.
+- **REP-023** from a session count times a fixed interval.
+
+A catalogue where the flag works on twenty entries is worse than one where it works on
+none: an operator learns to trust it and is then wrong four times in twenty-four without
+being told which. `tests/test_duration.py` now asserts all 24, by parameter, so a
+regression names the technique.
+
+The governing rule, now applied consistently: **`--duration` bounds the span, and where
+the interval between events IS the signal, the interval is preserved and the event count
+falls.** A two hour beacon is twenty-four callbacks five minutes apart, not two hundred
+and forty callbacks fifty seconds apart. REP-005 caps rather than honours a request
+longer than its window, because off-hours bulk transfer spilling into the working day
+would no longer be the thing it exists to demonstrate.
+
+### Added: `--duration` on scenarios
+
+A scenario's span used to be whatever its catalog stage offsets happened to add up to.
+SCEN-001 was 12h 14m and nothing could ask for two hours; the only lever was `--speed`,
+which is a different operation.
+
+Duration scales the composition: stage offsets move proportionally and each stage is
+planned for a proportionally shorter window, so the chain keeps its order and its
+relative spacing while every technique inside it keeps its own interval and emits fewer
+events. Two passes, because the scale factor cannot be known until the natural chain has
+been built - stage spans come from each technique's preset, not from the catalog. The
+untimed path stays a single pass and is byte-identical.
+
+`ScenarioManifest` records the requested duration (safety rule 5).
+
+**A stage pinned to an absolute window is reported, not hidden.** REP-005 advances in
+whole days to clear off-hours, so SCEN-001 cannot be compressed below that jump: asked
+for 2h it composes 7h 16m and says so in the manifest. Returning a quietly twelve hour
+run for a two hour request would be the same class of defect as the pacing one this
+release opened with.
+
 ## [0.4.0] - 2026-07-31
 
 Two things a live LogRhythm test found, and neither was a bug in what Replicant

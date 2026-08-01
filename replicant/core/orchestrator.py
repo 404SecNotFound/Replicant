@@ -587,6 +587,7 @@ class Orchestrator:
             request.anchor_epoch or self.settings.anchor_epoch,
             self.entities,
             intensity_override=request.intensity_override,
+            duration_s=parse_duration(request.duration) if request.duration else None,
         )
         return self._pacing_preview(
             composed.events,
@@ -689,6 +690,7 @@ class Orchestrator:
             request.anchor_epoch or self.settings.anchor_epoch,
             self.entities,
             intensity_override=request.intensity_override,
+            duration_s=parse_duration(request.duration) if request.duration else None,
         )
         target, transport = self._describe_target(request, send)
         eps_cap = request.rate_override or self.settings.eps_cap
@@ -746,6 +748,7 @@ class Orchestrator:
             coverage=coverage,
             pace=pace,
             speed=request.speed,
+            duration=request.duration,
         )
         manifest_path = write_scenario_manifest(manifest, self.settings.manifest_dir)
         advisory_path = write_advisory(advisory_text, manifest_path)

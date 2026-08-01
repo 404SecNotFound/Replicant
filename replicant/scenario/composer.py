@@ -100,7 +100,7 @@ def _pin_entities(base: EntityModel, seed: int) -> tuple[EntityModel, str, str]:
     return pinned, victim, adversary
 
 
-def compose(
+def _compose_pass(
     scenario: Scenario,
     technique_by_id: Callable[[str], Technique],
     engine: ScenarioEngine,
@@ -108,7 +108,12 @@ def compose(
     anchor_epoch: int,
     base_entities: EntityModel,
     intensity_override: str | None = None,
+    offset_scale: float = 1.0,
+    stage_durations: list[int] | None = None,
 ) -> ComposedPlan:
+    """One composition. ``offset_scale`` and ``stage_durations`` are both identity
+    by default, so the untimed path is exactly what it was."""
+
     pinned, victim, adversary = _pin_entities(base_entities, seed)
     children = np.random.SeedSequence(seed).spawn(len(scenario.stages))
     tagged: list[tuple[int, int, EventRecord]] = []  # (eventtime, stage_index, event)
@@ -117,13 +122,15 @@ def compose(
     for i, stage in enumerate(scenario.stages):
         technique = technique_by_id(stage.technique_id)
         stage_seed = int(children[i].generate_state(1)[0])
-        stage_anchor = anchor_epoch + parse_duration(stage.start_offset)
+        stage_anchor = anchor_epoch + int(parse_duration(stage.start_offset) * offset_scale)
         intensity = intensity_override or stage.intensity
+        stage_duration = stage_durations[i] if stage_durations else None
         plan = engine.plan(
             technique,
             intensity,
             pinned,
             stage_seed,
+            duration_override_s=stage_duration,
             anchor_epoch=stage_anchor,
             param_overrides=stage.param_overrides or None,
         )
@@ -144,6 +151,7 @@ def compose(
                     intensity,
                     pinned,
                     stage_seed,
+                    duration_override_s=stage_duration,
                     anchor_epoch=stage_anchor + aligned_days * _DAY_SECONDS,
                     param_overrides=stage.param_overrides or None,
                 )
@@ -193,3 +201,96 @@ def compose(
         total_count=len(events),
         warmup_notes=warmups,
     )
+
+
+def _composed_span(composed: ComposedPlan) -> int:
+    times = [event.eventtime for event in composed.events]
+    return (max(times) - min(times)) if times else 0
+
+
+def compose(
+    scenario: Scenario,
+    technique_by_id: Callable[[str], Technique],
+    engine: ScenarioEngine,
+    seed: int,
+    anchor_epoch: int,
+    base_entities: EntityModel,
+    intensity_override: str | None = None,
+    duration_s: int | None = None,
+) -> ComposedPlan:
+    """Compose a scenario, optionally scaled to run for ``duration_s``.
+
+    Without a duration this is one pass and behaves exactly as it always did.
+
+    With one it is two, because the scale factor cannot be known until the
+    natural chain has been built: stage spans come from each technique's own
+    preset, not from the catalog. The second pass moves every stage offset by the
+    same factor and plans each stage for a proportionally shorter window, so the
+    chain keeps its order and its relative spacing while each technique inside it
+    keeps its own characteristic interval and simply emits fewer events.
+
+    That is the difference between this and ``--speed``. Speed keeps the event
+    count and divides every interval, which fast-forwards a beacon into something
+    that no longer beacons at its own cadence. Duration keeps the intervals and
+    reduces the count, which is a shorter but genuine window of the same
+    behaviour, and is the only one of the two a detection can be pointed at.
+
+    A stage pinned to an absolute window answers to the clock rather than to the
+    scenario. REP-005 is off-hours bulk transfer and ``align: next-off-hours``
+    advances it in whole days, so a request shorter than that jump cannot be met.
+    The overrun is recorded in the notes rather than silently returned.
+    """
+
+    natural = _compose_pass(
+        scenario,
+        technique_by_id,
+        engine,
+        seed,
+        anchor_epoch,
+        base_entities,
+        intensity_override,
+    )
+    if duration_s is None:
+        return natural
+
+    natural_span = _composed_span(natural)
+    if natural_span <= 0:
+        return natural
+
+    scale = duration_s / natural_span
+    # Each stage planned for its own share of the target. Floored at a second so
+    # a heavily compressed chain cannot ask a technique for a zero-length window
+    # and get an empty stage, which would drop a step out of the kill chain.
+    stage_durations = [
+        (
+            max(1, int((stage.end_epoch - stage.start_epoch) * scale))
+            if stage.start_epoch is not None and stage.end_epoch is not None
+            else 1
+        )
+        for stage in natural.stages
+    ]
+    scaled = _compose_pass(
+        scenario,
+        technique_by_id,
+        engine,
+        seed,
+        anchor_epoch,
+        base_entities,
+        intensity_override,
+        offset_scale=scale,
+        stage_durations=stage_durations,
+    )
+
+    actual = _composed_span(scaled)
+    if actual > duration_s * 1.15:
+        pinned_stages = [s.technique_id for s in scaled.stages if s.aligned_days]
+        scaled.warmup_notes.append(
+            f"requested duration {duration_s}s, composed {actual}s: "
+            + (
+                f"stage(s) {', '.join(pinned_stages)} pin to an absolute window and were "
+                "advanced whole days to clear it, which the scenario timeline cannot scale away"
+                if pinned_stages
+                else "the chain could not be compressed further"
+            )
+        )
+    return scaled
