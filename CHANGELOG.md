@@ -6,6 +6,12 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-01
+
+Replicant emulates a TTP by writing the telemetry the attack would have produced, so
+the shape of that telemetry is the product. v0.4.0 fixed *when* events arrive. This
+fixes *how much* of the behaviour you get when you ask for a window of it.
+
 ### Fixed: four use cases ignored `--duration`
 
 Replicant emulates a TTP by writing the logs it would have produced, so the shape has
@@ -804,6 +810,7 @@ This project uses MITRE ATT&CK. Copyright 2026 The MITRE Corporation. Reproduced
 
 Licensed under the Apache License 2.0. Third-party notices are in [`NOTICE`](NOTICE).
 
+[0.5.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.5.0
 [0.4.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.4.0
 [0.3.1]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.3.1
 [0.3.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.3.0
