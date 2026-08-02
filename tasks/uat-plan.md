@@ -270,6 +270,45 @@ New in r3. This is the **oldest open item in the project**; it predates v0.1.0 a
 | SIEM-13 | LR-1, SR-5 | Manifest reconciles with what arrived | After a completed run, compare `manifests/<run>.json` against the SIEM's event count for the window | The manifest's event count matches the number ingested. A shortfall is loss and needs SIEM-07 revisited; an excess means the window caught something else. The manifest is the reproduction recipe, so attach it to every recorded result | |
 | SIEM-14 | LR-3 | Palo Alto and Check Point, if the lab has them | Repeat SIEM-02..04 with `--vendor paloalto` and `--vendor checkpoint` against matching log sources | Optional and **expected to be skipped**. Both profiles' golden lines are `[Unverified]` and have never been checked against a live build (3 PA markers, 4 CP). Any result here is a bonus; a failure is a known-unknown being resolved, not a regression | |
 
+## 11b. Suite I — Timing fidelity (DJR-driven, requires the LogRhythm lab)
+
+New in r4, covering everything shipped in **v0.4.0** (plan-timed pacing) and **v0.5.0**
+(`--duration` across the catalog and on scenarios). Both releases are published and
+**neither has been confirmed against a real collector.** Every claim below was proved
+against a loopback socket, which validates the scheduler and proves nothing about
+ingestion, parsing, or whether a rule fires.
+
+This suite exists because the two releases changed *when* events arrive and *how much*
+behaviour a run contains. Those are the two properties an interval-keyed detection reads,
+so a green Suite H tells you the events are parsed and still tells you nothing about
+whether a beacon rule can fire on them.
+
+**Run Suite H first.** Every case here assumes ingestion and parsing already work; if
+SIEM-03 has not passed, a failure here cannot be attributed.
+
+**TF-08 is not optional and should be run first within this suite.** An unexplained
+19-minute difference was observed between the Replicant VM and the LogRhythm host on
+2026-07-31, separate from the timezone fix. Every other case in this suite reads event
+times, so an unmeasured clock offset will be misattributed to pacing.
+
+| ID | Req | Objective | Steps | Expected | Result |
+|----|-----|-----------|-------|----------|--------|
+| TF-08 | TF-0 | Quantify host clock offset before trusting any timing result | On the Replicant VM and the LogRhythm host, capture `date -u +%s` within the same few seconds. Also compare `chronyc tracking` / `timedatectl` on both | Offset under 2s. Anything larger is recorded as a number and subtracted from every reading below. A ~19 minute offset was seen once and never explained; if it reproduces, stop and fix NTP before continuing | |
+| TF-01 | TF-1 | Burst reproduces the original defect, on the wire | `replicant run REP-001 --intensity low --anchor now --pace burst --host <collector>`. Capture with `tcpdump -tt` | All ~49 datagrams arrive inside ~1s while carrying ~238 minutes of event times. This is the **pre-v0.4.0 behaviour** and is expected to look wrong; it is the control for TF-02 | |
+| TF-02 | TF-1 | Plan pacing delivers a stream, not a snapshot | Same run with `--pace plan`. Capture arrival times | Run takes ~238 minutes. Inter-arrival gaps track the plan's own gaps (242-356s), not a fixed rate. Record the observed spread | |
+| TF-03 | TF-2 | Sending to a collector defaults to plan pacing | Same run with **no** `--pace` flag at all | Behaves as TF-02. An operator who has never heard of the flag gets a stream | |
+| TF-04 | TF-3 | Event time equals send time, nothing future-dated | During TF-02/TF-03, compare each event's parsed `eventtime` in LogRhythm against its ingestion timestamp | Difference stays within the TF-08 offset throughout. **No event is ever stamped in the future.** This is the core invariant of v0.4.0 | |
+| TF-05 | TF-3 | Speed compresses event times as well as the schedule | `--pace plan --speed 60`, ~4 minute run | Completes in ~4 min. Parsed event times span ~4 min, **not** 238 min. If the payload still claims 238 minutes the compression is schedule-only and the invariant is broken | |
+| TF-06 | TF-4 | A two hour run is two hours, with real intervals | `replicant run REP-001 --intensity medium --duration 2h --anchor now --pace plan --host <collector>` | ~122 events across ~1h 59m. **Gaps remain ~300s** — the interval must not have been rescaled to fit. Confirm in LogRhythm, not just locally | |
+| TF-07 | TF-4 | Duration works on the four that used to ignore it | Repeat TF-06 for REP-005, REP-014, REP-019, REP-023 | Each spans ≤2h. REP-005 additionally: with `--duration 8h` it caps at the 00:00-06:00 window rather than spilling into the working day | |
+| TF-09 | TF-5 | A scenario honours a requested duration | `replicant scenario run SCEN-003 --duration 2h --anchor now --pace plan --host <collector>` | ~2h wall clock, stage order preserved, every stage still emits. Compare stage boundaries in LogRhythm against the manifest's `stages[]` | |
+| TF-10 | TF-5 | A clock-pinned stage is reported, not hidden | `replicant scenario run SCEN-001 --duration 2h ...` (dry run with `--no-send` is acceptable) | Manifest `warmup_note` names REP-005 and states requested vs composed duration. The run is **longer** than 2h and says so. Silent compliance here would be a High defect | |
+| TF-11 | TF-6 | **The payoff: an interval-keyed rule actually fires** | Author or enable a LogRhythm AIE rule for "N callbacks at a regular interval over M minutes" against UC-001. Run TF-02, then run TF-01 | Rule **fires** on the plan-paced run and **does not** fire on the burst run. This is the single case that justifies both releases; everything above is instrumentation for it | |
+
+**Exit criteria for Suite I:** TF-08 measured, TF-04 and TF-11 both pass. TF-11 failing
+while TF-02 passes means the events are shaped correctly and the detection logic is
+wrong, which is a finding about the rule, not about Replicant — record it as such.
+
 ## 12. Pre-execution findings (from recon, before formal run)
 
 Round 1 recon surfaced 5 issues. All five were re-verified against `main` @ `0af51f7` on 2026-07-21; three are now closed. Round 2 recon adds three more.
