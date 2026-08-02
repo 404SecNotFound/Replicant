@@ -91,6 +91,48 @@ def _enable_cr_to_nl(fd: int) -> None:
     termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
 
+#: One websocket frame. Anything larger is a client that is not the Replicant UI.
+MAX_FRAME_BYTES = 64 * 1024
+#: One paste. Well above a human keystroke burst, far below a memory problem.
+MAX_INPUT_CHARS = 8 * 1024
+#: Terminal dimensions. `struct.pack` on an unbounded int raises, and a browser
+#: never legitimately reports either of these outside the range.
+MAX_DIMENSION = 1000
+#: Backlog of PTY output. A browser that stops reading must not grow this without
+#: limit; past the bound the oldest chunk is dropped, which corrupts scrollback
+#: rather than exhausting the host.
+MAX_OUTPUT_CHUNKS = 2048
+
+
+def _bounded(value: object, fallback: int) -> int | None:
+    """A terminal dimension, or None when the frame is not usable."""
+
+    if value is None:
+        return fallback
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 1 <= value <= MAX_DIMENSION else None
+
+
+def _write_all(fd: int, payload: bytes) -> None:
+    """Write every byte, tolerating the short writes a nonblocking fd can return.
+
+    ``os.write`` on a nonblocking master fd may accept only part of a buffer, and
+    the discarded remainder used to vanish silently: a long paste arrived at the
+    shell truncated.
+    """
+
+    view = memoryview(payload)
+    while view:
+        try:
+            written = os.write(fd, view)
+        except BlockingIOError:
+            return  # the reader is behind; dropping is better than blocking the loop
+        if written <= 0:
+            return
+        view = view[written:]
+
+
 async def bridge_terminal(websocket: WebSocket) -> None:
     """Run one terminal session for an accepted websocket until either side ends."""
 
@@ -99,7 +141,7 @@ async def bridge_terminal(websocket: WebSocket) -> None:
     _set_winsize(master_fd, 30, 100)
     os.set_blocking(master_fd, False)
 
-    out_queue: asyncio.Queue[bytes] = asyncio.Queue()
+    out_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=MAX_OUTPUT_CHUNKS)
     closing = asyncio.Event()
 
     def on_readable() -> None:
@@ -113,7 +155,17 @@ async def bridge_terminal(websocket: WebSocket) -> None:
             loop.remove_reader(master_fd)
             closing.set()
             return
-        out_queue.put_nowait(data)
+        try:
+            out_queue.put_nowait(data)
+        except asyncio.QueueFull:
+            # A browser that has stopped reading must not be able to grow this
+            # without limit. Drop the oldest chunk: scrollback is damaged, the
+            # host is not.
+            try:
+                out_queue.get_nowait()
+                out_queue.put_nowait(data)
+            except (asyncio.QueueEmpty, asyncio.QueueFull):  # pragma: no cover
+                pass
 
     loop.add_reader(master_fd, on_readable)
 
@@ -145,23 +197,49 @@ async def bridge_terminal(websocket: WebSocket) -> None:
             except Exception:  # pragma: no cover
                 closing.set()
                 return
+            # Every frame is validated before anything is read out of it. The
+            # previous code assumed decoded JSON was an object, so a valid scalar
+            # or array -- `1`, or `[]` -- raised at `.get()`, ended this task, and
+            # left the parent waiting on `closing` forever while the PTY and the
+            # child process stayed alive. One malformed frame stranded a session.
+            if len(message) > MAX_FRAME_BYTES:
+                continue
             try:
                 control = json.loads(message)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(control, dict):
+                continue
             kind = control.get("t")
             if kind == "i":
+                payload = control.get("d")
+                if not isinstance(payload, str) or len(payload) > MAX_INPUT_CHARS:
+                    continue
                 # xterm sends CR for Enter; normalize to LF so the canonical line
                 # discipline always sees a line terminator for Rich's prompts.
-                data = control.get("d", "").replace("\r\n", "\n").replace("\r", "\n")
-                os.write(master_fd, data.encode("utf-8"))
+                data = payload.replace("\r\n", "\n").replace("\r", "\n")
+                try:
+                    _write_all(master_fd, data.encode("utf-8"))
+                except OSError:
+                    closing.set()
+                    return
             elif kind == "r":
-                _set_winsize(master_fd, int(control.get("rows", 30)), int(control.get("cols", 100)))
+                rows = _bounded(control.get("rows"), 30)
+                cols = _bounded(control.get("cols"), 100)
+                if rows is None or cols is None:
+                    continue
+                _set_winsize(master_fd, rows, cols)
 
     output_task = asyncio.create_task(pump_output())
     input_task = asyncio.create_task(pump_input())
     try:
-        await closing.wait()
+        # Whichever ends first ends the session. Waiting only on `closing` meant a
+        # pump that died on its own -- a malformed frame, a vanished client --
+        # left the parent waiting forever with the child still running.
+        await asyncio.wait(
+            [asyncio.ensure_future(closing.wait()), output_task, input_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
     finally:
         for task in (output_task, input_task):
             task.cancel()
