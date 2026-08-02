@@ -270,6 +270,45 @@ New in r3. This is the **oldest open item in the project**; it predates v0.1.0 a
 | SIEM-13 | LR-1, SR-5 | Manifest reconciles with what arrived | After a completed run, compare `manifests/<run>.json` against the SIEM's event count for the window | The manifest's event count matches the number ingested. A shortfall is loss and needs SIEM-07 revisited; an excess means the window caught something else. The manifest is the reproduction recipe, so attach it to every recorded result | |
 | SIEM-14 | LR-3 | Palo Alto and Check Point, if the lab has them | Repeat SIEM-02..04 with `--vendor paloalto` and `--vendor checkpoint` against matching log sources | Optional and **expected to be skipped**. Both profiles' golden lines are `[Unverified]` and have never been checked against a live build (3 PA markers, 4 CP). Any result here is a bonus; a failure is a known-unknown being resolved, not a regression | |
 
+## 11b. Suite I — Timing fidelity (DJR-driven, requires the LogRhythm lab)
+
+New in r4, covering everything shipped in **v0.4.0** (plan-timed pacing) and **v0.5.0**
+(`--duration` across the catalog and on scenarios). Both releases are published and
+**neither has been confirmed against a real collector.** Every claim below was proved
+against a loopback socket, which validates the scheduler and proves nothing about
+ingestion, parsing, or whether a rule fires.
+
+This suite exists because the two releases changed *when* events arrive and *how much*
+behaviour a run contains. Those are the two properties an interval-keyed detection reads,
+so a green Suite H tells you the events are parsed and still tells you nothing about
+whether a beacon rule can fire on them.
+
+**Run Suite H first.** Every case here assumes ingestion and parsing already work; if
+SIEM-03 has not passed, a failure here cannot be attributed.
+
+**TF-08 is not optional and should be run first within this suite.** An unexplained
+19-minute difference was observed between the Replicant VM and the LogRhythm host on
+2026-07-31, separate from the timezone fix. Every other case in this suite reads event
+times, so an unmeasured clock offset will be misattributed to pacing.
+
+| ID | Req | Objective | Steps | Expected | Result |
+|----|-----|-----------|-------|----------|--------|
+| TF-08 | TF-0 | Quantify host clock offset before trusting any timing result | On the Replicant VM and the LogRhythm host, capture `date -u +%s` within the same few seconds. Also compare `chronyc tracking` / `timedatectl` on both | Offset under 2s. Anything larger is recorded as a number and subtracted from every reading below. A ~19 minute offset was seen once and never explained; if it reproduces, stop and fix NTP before continuing | |
+| TF-01 | TF-1 | Burst reproduces the original defect, on the wire | `replicant run REP-001 --intensity low --anchor now --pace burst --host <collector>`. Capture with `tcpdump -tt` | All ~49 datagrams arrive inside ~1s while carrying ~238 minutes of event times. This is the **pre-v0.4.0 behaviour** and is expected to look wrong; it is the control for TF-02 | |
+| TF-02 | TF-1 | Plan pacing delivers a stream, not a snapshot | Same run with `--pace plan`. Capture arrival times | Run takes ~238 minutes. Inter-arrival gaps track the plan's own gaps (242-356s), not a fixed rate. Record the observed spread | |
+| TF-03 | TF-2 | Sending to a collector defaults to plan pacing | Same run with **no** `--pace` flag at all | Behaves as TF-02. An operator who has never heard of the flag gets a stream | |
+| TF-04 | TF-3 | Event time equals send time, nothing future-dated | During TF-02/TF-03, compare each event's parsed `eventtime` in LogRhythm against its ingestion timestamp | Difference stays within the TF-08 offset throughout. **No event is ever stamped in the future.** This is the core invariant of v0.4.0 | |
+| TF-05 | TF-3 | Speed compresses event times as well as the schedule | `--pace plan --speed 60`, ~4 minute run | Completes in ~4 min. Parsed event times span ~4 min, **not** 238 min. If the payload still claims 238 minutes the compression is schedule-only and the invariant is broken | |
+| TF-06 | TF-4 | A two hour run is two hours, with real intervals | `replicant run REP-001 --intensity medium --duration 2h --anchor now --pace plan --host <collector>` | ~122 events across ~1h 59m. **Gaps remain ~300s** — the interval must not have been rescaled to fit. Confirm in LogRhythm, not just locally | |
+| TF-07 | TF-4 | Duration works on the four that used to ignore it | Repeat TF-06 for REP-005, REP-014, REP-019, REP-023 | Each spans ≤2h. REP-005 additionally: with `--duration 8h` it caps at the 00:00-06:00 window rather than spilling into the working day | |
+| TF-09 | TF-5 | A scenario honours a requested duration | `replicant scenario run SCEN-003 --duration 2h --anchor now --pace plan --host <collector>` | ~2h wall clock, stage order preserved, every stage still emits. Compare stage boundaries in LogRhythm against the manifest's `stages[]` | |
+| TF-10 | TF-5 | A clock-pinned stage is reported, not hidden | `replicant scenario run SCEN-001 --duration 2h ...` (dry run with `--no-send` is acceptable) | Manifest `warmup_note` names REP-005 and states requested vs composed duration. The run is **longer** than 2h and says so. Silent compliance here would be a High defect | |
+| TF-11 | TF-6 | **The payoff: an interval-keyed rule actually fires** | Author or enable a LogRhythm AIE rule for "N callbacks at a regular interval over M minutes" against UC-001. Run TF-02, then run TF-01 | Rule **fires** on the plan-paced run and **does not** fire on the burst run. This is the single case that justifies both releases; everything above is instrumentation for it | |
+
+**Exit criteria for Suite I:** TF-08 measured, TF-04 and TF-11 both pass. TF-11 failing
+while TF-02 passes means the events are shaped correctly and the detection logic is
+wrong, which is a finding about the rule, not about Replicant — record it as such.
+
 ## 12. Pre-execution findings (from recon, before formal run)
 
 Round 1 recon surfaced 5 issues. All five were re-verified against `main` @ `0af51f7` on 2026-07-21; three are now closed. Round 2 recon adds three more.
@@ -283,7 +322,7 @@ Round 1 recon surfaced 5 issues. All five were re-verified against `main` @ `0af
 | OBS-002 | Info | — | No frontend test runner (no `test` script / vitest) | `webui/package.json:6-10` | **STILL OPEN.** Scripts are `dev`/`build`/`preview` only; zero vitest references. All backend is covered; the SPA is not. |
 | DEF-004 | High | High | Installer distro mappings cannot reach the required Python 3.11 (or Node 18) on several current LTS releases | `scripts/install.sh` | **CONFIRMED on real Linux 2026-07-21, then FIXED.** No longer `[Unverified]`. Reproduced in `ubuntu:22.04`: the original script installed packages, re-checked, and died `still missing after install: python node` (exit 3) having mutated the host. Measured availability: Ubuntu 22.04 default `python3` 3.10.6 and `nodejs` 12.22.9; Rocky 9 default 3.9.18 and 16.20.2; Debian 12 already fine at 3.11.2 / 18.20.4. Fix resolves candidates by querying the package manager *before* consenting to sudo, and refuses with actionable guidance when nothing on offer qualifies. Re-verified: Ubuntu 22.04 → exit 3 with `pkg_delta=0`; Rocky 9 → exit 0, Python 3.12.13, verification green. |
 | DEF-005 | High | High | apt path installed a GUI desktop stack onto a headless host | `scripts/install.sh:196` | **FOUND BY REAL TESTING, FIXED.** `apt-get install -y` carried no `--no-install-recommends`, so the recommended closure pulled in `tilix` (a GUI terminal emulator), `libgtk-3-bin`, `libvte`, `ubuntu-mono` and `humanity-icon-theme` on a server image. Nobody predicted this; it is invisible to `--dry-run` because dry-run never resolves the dependency tree. Fixed with `--no-install-recommends` (apt) and `--setopt=install_weak_deps=False` (dnf/yum). Rocky 9 post-fix installs 9 packages total. |
-| OBS-A | Info | Medium | The eps cap is a fixed-window cap, not an instantaneous one | `replicant/core/orchestrator.py:280-299` | Counts to `eps_cap`, sleeps the remainder of the wall second, resets. Events cluster at the head of each window, so a *sliding* one-second window straddling a boundary can exceed the cap: measured once at 59 against a cap of 50 (+18%), not reproduced on repeat. Fixed one-second buckets never exceeded 50. Does not fail CHAIN-14 (overall 49.94/s), but safety rule 4 should state which guarantee it makes. Recommend documenting it as a fixed-window average. |
+| OBS-A | Info | Medium | The eps cap is a fixed-window cap, not an instantaneous one | `replicant/core/orchestrator.py:280-299` | Counts to `eps_cap`, sleeps the remainder of the wall second, resets. Events cluster at the head of each window, so a *sliding* one-second window straddling a boundary can exceed the cap: measured once at 59 against a cap of 50 (+18%), not reproduced on repeat. Fixed one-second buckets never exceeded 50. Does not fail CHAIN-14 (overall 49.94/s), but safety rule 4 should state which guarantee it makes. Recommend documenting it as a fixed-window average. **RESOLVED in v0.4.0**: the fixed-window limiter is gone. Sends are scheduled from a precomputed offset list and the floor is measured against the previous *actual* send, so no two sends are ever closer than `1/eps_cap` even when the host runs late. The line reference above points at code that no longer exists; see `replicant/core/pacing.py` and the emit loop in `replicant/core/orchestrator.py`. The README safety table was corrected at the same time — it had gone on describing the burst-then-pause shape after the mechanism was replaced. |
 | OBS-B | Info | — | CHAIN-12's "materially higher event count" is a weak criterion | `tasks/uat-plan.md` Suite F | `--intensity high` moves SCEN-002 only 181071 → 184151 (+1.7%), because stage 2 is already `high` in the catalog and dwarfs the rest; a tester reading the criterion literally could record FAIL. The decisive test is `--intensity low`, which forces the catalog-`high` stage 180000 → 36000 and so distinguishes a true override from raising a floor. Case text updated accordingly. |
 | OBS-C | Info | Low | `scenario show` writes its unknown-id error to stdout, not stderr | `replicant/cli/app.py:296-297` | Exit code is correct (1) and CHAIN-04 does not specify a stream, so this is not a failure. It is inconsistent with INST-02, which requires usage on stderr. Consistency decision, not a defect. |
 | OBS-D | Info | Medium | Suite F has no guard against a concurrent session holding the working tree | `tasks/uat-plan.md` §2 | During execution another session edited `README.md` inside the measurement window, which nearly produced a false FAIL on CHAIN-03, the one case whose entire purpose is proving nothing is written. Added to the entry criteria. |

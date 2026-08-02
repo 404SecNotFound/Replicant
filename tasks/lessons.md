@@ -296,3 +296,37 @@ It survived because the output looked right. The subjects all began `docs:`, the
 **Corollary:** do not write analysis in shell. `for f in $x` means different things in bash and zsh, and the version that gives a wrong answer gives it silently. Use a language with real lists, and keep the script so the result can be re-derived and audited.
 
 **Corollary:** the same applies to the correctness of any reimplementation of somebody else's matcher. `tests/test_ci_paths_filter.py` reimplements GitHub's glob semantics and says so in its docstring, including what it does not model. That labelling is the difference between a guard and a false assurance.
+
+## A default is a change to every caller that never named the value
+
+Making plan pacing the default for a live send was the intended behaviour, and I reasoned
+carefully about the blast radius: four test files inherited a 238 minute timeline and were
+fixed to say `pace="burst"`. Then I shipped it, and CI hung for fifty minutes on two
+container jobs, because `scripts/install.sh` verifies the install with a live loopback send
+and had never named a pace either.
+
+The local suite was green the entire time. The callers I thought about were the ones with
+tests; the caller that mattered ran unattended and had none.
+
+**Rule:** when changing a default, enumerate callers by grepping the whole repository for
+the operation, not by fixing whatever the test suite complains about. A green suite after a
+default change is evidence about the suite, not about the change. `tests/test_shipped_commands.py`
+now fails if anything under `scripts/` or `.github/workflows/` sends to a collector without
+naming a pace, which is the class of guard that would have caught it.
+
+**Corollary:** two guards can cancel each other out. The runtime rate floor added alongside
+the schedule then masked the catch-up check beside it: once the loop ran late the floor set
+the deadline to roughly now, so a lag measured against that deadline read zero and the
+resync never fired. Each was correct alone. Test the interaction, not just the parts.
+
+## `git branch -r` is a local cache, not the remote
+
+I reported that nine merged branches needed cleaning up and offered a sweep. Eight of them
+had not existed on the remote for some time; `git branch -r` was listing stale
+remote-tracking refs that had never been pruned. `git branch -r --merged` happily confirmed
+they were merged, because they were — existence was the thing never checked.
+
+**Rule:** `git ls-remote --heads origin` is the authoritative answer, and `git fetch --prune`
+is what reconciles the local view. Any claim about what exists on a remote must come from one
+of those, never from `git branch -r`. The failure mode is a confident, specific, wrong
+statement — the same shape as the measurement lesson above.
