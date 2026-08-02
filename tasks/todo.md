@@ -349,9 +349,11 @@ Backlog (was "v0.1.1", pulled forward on request 2026-07-23, branch chore/close-
       installed and then failed `catalog not found` on every command. `replicant/resources.py`
       is now the only thing that knows where runtime files live, guarded by
       `tests/test_packaging.py` and a `wheel` CI job.
-- [ ] Minor, still deferred: plan-twice cost in RunManager.start. `replicant/web/runner.py:113`
-      calls `orchestrator.build_plan(request)` purely to get an event total, and the run then
-      plans again. Still open on 2026-07-30. (The "stale replicant.egg-info" half of this item
+- [x] Minor: plan-twice cost in RunManager.start. **DONE in v0.4.0.** `RunManager.start` now
+      takes an optional `total`, and `POST /api/runs` passes the count from the pacing preview
+      it has already computed, so a start is back to the two plan builds it always cost rather
+      than the three the preview would have added. Worth it because REP-004 at high intensity
+      is 180,000 events and about 1.6 seconds per build. (The "stale replicant.egg-info" half of this item
       is moot: it is a local build artifact and `.gitignore:4` covers `*.egg-info/`, so it has
       never been tracked.)
 
