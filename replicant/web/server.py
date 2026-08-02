@@ -46,6 +46,7 @@ import threading
 import webbrowser
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import uvicorn
@@ -638,6 +639,31 @@ def create_app(
             "line": orch.build_test_line(),
         }
 
+    def _confined_output(to_file: str | None) -> str | None:
+        """Resolve a browser-supplied output path inside the run-output directory.
+
+        ``FileSink`` opens with mode ``w``, which follows symlinks and truncates.
+        Accepting any string from the API therefore made the web token worth more
+        than the collector-run authority it is meant to carry: it could corrupt
+        any file the service account can write, including this program's own
+        source. Confining it keeps the blast radius to one directory.
+
+        The CLI is deliberately unchanged. A caller already holding a shell has
+        the same filesystem authority anyway, so restricting it there would buy
+        nothing and break ``--to-file /tmp/x.log``.
+        """
+
+        if not to_file:
+            return None
+        root = Path(settings.manifest_dir).resolve().parent / "out"
+        root.mkdir(parents=True, exist_ok=True)
+        candidate = (root / Path(to_file).name).resolve()
+        # `.name` already strips traversal, so this is the belt to that braces:
+        # it also catches a symlink planted inside the directory.
+        if not candidate.is_relative_to(root) or candidate.is_symlink():
+            raise HTTPException(status_code=400, detail="output path is not permitted")
+        return str(candidate)
+
     def _run_request(body: RunBody) -> tuple[RunRequest, bool]:
         """One RunBody becomes one RunRequest, for the preview and the run alike.
 
@@ -670,7 +696,7 @@ def create_app(
             intensity=body.intensity,
             seed=body.seed if body.seed is not None else settings.default_seed,
             duration=body.duration,
-            to_file=body.to_file,
+            to_file=_confined_output(body.to_file),
             no_send=body.no_send,
             collector=collector,
             anchor_epoch=anchor,
@@ -743,6 +769,10 @@ def create_app(
             # with no output, and it looks exactly like a working run in the event
             # stream and the eps readout, so it has to be said in words.
             "destination": ("collector" if sending else "file" if body.to_file else "none"),
+            # Where the file actually landed. The browser asks for a name and the
+            # server decides the directory, so the client cannot know the path it
+            # got unless the server says.
+            "output_path": request.to_file,
             "destination_warning": (
                 None
                 if sending or body.to_file
@@ -864,7 +894,13 @@ def create_app(
         if not policy.allows_host(websocket.headers.get("host") or ""):
             await websocket.close(code=1008)
             return
-        source = _authenticated_source(websocket)
+        # One policy for HTTP and websockets. They disagreed: the HTTP dependency
+        # returned early when require_auth was false, while this path always
+        # demanded a credential, so --no-auth left the API open and the terminal
+        # unusable -- the opposite of what its own startup warning said. The Host
+        # and Origin checks below are unaffected either way; --no-auth drops the
+        # credential, never the browser-boundary controls.
+        source = "none" if not policy.require_auth else _authenticated_source(websocket)
         if source is None:
             await websocket.close(code=1008)
             return
@@ -882,6 +918,37 @@ def create_app(
             return
         await websocket.accept()
         await bridge_terminal(websocket)
+
+    @app.middleware("http")
+    async def _security_headers(request: Request, call_next: Any) -> Any:
+        """Defence in depth behind the Markdown fix, not instead of it.
+
+        The Docs tab renders repository Markdown with this origin's privileges.
+        Raw HTML is now escaped before it can become markup, but a policy that
+        forbids inline script means a future regression in that pipeline stops
+        being an execution primitive. ``frame-ancestors`` also removes clickjacking
+        against the run controls, which nothing else covered.
+
+        ``style-src`` allows inline styles: the bundled UI sets them, and removing
+        that needs a nonce pipeline through the build rather than a header change.
+        """
+
+        response = await call_next(request)
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "font-src 'self'; "
+            "connect-src 'self' ws: wss:; "
+            "object-src 'none'; "
+            "base-uri 'none'; "
+            "frame-ancestors 'none'",
+        )
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        return response
 
     _mount_frontend(app)
     return app
