@@ -154,6 +154,9 @@ def test_run_with_vendor_writes_checkpoint_cef(client: TestClient, tmp_path: Pat
         },
     )
     assert start.status_code == 200
+    # Web output is confined to a server-chosen directory now, so the reported
+    # path is the only correct place to look for it.
+    out = Path(start.json()["output_path"])
     run_id = start.json()["run_id"]
     body = ""
     with client.stream("GET", f"/api/runs/{run_id}/events?token={TOKEN}") as resp:
@@ -296,6 +299,7 @@ def test_run_to_file_from_web(client: TestClient, tmp_path: Path) -> None:
             "to_file": str(out),
         },
     )
+    out = Path(start.json()["output_path"])
     run_id = start.json()["run_id"]
     with client.stream("GET", f"/api/runs/{run_id}/events?token={TOKEN}") as resp:
         for chunk in resp.iter_text():

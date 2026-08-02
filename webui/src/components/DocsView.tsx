@@ -13,16 +13,62 @@
 // limitations under the License.
 
 import { useEffect, useMemo, useState } from "react";
-import { marked } from "marked";
+import { Marked } from "marked";
 import { cn } from "@/lib/utils";
 import { getDoc, getDocs, type DocsIndex } from "@/lib/api";
 
-// The markdown is server-side content from a fixed allowlist of files inside this
-// repository. Nothing an operator types reaches it, so it is rendered directly
-// rather than routed through a sanitizer: anyone who can change docs/*.md can
-// already change the application itself.
-function renderMarkdown(markdown: string): string {
-  return marked.parse(markdown, { async: false }) as string;
+// Raw HTML in the source is rendered as visible text, never as markup.
+//
+// The previous reasoning here was that repository files are trusted because
+// anyone who can change docs/*.md can change the application anyway. A 2026-08
+// review disagreed and was right: documentation is reviewed under a different
+// bar than executable code, and this pipeline gave it the Replicant origin and
+// the ambient session cookie. `<img src=x onerror=...>` survived `marked.parse`
+// unchanged and would have run.
+//
+// Escaping the whole source instead would break the code fences the CEF
+// references are made of. Overriding the `html` token is narrower: markdown
+// constructs render normally, and only raw HTML degrades to text. None of the
+// five served documents contains a raw tag, so nothing renders differently.
+//
+// This is defence in depth alongside the Content-Security-Policy the server
+// sends; neither is relied on alone.
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// A dedicated instance, not `marked.use(...)`: the global would apply this
+// override to any other caller in the bundle, and a partial `renderer` passed as
+// a parse option replaces the whole renderer rather than merging with it, which
+// leaves `paragraph` undefined.
+const docsMarked = new Marked({
+  renderer: {
+    // marked passes a token; older shapes pass the raw string.
+    html(token: unknown) {
+      return escapeHtml(
+        typeof token === "string" ? token : String((token as { raw: string }).raw),
+      );
+    },
+    // marked does not filter link protocols, so `[click](javascript:...)` became
+    // a working `href`. Neutralising raw HTML alone would have left that open.
+    link(token: { href?: string; title?: string | null; text?: string }) {
+      const href = String(token.href ?? "");
+      const safe = /^(https?:|mailto:|#|\/|\.)/i.test(href.trim());
+      const text = escapeHtml(String(token.text ?? ""));
+      if (!safe) return text;
+      const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
+      return `<a href="${escapeHtml(href)}"${title}>${text}</a>`;
+    },
+  },
+});
+
+export function renderMarkdown(markdown: string): string {
+  return docsMarked.parse(markdown, { async: false }) as string;
 }
 
 export function DocsView() {
