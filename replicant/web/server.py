@@ -159,6 +159,57 @@ def _authority_of(origin: str) -> str:
     return rest if separator else origin
 
 
+#: Default ports, so ``http://localhost`` and ``http://localhost:80`` compare equal.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _port_of(authority: str, default: int | None = None) -> int | None:
+    """The explicit port in an authority, or ``default``.
+
+    Mirrors ``_hostname_of``: a bracketed IPv6 literal keeps its own colons, and
+    an unbracketed value is only split when it carries exactly one.
+    """
+
+    text = authority.strip()
+    if text.startswith("["):
+        end = text.find("]")
+        rest = text[end + 1 :] if end != -1 else ""
+        if rest.startswith(":"):
+            rest = rest[1:]
+    elif text.count(":") == 1:
+        rest = text.rsplit(":", 1)[1]
+    else:
+        rest = ""
+    if not rest.isdigit():
+        return default
+    return int(rest)
+
+
+def _origin_triple(origin: str) -> tuple[str, str, int] | None:
+    """An Origin as the (scheme, host, port) triple RFC 6454 defines, or None.
+
+    None covers everything that names no origin: an empty header, the literal
+    ``null`` a sandboxed iframe sends, a scheme Replicant is never served over,
+    and anything unparseable. None is never equal to an origin, so a caller can
+    reject it without a special case.
+    """
+
+    scheme, separator, rest = origin.strip().partition("://")
+    if not separator:
+        return None
+    scheme = scheme.lower()
+    if scheme not in _DEFAULT_PORTS:
+        return None
+    authority = rest.split("/", 1)[0]
+    host = _normalize_host(_hostname_of(authority))
+    if not host:
+        return None
+    port = _port_of(authority, _DEFAULT_PORTS[scheme])
+    if port is None:
+        return None
+    return scheme, host, port
+
+
 def is_loopback(host: str) -> bool:
     """True when a bind address reaches only this machine.
 
@@ -232,6 +283,37 @@ class AccessPolicy:
         if name in self.allowed_hosts:
             return True
         return self.wildcard_bind and _is_ip_literal(name)
+
+    def allows_origin(self, origin: str, host_header: str) -> bool:
+        """True when ``origin`` is the origin this request was actually served from.
+
+        An origin is (scheme, host, port). The previous check reduced the header
+        to an authority and handed it to ``allows_host``, which strips the port,
+        so a page on ``http://localhost:9999`` was accepted as same-origin by a
+        server on ``localhost:9787``. On a machine running several development
+        servers -- the normal analyst laptop -- that let any of them drive the
+        embedded terminal with the browser's ambient Replicant cookie.
+
+        The comparison is against the request's own Host, so it stays correct
+        behind a TLS proxy without having to trust a forwarding header: whatever
+        authority the browser was told to talk to is the one the Origin must
+        name. The scheme cannot be recovered from Host, so it is constrained to
+        the two Replicant is ever served over rather than compared.
+
+        ``allows_host`` is still applied. It defends DNS rebinding, which is a
+        different attack, and neither check subsumes the other: a rebound name
+        would otherwise present a perfectly self-consistent Origin/Host pair.
+        """
+
+        parsed = _origin_triple(origin)
+        if parsed is None:
+            return False
+        scheme, host, port = parsed
+        if not self.allows_host(host):
+            return False
+        expected_host = _normalize_host(_hostname_of(host_header))
+        expected_port = _port_of(host_header, _DEFAULT_PORTS[scheme])
+        return host == expected_host and port == expected_port
 
 
 class CollectorBody(BaseModel):
@@ -384,11 +466,17 @@ def create_app(
         return None
 
     def _origin_ok(connection: HTTPConnection, *, required: bool) -> bool:
-        """Validate the Origin header. ``required`` rejects its absence outright."""
+        """Validate the Origin header against the origin actually being served.
+
+        ``required`` rejects its absence outright. Browsers always send Origin on
+        a WebSocket handshake and on every non-GET, so absence means a non-browser
+        client, which the ambient-cookie problem does not apply to.
+        """
+
         origin = connection.headers.get("origin") or ""
         if not origin:
             return not required
-        return policy.allows_host(_authority_of(origin))
+        return policy.allows_origin(origin, connection.headers.get("host") or "")
 
     def require_token(request: Request) -> None:
         if not policy.require_auth:
@@ -780,7 +868,11 @@ def create_app(
         if source is None:
             await websocket.close(code=1008)
             return
-        if not _origin_ok(websocket, required=source == "cookie"):
+        # Required whatever the credential was. The terminal is a browser feature
+        # and every browser sends Origin on a WebSocket handshake, so demanding it
+        # costs a real client nothing and removes the case where a token in the
+        # URL bought an unchecked cross-origin connection.
+        if not _origin_ok(websocket, required=True):
             await websocket.close(code=1008)
             return
         if os.name != "posix":
