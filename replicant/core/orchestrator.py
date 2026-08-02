@@ -47,10 +47,12 @@ from replicant.core.models import (
     EventRecord,
     RunManifest,
     RunRequest,
+    RunStatus,
     ScenarioCatalog,
     ScenarioManifest,
     ScenarioRunRequest,
     ScenarioStageRecord,
+    describe_error,
 )
 from replicant.core.pacing import (
     SPEED_WITHOUT_PLAN,
@@ -89,6 +91,15 @@ class RunResult:
 
     def summary(self) -> str:
         return human_summary(self.manifest, self.manifest_path)
+
+
+def _run_status(failure: BaseException | None, stopped: bool) -> RunStatus:
+    """Which of the three ways a run can end. Failure outranks the kill switch:
+    a run stopped *by* an error is an error, not a clean stop."""
+
+    if failure is not None:
+        return "error"
+    return "stopped" if stopped else "done"
 
 
 @dataclass
@@ -311,17 +322,28 @@ class Orchestrator:
         pace = self._resolve_pace(request.pace, request.speed, sending=send)
 
         started_at = now_dubai_iso()
-        count, stopped = self._emit(
-            plan.events,
-            send=send,
-            collector=request.collector,
-            to_file=file_path,
-            eps_cap=eps_cap,
-            pace=pace,
-            speed=request.speed,
-            on_event=on_event,
-            on_progress=on_progress,
-        )
+        # The manifest is written whichever way this ends, including the ways that
+        # raise. A transport failure used to exit before the record existed, so a
+        # run could reach a collector part-way and leave nothing durable behind
+        # saying what was attempted or how far it got. Safety rule 5 says every
+        # run writes a manifest, and the failure path is the one that needs it.
+        count = 0
+        stopped = False
+        failure: BaseException | None = None
+        try:
+            count, stopped = self._emit(
+                plan.events,
+                send=send,
+                collector=request.collector,
+                to_file=file_path,
+                eps_cap=eps_cap,
+                pace=pace,
+                speed=request.speed,
+                on_event=on_event,
+                on_progress=on_progress,
+            )
+        except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
+            failure = exc
         ended_at = now_dubai_iso()
 
         warmup = plan.warmup_note
@@ -348,8 +370,15 @@ class Orchestrator:
             warmup_note=warmup,
             pace=pace,
             speed=request.speed,
+            status=_run_status(failure, stopped),
+            error=describe_error(failure) if failure is not None else None,
         )
         manifest_path = write_manifest(manifest, self.settings.manifest_dir)
+        if failure is not None:
+            # Recorded, then raised unchanged. The caller still sees the original
+            # exception and its traceback; the manifest is a side effect, not a
+            # replacement for the error.
+            raise failure
         return RunResult(manifest, manifest_path, count, plan, stopped)
 
     def _emit(
@@ -697,17 +726,25 @@ class Orchestrator:
         pace = self._resolve_pace(request.pace, request.speed, sending=send)
 
         started_at = now_dubai_iso()
-        count, stopped = self._emit(
-            composed.events,
-            send=send,
-            collector=request.collector,
-            to_file=request.to_file,
-            eps_cap=eps_cap,
-            pace=pace,
-            speed=request.speed,
-            on_event=on_event,
-            on_progress=on_progress,
-        )
+        # See run(): the manifest is written on every exit path, raising ones
+        # included, and the exception is re-raised unchanged afterwards.
+        count = 0
+        stopped = False
+        failure: BaseException | None = None
+        try:
+            count, stopped = self._emit(
+                composed.events,
+                send=send,
+                collector=request.collector,
+                to_file=request.to_file,
+                eps_cap=eps_cap,
+                pace=pace,
+                speed=request.speed,
+                on_event=on_event,
+                on_progress=on_progress,
+            )
+        except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
+            failure = exc
         ended_at = now_dubai_iso()
 
         advisory_text, coverage = build_advisory(scenario, composed, self.catalog)
@@ -749,7 +786,11 @@ class Orchestrator:
             pace=pace,
             speed=request.speed,
             duration=request.duration,
+            status=_run_status(failure, stopped),
+            error=describe_error(failure) if failure is not None else None,
         )
         manifest_path = write_scenario_manifest(manifest, self.settings.manifest_dir)
         advisory_path = write_advisory(advisory_text, manifest_path)
+        if failure is not None:
+            raise failure
         return ScenarioRunResult(manifest, manifest_path, advisory_path, count, composed, stopped)

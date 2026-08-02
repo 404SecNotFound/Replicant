@@ -32,6 +32,8 @@ from replicant.resources import SCENARIO_CATALOG
 
 Intensity = Literal["low", "medium", "high"]
 Transport = Literal["udp", "tcp", "tls"]
+#: How a run ended. ``stopped`` is the kill switch, ``error`` is a raised failure.
+RunStatus = Literal["done", "stopped", "error"]
 
 
 class CefHeader(BaseModel):
@@ -216,6 +218,23 @@ class RunManifest(BaseModel):
     # still load: they were all burst.
     pace: str = "burst"
     speed: float = 1.0
+    # How the run ended. A manifest is written on every exit path, including the
+    # ones that raise, so a short manifest and a failed one have to be
+    # distinguishable: without this a run that died after two events looks
+    # exactly like a run that was only ever meant to emit two.
+    status: RunStatus = "done"
+    #: Bounded description of the failure, or None. Type and message only, never
+    #: a traceback: this is an operator record, not a debugger.
+    error: str | None = None
+
+
+def describe_error(exc: BaseException, limit: int = 300) -> str:
+    """One bounded line naming a failure, for the manifest."""
+
+    text = str(exc).strip() or exc.__class__.__name__
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return f"{exc.__class__.__name__}: {text}"
 
 
 def load_catalog(path: str | Path) -> Catalog:
@@ -359,3 +378,6 @@ class ScenarioManifest(BaseModel):
     # The window the chain was asked to cover. Two runs of the same scenario and
     # seed can now span very different amounts of time (safety rule 5).
     duration: str | None = None
+    # See RunManifest: written on every exit path, so it has to say which one.
+    status: RunStatus = "done"
+    error: str | None = None
