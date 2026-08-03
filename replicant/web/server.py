@@ -754,7 +754,17 @@ def create_app(
                 total=preview.event_count,
             )
         except RunInProgressError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            # Structured, not a sentence. The client has to name the technique
+            # holding the lock and offer to stop that specific run; parsing a hex
+            # id back out of prose is not a contract worth having.
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": str(exc),
+                    "run_id": exc.active_run_id,
+                    "technique_id": exc.technique_id,
+                },
+            ) from exc
         except (RuntimeError, NotImplementedError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
@@ -787,6 +797,30 @@ def create_app(
                     "nor written, and the readout below measures rendering, not delivery."
                 )
             ),
+        }
+
+    # Declared before /api/runs/{run_id}: FastAPI matches in registration order,
+    # and the parameterised route would otherwise swallow "active" as an id.
+    @app.get("/api/runs/active", dependencies=[Depends(require_token)])
+    def active_run() -> dict[str, Any]:
+        """The run holding the single-run lock, or nulls.
+
+        Only one run may be active, because each carries its own rate limiter and
+        two against one collector would multiply the eps cap (safety rule 4).
+        That is correct, but the form's ``running`` flag is per-panel state: it
+        resets when the operator selects a different technique, so the panel
+        showed an idle form while the server was four hours into a plan-paced
+        run. The server is the only thing that knows, so it has to be askable.
+        """
+        handle = manager.active()
+        if handle is None:
+            return {"run_id": None, "technique_id": None, "status": None}
+        return {
+            "run_id": handle.run_id,
+            "technique_id": handle.technique_id,
+            "status": handle.status,
+            "event_count": handle.event_count,
+            "total": handle.total,
         }
 
     @app.get("/api/runs/{run_id}", dependencies=[Depends(require_token)])

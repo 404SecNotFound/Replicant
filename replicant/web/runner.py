@@ -47,11 +47,17 @@ class RunInProgressError(RuntimeError):
     Each run gets its own rate limiter, so concurrent runs to one collector would
     multiply the configured eps cap (safety rule 4). The web layer allows one
     active run at a time and surfaces this as HTTP 409.
+
+    Carries the technique as well as the id. The id alone is a hex string the
+    operator has no way to resolve, which made the 409 unactionable: a run they
+    could not see was refusing runs they could.
     """
 
-    def __init__(self, active_run_id: str) -> None:
-        super().__init__(f"a run is already in progress: {active_run_id}")
+    def __init__(self, active_run_id: str, technique_id: str = "") -> None:
+        named = f" ({technique_id})" if technique_id else ""
+        super().__init__(f"a run is already in progress: {active_run_id}{named}")
         self.active_run_id = active_run_id
+        self.technique_id = technique_id
 
 
 @dataclass
@@ -60,6 +66,11 @@ class RunHandle:
     orchestrator: Orchestrator
     queue: queue.Queue[dict[str, Any]]
     total: int
+    # Which technique this run is emitting. Recorded so the active-run endpoint
+    # and the 409 can name it: the form's own "running" flag is per-panel state
+    # and resets when the operator selects a different technique, so the server
+    # is the only thing that knows a run is still going.
+    technique_id: str = ""
     status: str = "running"
     dropped: int = 0
     thread: threading.Thread | None = None
@@ -93,6 +104,16 @@ class RunManager:
                 return handle
         return None
 
+    def active(self) -> RunHandle | None:
+        """The run currently holding the single-run lock, if any.
+
+        Public because the client cannot otherwise discover it. Before this, the
+        only signal was a 409 from attempting a start, which meant the operator
+        had to provoke the error to learn why the last one happened.
+        """
+        with self._lock:
+            return self._active_locked()
+
     def _evict_terminal(self) -> None:
         """Drop the oldest terminal handles beyond the retention bound, never a live one."""
         with self._lock:
@@ -120,7 +141,7 @@ class RunManager:
         with self._lock:
             active = self._active_locked()
             if active is not None:
-                raise RunInProgressError(active.run_id)
+                raise RunInProgressError(active.run_id, active.technique_id)
         self._evict_terminal()
 
         orchestrator = Orchestrator(self.catalog, settings or self.settings)
@@ -132,12 +153,13 @@ class RunManager:
             orchestrator=orchestrator,
             queue=events,
             total=total,
+            technique_id=request.technique_id,
         )
         # Re-check under the lock: another start could have registered in the gap.
         with self._lock:
             active = self._active_locked()
             if active is not None:
-                raise RunInProgressError(active.run_id)
+                raise RunInProgressError(active.run_id, active.technique_id)
             self._runs[handle.run_id] = handle
         thread = threading.Thread(target=self._worker, args=(handle, request), daemon=True)
         handle.thread = thread
