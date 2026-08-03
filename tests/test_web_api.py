@@ -226,11 +226,21 @@ def test_connect_test_passes_tls_options(client: TestClient) -> None:
 
     captured: dict[str, object] = {}
 
-    def fake_send_test(self: object, collector: object) -> bool:
-        captured["collector"] = collector
-        return True
+    from replicant.transport.syslog import PathReport
 
-    with patch("replicant.web.server.Orchestrator.send_test", fake_send_test):
+    def fake_probe(collector: object, payload: str) -> PathReport:
+        captured["collector"] = collector
+        return PathReport(
+            host="127.0.0.1",
+            port=6514,
+            transport="tls",
+            verdict="handshake_ok",
+            summary="stub",
+            proves="stub",
+            does_not_prove="stub",
+        )
+
+    with patch("replicant.web.server.probe_collector", fake_probe):
         resp = client.post(
             "/api/connect/test",
             headers=HEADERS,
