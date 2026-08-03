@@ -80,6 +80,29 @@ _LEVEL_TO_SYSLOG_SEVERITY: dict[str, int] = {
 PROC_NET_ROUTE = Path("/proc/net/route")
 
 
+def resolve_endpoint(host: str, port: int, socktype: int) -> tuple[int, Any]:
+    """(address family, sockaddr) for this collector, IPv4 or IPv6.
+
+    Every socket here used to be created with a hardcoded ``AF_INET``, so a
+    collector with only an IPv6 address could not be reached at all and failed
+    with an error that named neither the cause nor the fix (F-10). Dual-stack
+    SIEM deployments are ordinary.
+
+    ``AF_UNSPEC`` lets the resolver decide, so a literal ``10.0.20.125``, a
+    literal ``::1`` and a name all work with nothing to configure. The first
+    result is used, which is the order the resolver itself prefers.
+
+    Safety rule 1 is unaffected: this asks about the configured collector and no
+    other host, and resolving is not egress to it.
+    """
+
+    infos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socktype)
+    if not infos:  # pragma: no cover - getaddrinfo raises rather than returning []
+        raise OSError(f"no address found for {host}:{port}")
+    family, _type, _proto, _canon, sockaddr = infos[0]
+    return int(family), sockaddr
+
+
 def local_source_for(host: str, port: int) -> tuple[str, int] | None:
     """The local address the kernel would use to reach ``host``.
 
@@ -93,9 +116,10 @@ def local_source_for(host: str, port: int) -> tuple[str, int] | None:
     """
 
     try:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        family, sockaddr = resolve_endpoint(host, port, socket.SOCK_DGRAM)
+        probe = socket.socket(family, socket.SOCK_DGRAM)
         try:
-            probe.connect((host, port))
+            probe.connect(sockaddr)
             name = probe.getsockname()
             return (str(name[0]), int(name[1]))
         finally:
@@ -375,9 +399,10 @@ def probe_collector(profile: CollectorProfile, payload: str) -> PathReport:
     sock: socket.socket | None = None
     try:
         if profile.transport == "udp":
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            family, sockaddr = resolve_endpoint(profile.host, profile.port, socket.SOCK_DGRAM)
+            sock = socket.socket(family, socket.SOCK_DGRAM)
             sock.settimeout(5.0)
-            sock.connect((profile.host, profile.port))
+            sock.connect(sockaddr)
             source = str(sock.getsockname()[0])
             sock.send(data)
             # One read of the kernel's error flag. Local, sends nothing. The wait
@@ -411,7 +436,8 @@ def probe_collector(profile: CollectorProfile, payload: str) -> PathReport:
                 ),
             )
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        family, sockaddr = resolve_endpoint(profile.host, profile.port, socket.SOCK_STREAM)
+        sock = socket.socket(family, socket.SOCK_STREAM)
         sock.settimeout(5.0)
         if profile.transport == "tls":
             context = ssl.create_default_context(cafile=profile.tls_cafile)
@@ -421,7 +447,7 @@ def probe_collector(profile: CollectorProfile, payload: str) -> PathReport:
             sock = context.wrap_socket(
                 sock, server_hostname=profile.host if profile.tls_verify else None
             )
-        sock.connect((profile.host, profile.port))
+        sock.connect(sockaddr)
         source = str(sock.getsockname()[0])
         sock.sendall(data)
         checked = profile.transport == "tls" and profile.tls_verify
@@ -554,6 +580,10 @@ class SyslogEmitter:
         # keeping up, and saying so beats waiting silently.
         self.send_timeout = send_timeout
         self._sock: socket.socket | None = None
+        # The resolved sockaddr, set by connect(). Kept because a UDP `sendto`
+        # needs the same tuple the family was chosen for: an IPv6 sockaddr is a
+        # 4-tuple, so re-deriving (host, port) here would silently break v6.
+        self._peer: Any = None
         self.stats = SendStats()
         # Warn once per emitter, not once per datagram. A run that fragments
         # fragments every line, and 36000 identical warnings buries the buffer.
@@ -572,7 +602,10 @@ class SyslogEmitter:
         )
         self._warn_if_off_subnet()
         if self.profile.transport == "udp":
-            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            family, self._peer = resolve_endpoint(
+                self.profile.host, self.profile.port, socket.SOCK_DGRAM
+            )
+            self._sock = socket.socket(family, socket.SOCK_DGRAM)
             # Says nothing about reachability. Recorded because an operator
             # reading the log needs to know that this line is not evidence of a
             # working path: UDP has no connect, no handshake and no ack.
@@ -581,19 +614,25 @@ class SyslogEmitter:
                 "until something on the collector side counts it"
             )
         elif self.profile.transport == "tcp":
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            family, self._peer = resolve_endpoint(
+                self.profile.host, self.profile.port, socket.SOCK_STREAM
+            )
+            sock = socket.socket(family, socket.SOCK_STREAM)
             sock.settimeout(self.connect_timeout)
-            sock.connect((self.profile.host, self.profile.port))
+            sock.connect(self._peer)
             # Hand the socket over to the send phase with its own budget.
             sock.settimeout(self.send_timeout)
             self._sock = sock
         elif self.profile.transport == "tls":
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            family, self._peer = resolve_endpoint(
+                self.profile.host, self.profile.port, socket.SOCK_STREAM
+            )
+            sock = socket.socket(family, socket.SOCK_STREAM)
             sock.settimeout(self.connect_timeout)
             self._sock = self._tls_context().wrap_socket(
                 sock, server_hostname=self.profile.host if self.profile.tls_verify else None
             )
-            self._sock.connect((self.profile.host, self.profile.port))
+            self._sock.connect(self._peer)
             # The timeout is set on the raw socket above, before wrap_socket, and
             # it survives onto the SSLSocket. That is not obvious by reading, and
             # it is why the tls branch had the same defect as the tcp one.
@@ -715,7 +754,7 @@ class SyslogEmitter:
 
         try:
             if self.profile.transport == "udp":
-                self._sock.sendto(data, (self.profile.host, self.profile.port))
+                self._sock.sendto(data, self._peer)
             else:
                 self._sock.sendall(data + b"\n")
         except OSError as exc:
