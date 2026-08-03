@@ -146,3 +146,38 @@ class TestProbe:
 
         assert report.does_not_prove
         assert report.proves
+
+
+def test_the_syslog_month_does_not_follow_the_locale() -> None:
+    """RFC 3164 fixes the month at three ASCII characters.
+
+    ``strftime('%b')`` follows LC_TIME, so a caller that has called setlocale
+    would put "févr." on the wire and shift every field a SIEM parser counts on.
+    Latent rather than live today (CPython leaves LC_TIME at "C" and nothing here
+    calls setlocale), which is exactly why it is worth pinning: the defect is one
+    setlocale call away and nothing else would notice.
+    """
+    import locale
+    from datetime import UTC, datetime
+
+    from replicant.core.models import CollectorProfile
+    from replicant.transport.syslog import SyslogEmitter
+
+    emitter = SyslogEmitter(CollectorProfile(name="t", host="127.0.0.1", port=514, transport="udp"))
+    stamp = datetime(2026, 2, 3, 12, 0, 0, tzinfo=UTC)
+
+    saved = locale.setlocale(locale.LC_TIME)
+    installed = None
+    for candidate in ("fr_FR.UTF-8", "de_DE.UTF-8", "es_ES.UTF-8"):
+        try:
+            locale.setlocale(locale.LC_TIME, candidate)
+            installed = candidate
+            break
+        except locale.Error:
+            continue
+    try:
+        framed = emitter.frame("CEF:0|x|y|z|1|n|3|", level="notice", now=stamp).decode()
+    finally:
+        locale.setlocale(locale.LC_TIME, saved)
+
+    assert "Feb " in framed, f"month was localised under {installed!r}: {framed[:40]!r}"
