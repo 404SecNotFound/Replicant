@@ -332,7 +332,13 @@ class RunBody(BaseModel):
     duration: str | None = None
     seed: int | None = None
     to_file: str | None = None
-    no_send: bool = True
+    # Defaults to sending, because a caller who supplies a collector has said
+    # where the events go. `replicant run REP-001 --host ...` has always read it
+    # that way, with `--no-send` as the opt-out; this defaulted the other way, so
+    # supplying a collector and saying nothing else produced a run that rendered
+    # everything and delivered nothing. Fail-closed is unaffected: `sending` below
+    # still requires a collector, so a body with no collector sends nothing.
+    no_send: bool = False
     collector: CollectorBody | None = None
     vendor: str | None = None  # override settings.vendor for this run
     # "now", "fixed", an epoch, or an ISO-8601 timestamp. None and "fixed" both mean

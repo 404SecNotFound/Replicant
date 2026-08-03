@@ -48,15 +48,39 @@ function renderPanel(collector: typeof COLLECTOR | null = COLLECTOR) {
   );
 }
 
+// A configured collector is a statement of intent. The CLI has always read it
+// that way: `replicant run REP-001 --host ...` sends, and `--no-send` is the
+// opt-out. The form read it the other way, so an operator who connected a
+// collector, saw it verify, picked a technique and pressed the button got a run
+// that rendered every event and delivered none. PR #31 made that visible with a
+// labelled button and a warning; it left the default that causes it, so the
+// visible answer was still the wrong one. These pin the two surfaces together.
 describe("RunPanel destination", () => {
-  it("says it will not send when no destination is selected", () => {
+  it("sends to a connected collector by default, as the CLI does", () => {
     renderPanel();
+
+    expect(screen.getByRole("button", { name: /Run and send to 10\.20\.0\.50:514/ })).toBeVisible();
+    expect(screen.queryByText(/No destination selected/)).toBeNull();
+  });
+
+  it("keeps the collector switch on when one is connected", () => {
+    renderPanel();
+
+    expect(screen.getByRole("switch", { name: /Collector/ })).toBeChecked();
+  });
+
+  it("says it will not send once the operator turns the collector off", () => {
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
 
     expect(screen.getByRole("button", { name: /Run without sending/ })).toBeVisible();
   });
 
   it("warns before the run that nothing will be delivered", () => {
     renderPanel();
+
+    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
 
     const notice = screen.getByRole("status");
     expect(notice).toHaveTextContent(/No destination selected/);
@@ -65,18 +89,10 @@ describe("RunPanel destination", () => {
     expect(notice).toHaveTextContent(/10\.20\.0\.50:514/);
   });
 
-  it("names the collector in the button once sending is on", () => {
-    renderPanel();
-
-    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
-
-    expect(screen.getByRole("button", { name: /Run and send to 10\.20\.0\.50:514/ })).toBeVisible();
-    expect(screen.queryByText(/No destination selected/)).toBeNull();
-  });
-
   it("names the file destination when only the file switch is on", () => {
     renderPanel();
 
+    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
     fireEvent.click(screen.getByRole("switch", { name: /File/ }));
 
     expect(screen.getByRole("button", { name: /Run and write to file/ })).toBeVisible();
@@ -118,15 +134,15 @@ describe("RunPanel pacing", () => {
   });
 
   it("defaults a live send to the plan's own timeline", async () => {
+    // A connected collector already sends, so this is the default state of the
+    // form rather than something the test has to switch on.
     renderPanel();
-    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
 
     expect(await screen.findByRole("radio", { name: /plan time/i })).toBeChecked();
   });
 
   it("says how long the run will take before it starts", async () => {
     renderPanel();
-    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
 
     // 14280 seconds is 3h 58m. A count of events does not tell an operator that.
     // It appears twice by design, on the option and in the sentence under it, so
@@ -138,7 +154,6 @@ describe("RunPanel pacing", () => {
 
   it("prices both options at once so they can be compared", async () => {
     renderPanel();
-    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
 
     // The same plan is four hours one way and a fifth of a second the other.
     // Showing only the selected one would hide the choice being made.
@@ -150,6 +165,8 @@ describe("RunPanel pacing", () => {
 
   it("defaults a file run to burst, which has no wall clock to reproduce", async () => {
     renderPanel();
+    // File-only: the collector has to come off first, now that it starts on.
+    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
     fireEvent.click(screen.getByRole("switch", { name: /File/ }));
 
     expect(await screen.findByRole("radio", { name: /burst/i })).toBeChecked();
@@ -166,7 +183,6 @@ describe("RunPanel pacing", () => {
       speed: 1,
     });
     renderPanel();
-    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
 
     fireEvent.click(screen.getByRole("radio", { name: /burst/i }));
 
@@ -180,6 +196,8 @@ describe("RunPanel pacing", () => {
     // Burst ignores the plan's timeline, so there is nothing to compress. A
     // control whose output cannot change is decoration.
     renderPanel();
+    // File-only: the collector has to come off first, now that it starts on.
+    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
     fireEvent.click(screen.getByRole("switch", { name: /File/ }));
 
     expect(screen.queryByLabelText(/speed/i)).toBeNull();
@@ -196,7 +214,6 @@ describe("RunPanel pacing", () => {
       speed: 60,
     });
     renderPanel();
-    fireEvent.click(screen.getByRole("switch", { name: /Collector/ }));
 
     fireEvent.change(await screen.findByLabelText(/speed/i), { target: { value: "60" } });
 

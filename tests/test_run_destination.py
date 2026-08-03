@@ -63,6 +63,53 @@ def _run(tmp_path: Path, **kwargs: object) -> None:
     orch.run(RunRequest(technique_id="REP-001", intensity="low", **kwargs))  # type: ignore[arg-type]
 
 
+# The same defect one layer down.
+#
+# The docstring above has said since PR #31 that the web form "defaults to off and
+# carried the whole meaning silently". The form was given a labelled button and a
+# warning; the default was left alone, so the honest label just described the
+# wrong outcome accurately. The API default had the same shape and was never
+# tested at all, because every test passed `no_send` explicitly.
+#
+# The rule both surfaces now follow, which is the one the CLI has always used: a
+# configured collector is a statement of intent. Supplying one and saying nothing
+# else sends. Supplying nothing still fails closed, which is safety rule 1.
+def _post_run(tmp_path: Path, body: dict[str, object]) -> dict[str, object]:
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from replicant.web.server import create_app
+
+    app = create_app(CATALOG, Settings(manifest_dir=str(tmp_path)), token="test-token")
+    client = TestClient(app, base_url="http://localhost")
+    resp = client.post("/api/runs", headers={"x-replicant-token": "test-token"}, json=body)
+    assert resp.status_code == 200, resp.text
+    return dict(resp.json())
+
+
+COLLECTOR = {"host": "127.0.0.1", "port": 9, "transport": "udp"}
+
+
+def test_a_collector_with_no_other_instruction_sends(tmp_path: Path) -> None:
+    started = _post_run(tmp_path, {"technique_id": "REP-001", "collector": COLLECTOR})
+
+    assert started["destination"] == "collector"
+
+
+def test_no_collector_still_fails_closed(tmp_path: Path) -> None:
+    started = _post_run(tmp_path, {"technique_id": "REP-001"})
+
+    assert started["destination"] == "none"
+
+
+def test_an_explicit_no_send_still_wins_over_a_collector(tmp_path: Path) -> None:
+    started = _post_run(
+        tmp_path, {"technique_id": "REP-001", "collector": COLLECTOR, "no_send": True}
+    )
+
+    assert started["destination"] == "none"
+
+
 def test_a_run_with_no_destination_warns(tmp_path: Path) -> None:
     _run(tmp_path, no_send=True)
 
