@@ -144,6 +144,45 @@ Output convention: command results go to stdout, operator-facing errors go to st
      the operator learns to trust it. Catalog-wide behaviour needs a parametrized test
      over the whole catalog, not a test of one representative entry.
 
+- Security review closeout and the second end-to-end review (complete): every finding of the
+  2026-08 security review is closed except **F-08, which needs a decision, not code** (host-level
+  eps lease keyed on collector destination, or a documented and enforced single-process scope).
+  **F-14 is also parked on a decision**: the remaining advisories need vite 8 and vitest 4, both of
+  which drop Node 18, and the installer declares 18 as its floor. Decision record and full status:
+  `docs/security-review-2026-08-response.md`. A separately proposed 17-technique expansion was
+  triaged and **not implemented**; the decisions are in `docs/round3-expansion-triage.md`.
+
+  Five conventions this established, all of them earned the hard way:
+
+  1. **A guard must be run against the unfixed code and observed to fail.** A guard that has never
+     failed is of unknown value. Two guards this session passed for the wrong reason until a
+     positive control was run: revert the fix, confirm the test goes red, restore it.
+  2. **A golden-line test that covers one verdict of a two-verdict field is not a test of that
+     field.** The Check Point golden line for `event:system` is a failed login, and the test only
+     ever fed it a failure, so a hardcoded `act=Reject` shipped on the only case the engine
+     actually produces: success. Two of three vendors rendered every successful REP-018 login as a
+     failure, in exactly the field a correlation rule reads.
+  3. **A default is not fixed by labelling it.** PR #31 responded to a silent no-destination run
+     with a labelled button and a warning banner and left `useState(false)` and `no_send=True`
+     untouched, so the honest label described the wrong outcome accurately. Measured afterwards:
+     CLI 200 datagrams, web 200, identical parameters. The send path was never broken, only its
+     default.
+  4. **Server state must be read from the server.** The run form's `running` flag is per-panel, so
+     a reload showed an idle form while the server was hours into a run, and the button then failed
+     with a 409 naming a hex id the operator could not resolve. Anything the server owns
+     exclusively (the single-run lock, the active run) has to be askable.
+  5. **A verdict must state what it does not prove.** `Send test log` showed a green `verified`
+     against an unreachable collector across two lab sessions, because it was set from a UDP
+     `sendto` succeeding, which only proves a route exists. The word is now gone from the codebase
+     entirely. What replaced it is disclosure, not a probe: a measured UDP probe to the mistyped lab
+     address returns no error at all, so it would not have caught the bug. Printing the source
+     beside the destination does.
+
+  One product rule came out of the same work: **every catalog entry states its objective**, one
+  sentence on what running it is meant to establish. The UI used to generate "emits synthetic X
+  telemetry that exercises Y", which is true of all 24 entries and so answers nothing. Guarded
+  parametrized over the whole catalog, for the reason `--duration` established.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 Vendor licensing position (trademarks, the `[Constructed]` golden lines, the field-mapping tables, the CEF spec's terms) is settled in `docs/prior-art-and-licensing.md` section 3. **Standing constraint: never claim CEF certification, CEF compliance, or ArcSight validation.**

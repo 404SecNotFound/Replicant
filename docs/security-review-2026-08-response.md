@@ -9,6 +9,27 @@ rather than rediscovered.
 Every finding below was **reproduced before being acted on**. Two were not
 reproducible as described and are marked accordingly.
 
+## Status as of 2026-08-04
+
+Every finding except F-08 is now closed. F-08 is the one item that needs a
+decision rather than an implementation, and it is still open.
+
+| finding | state |
+|---|---|
+| F-01, F-02, F-03, F-06, F-07 | fixed (PRs #41, #42) |
+| F-05 | fixed in two parts: frame validation and bounded queue (#43), then session limits and non-blocking termination (#50) |
+| F-04 | fixed (#51). The cookie now holds a short-lived session id from `SessionStore`, never the launch token, and no credential appears in a stream URL |
+| F-09 | fixed (#49), together with the same defect re-reported by a later review |
+| F-10 | fixed (#54). `resolve_endpoint` uses AF_UNSPEC, so IPv6 collectors work |
+| F-11 | closed by #46: the connect test returns a structured verdict carrying the exception type and message |
+| F-12 | fixed (#53). Each SSE consumer gets its own queue, seeded with bounded history |
+| F-13 | fixed (#48) |
+| F-15 | fixed (#54). PEP 639 SPDX metadata, verified in a built wheel |
+| **F-14** | **partially.** The one non-breaking upgrade applied. The rest need vite 8 and vitest 4, which drop Node 18, which the installer declares as its floor. That is a supported-platform decision, not a bump |
+| **F-08** | **open, needs a decision.** Host-level lease keyed on collector destination, or documented and enforced single-process scope. #50 bounds the blast radius by capping terminal sessions, but does not answer it |
+
+The original response follows.
+
 ## Summary
 
 | | count | findings |
@@ -198,3 +219,49 @@ project owner rather than something to start inside a security patch.
 None of this is confirmed against a live SIEM. The review notes the same limit.
 Suites H and I in `tasks/uat-plan.md` remain unexecuted, so vendor and detection
 fidelity stay unverified where the repository already marks them so.
+
+
+## What a second review found that this one did not
+
+An independent end-to-end review on 2026-08-03 found eight further defects, all
+reproduced before being acted on and all now fixed (PRs #47, #48, #49). Two are
+worth recording here because they say something about where this review's
+attention did not reach.
+
+**Detection content was wrong on two of three vendors.** Check Point and Palo
+Alto both hardcoded failure semantics into the `event:system` login path, so
+every successful administrative login in REP-018 rendered as a rejected one,
+contradicting its own message field. The security review looked at transport,
+web and process safety and never at whether the emitted telemetry means what it
+claims, which is the product's core promise.
+
+**The test that should have caught it covered one half of the field.** The Check
+Point golden line for that path is a *failed* login, and the golden test only
+ever fed it a failure. The suite passed while the only case the engine actually
+produces was never rendered. A catalog-wide scan afterwards showed 100% of
+`event:system` events are successes, so the hardcode was never once correct.
+
+> A golden-line test that covers one verdict of a two-verdict field is not a
+> test of that field.
+
+## Defects this session found that neither review did
+
+Both were found by running the software rather than reading it, which is the
+same lesson the systemd unit taught in v0.3.0.
+
+- **A configured collector did not mean send.** The web form's destination
+  switch defaulted off and the API defaulted `no_send=True`, so a verified
+  collector plus a technique plus the run button produced a run that rendered
+  every event and delivered none. PR #31 had made that visible with a labelled
+  button and a warning and left the default that causes it, and this document's
+  own record wrongly described it as fixed. Measured: CLI 200 datagrams, web 200
+  datagrams, identical parameters, so the send path was never broken. Only its
+  default was.
+- **The single-run lock was invisible.** Only one run may be active, which is
+  correct because concurrent runs multiply the eps cap. But the form's `running`
+  flag is per-panel state, so a reload showed an idle form while the server was
+  hours into a plan-paced run, and pressing the button produced a 409 naming a
+  hex id the operator could not resolve, see or stop.
+
+Both surfaced during a live lab session, and both read to the operator as "the
+web UI is broken".
