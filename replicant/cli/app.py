@@ -408,14 +408,14 @@ def cmd_run(
         preview = orchestrator.preview_pacing(
             request, sending=not args.no_send and collector is not None
         )
-    except (RuntimeError, NotImplementedError) as exc:
+    except (RuntimeError, NotImplementedError, OSError) as exc:
         _fail(f"[red]run refused[/red]: {exc}")
         return 1
     console.print(preview.describe())
 
     try:
         result = orchestrator.run(request)
-    except (RuntimeError, NotImplementedError) as exc:
+    except (RuntimeError, NotImplementedError, OSError) as exc:
         _fail(f"[red]run refused[/red]: {exc}")
         return 1
 
@@ -508,14 +508,14 @@ def cmd_scenario(
         preview = orchestrator.preview_scenario_pacing(
             request, scenarios, sending=not args.no_send and collector is not None
         )
-    except (RuntimeError, NotImplementedError) as exc:
+    except (RuntimeError, NotImplementedError, OSError) as exc:
         _fail(f"[red]run refused[/red]: {exc}")
         return 1
     console.print(preview.describe())
 
     try:
         result = orchestrator.run_scenario(request, scenarios)
-    except (RuntimeError, NotImplementedError) as exc:
+    except (RuntimeError, NotImplementedError, OSError) as exc:
         _fail(f"[red]run refused[/red]: {exc}")
         return 1
     console.print(
