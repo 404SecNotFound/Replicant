@@ -46,6 +46,23 @@ _log = get_logger("transport")
 # than most people expect. TCP does not care, so the check is UDP-only.
 UDP_SAFE_PAYLOAD = 1472
 
+# RFC 3164 fixes the month at three ASCII characters. Kept as a table because
+# strftime('%b') is locale-dependent and would silently localise the wire format.
+_RFC3164_MONTHS = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+
 # FortiOS level name -> syslog numeric severity (RFC 3164). PRI = facility*8 + sev.
 _LEVEL_TO_SYSLOG_SEVERITY: dict[str, int] = {
     "emergency": 0,
@@ -658,7 +675,15 @@ class SyslogEmitter:
 
     def frame(self, payload: str, level: str = "notice", now: datetime | None = None) -> bytes:
         stamp = now or datetime.now()
-        timestamp = f"{stamp.strftime('%b')} {stamp.day:2d} {stamp.strftime('%H:%M:%S')}"
+        # Fixed table rather than strftime('%b'), which follows LC_TIME and would
+        # put "févr." or "Mär" in an RFC 3164 header that every SIEM parser reads
+        # as three ASCII characters. Latent rather than live today: CPython leaves
+        # LC_TIME at "C" and nothing here calls setlocale, so a real run under
+        # LC_ALL=fr_FR.UTF-8 still emits "Aug". It is one lookup to stop depending
+        # on that staying true, and on a caller never calling setlocale first.
+        timestamp = (
+            f"{_RFC3164_MONTHS[stamp.month - 1]} {stamp.day:2d} {stamp.strftime('%H:%M:%S')}"
+        )
         return f"<{self.pri(level)}>{timestamp} {self.hostname} {payload}".encode()
 
     def send(self, payload: str, level: str = "notice") -> int:

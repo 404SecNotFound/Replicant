@@ -35,6 +35,9 @@ from replicant.scenario.engine import DEFAULT_ANCHOR_EPOCH
 
 _DURATION_UNITS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
 _DURATION_TOKEN = re.compile(r"(\d+)\s*([smhd]?)")
+# The whole string must be nothing but duration tokens. Accepts "30", "5m",
+# "1h30m" and "1h 30m"; rejects "10x", "abc123", "-1h", "1h garbage", "1.5h".
+_DURATION_FULL = re.compile(r"(?:\d+\s*[smhd]?\s*)+")
 
 # Canonical vendor-profile ids. The Orchestrator (_build_profile) is the validator;
 # the CLI --vendor choices, the Rich menu picker, and the web selector all derive
@@ -240,11 +243,15 @@ def parse_duration(text: str) -> int:
     """
 
     cleaned = text.strip().lower()
-    total = 0
-    matched = False
-    for number, unit in _DURATION_TOKEN.findall(cleaned):
-        matched = True
-        total += int(number) * _DURATION_UNITS[unit]
-    if not matched:
+    # Anchored first. `findall` alone scavenged digits out of any surrounding
+    # text: "10x" was 10 seconds, "abc123" was 123, "-1h" was a positive hour
+    # because the minus sign belonged to no token, and "1h30junk" was 1h+30s
+    # because a trailing word leaves the second unit empty and "" maps to 1s.
+    # Every one of those is worse than an error: the operator gets a run of a
+    # different length and no signal that anything was misread.
+    if not _DURATION_FULL.fullmatch(cleaned):
         raise ValueError(f"cannot parse duration: {text!r}")
+    total = 0
+    for number, unit in _DURATION_TOKEN.findall(cleaned):
+        total += int(number) * _DURATION_UNITS[unit]
     return total

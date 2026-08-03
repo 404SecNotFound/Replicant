@@ -48,6 +48,9 @@ DEFAULT_ANCHOR_EPOCH = 1_752_586_800
 
 # Bound on materialized events, protecting memory and the operator's collector.
 DEFAULT_MAX_EVENTS = 200_000
+# TCP/UDP port space, 1..65535. A scan asking for more distinct ports than exist
+# is a clamp, not an exception out of a distribution helper.
+PORT_SPAN = 65535
 
 _PORT_SERVICE: dict[int, tuple[str, str]] = {
     443: ("HTTPS", "HTTPS"),
@@ -441,6 +444,14 @@ class ScenarioEngine:
         gap_lo, gap_hi = (float(v) for v in preset["gap_ms"])
 
         truncated = False
+        # A scan cannot visit more distinct ports than exist. Without this,
+        # `unique_ints(rng, 1, 65535, unique_ports)` below raises out of a
+        # distribution helper rather than the caller explaining itself. Clamped
+        # rather than rejected, to match how max_events is handled on the next
+        # two lines, and recorded the same way.
+        if unique_ports > PORT_SPAN:
+            unique_ports = PORT_SPAN
+            truncated = True
         if unique_ports > self.max_events:
             unique_ports = self.max_events
             truncated = True
