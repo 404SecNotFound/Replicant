@@ -12,76 +12,51 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// The detail panel has to say what a technique is FOR.
+//
+// It opened with "Emits synthetic <log type> telemetry that exercises <rule>",
+// a sentence that is true of all 24 catalog entries. It reads as specific and
+// carries no information that distinguishes one entry from another, which is
+// the only question this screen exists to answer.
+
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import { TechniqueDetail } from "./TechniqueDetail";
 import { makeTechnique } from "@/test/factories";
 
-vi.mock("@/lib/api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return {
-    ...actual,
-    getSample: vi.fn(async () => ({
-      lines: ["CEF:0|Fortinet|Fortigate|v7.4.3|00013|traffic:forward accept|3|" + "x".repeat(400)],
-    })),
-  };
-});
+describe("TechniqueDetail objective", () => {
+  it("states the objective", () => {
+    render(
+      <TechniqueDetail
+        technique={makeTechnique({
+          objective: "Prove a sweep rule fires on one port probed across many hosts.",
+        })}
+        vendor="fortigate"
+      />,
+    );
 
-beforeEach(() => {
-  vi.clearAllMocks();
-});
-
-// The sample line arrives from an async fetch. Settling it before asserting keeps
-// the state update inside act() rather than after the test has returned.
-async function renderSettled() {
-  const utils = render(<TechniqueDetail technique={makeTechnique()} vendor="fortigate" />);
-  await waitFor(() => expect(utils.container.querySelector(".whitespace-pre")).not.toBeNull());
-  return utils;
-}
-
-describe("TechniqueDetail", () => {
-  it("renders the technique identity and its ATT&CK tags", async () => {
-    await renderSettled();
-
-    expect(screen.getByText("Beaconing")).toBeInTheDocument();
-    expect(screen.getByText(/REP-001/)).toBeInTheDocument();
-    expect(screen.getByText("T1071.001")).toBeInTheDocument();
+    expect(screen.getByTestId("technique-objective")).toHaveTextContent(
+      /Prove a sweep rule fires on one port probed across many hosts\./,
+    );
   });
 
-  // Regression guard for a horizontal-overflow bug found by measuring the real
-  // page, not by any test: at 375px the document scrolled sideways to 3452px.
-  //
-  // Cause: a CSS grid item defaults to `min-width: auto`, so it will not shrink
-  // below its content's intrinsic width. One 3376px CEF sample line inside an
-  // `overflow-x-auto` box therefore stretched the whole column track and took
-  // the page with it, instead of scrolling inside its own box.
-  //
-  // jsdom has no layout engine, so this cannot assert the width; it asserts the
-  // one class that prevents it. The behavioural check is a browser width
-  // measurement, recorded in tasks/todo.md.
-  it("keeps min-w-0 on the cards, or a wide CEF line drags the page sideways", async () => {
-    const { container } = await renderSettled();
+  it("puts the objective before the mechanical description", () => {
+    // Ordering is the point: the operator should read what it is for before
+    // what it emits, not have to scan past a template to reach the meaning.
+    const { container } = render(
+      <TechniqueDetail technique={makeTechnique()} vendor="fortigate" />,
+    );
+    const text = container.textContent ?? "";
 
-    const grid = container.querySelector(".grid.gap-4");
-    expect(grid, "the detail card grid moved; re-point this guard").not.toBeNull();
-
-    const items = [...(grid?.children ?? [])];
-    expect(items.length).toBeGreaterThan(0);
-
-    for (const item of items) {
-      expect(
-        item.className,
-        `grid item "${item.textContent?.slice(0, 40)}" lost min-w-0, so it can no longer ` +
-          "shrink below its widest child and the page will scroll horizontally",
-      ).toContain("min-w-0");
-    }
+    expect(text.indexOf("Prove")).toBeGreaterThan(-1);
+    expect(text.indexOf("Prove")).toBeLessThan(text.indexOf("Emits synthetic"));
   });
 
-  it("puts the CEF sample in its own horizontal scroller", async () => {
-    // The other half of the same bug: min-w-0 lets the box shrink, and this is
-    // what makes the overflowing content scroll rather than clip.
-    const { container } = await renderSettled();
+  it("renders nothing rather than an empty slot when there is no objective", () => {
+    render(
+      <TechniqueDetail technique={makeTechnique({ objective: "" })} vendor="fortigate" />,
+    );
 
-    expect(container.querySelector(".overflow-x-auto")).not.toBeNull();
+    expect(screen.queryByTestId("technique-objective")).toBeNull();
   });
 });

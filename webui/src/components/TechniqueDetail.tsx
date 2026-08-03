@@ -123,6 +123,21 @@ export function TechniqueDetail({ technique, vendor }: Props) {
         {technique.id} · {technique.ndr_uc}
       </div>
       <h1 className="mt-1 text-[23px] font-semibold tracking-[-0.028em]">{technique.name}</h1>
+
+      {/* The objective, first and in the reading colour.
+          This slot used to hold "Emits synthetic <log type> telemetry that
+          exercises <rule>", which is true of every entry in the catalog and so
+          answered none of the question the operator actually has, which is which
+          one to pick. The templated sentence survives below it, demoted to the
+          mechanical detail it always was. */}
+      {technique.objective && (
+        <p
+          data-testid="technique-objective"
+          className="mt-2 max-w-[640px] text-[14px] leading-relaxed text-foreground"
+        >
+          {technique.objective}
+        </p>
+      )}
       <p className="mt-1.5 max-w-[600px] text-[13px] leading-relaxed text-muted-foreground">
         Emits synthetic <span className="text-foreground">{technique.log_type}:{technique.subtype}</span>{" "}
         telemetry that exercises <span className="text-foreground">{technique.ndr_rule}</span>.

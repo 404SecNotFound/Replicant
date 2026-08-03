@@ -20,6 +20,7 @@ export function makeTechnique(overrides: Partial<Technique> = {}): Technique {
     name: "Beaconing",
     ndr_rule: "rule",
     ndr_uc: "UC-001",
+    objective: "Prove a detection can catch a beacon by keying on the interval between sessions.",
     log_type: "traffic",
     subtype: "forward",
     attack: ["T1071.001"],
