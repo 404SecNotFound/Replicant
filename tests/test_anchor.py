@@ -99,3 +99,50 @@ def test_threshold_is_exclusive_at_the_boundary() -> None:
     well_outside = now - int((STALE_ANCHOR_DAYS + 1) * 86400)
     assert stale_anchor_warning(just_inside, sending=True, now=now) is None
     assert stale_anchor_warning(well_outside, sending=True, now=now) is not None
+
+
+# The drift line the emit loop logs, as distinct from stale_anchor_warning.
+#
+# F-13 in the 2026-08 security review, confirmed twice: the default anchor is a
+# fixed epoch in the PAST, and `drift_days = (now - first).days` is therefore
+# positive, but the message rendered it as "384 days from now". It stated the
+# opposite of the truth about the one field an operator checks first when a SIEM
+# shows nothing. stale_anchor_warning in settings.py already got this right; the
+# orchestrator's own line did not.
+def test_a_past_anchor_is_not_described_as_being_in_the_future(tmp_path) -> None:
+    import socket
+
+    from replicant.config.settings import Settings
+    from replicant.core.models import CollectorProfile, RunRequest, load_catalog
+    from replicant.core.orchestrator import Orchestrator
+    from replicant.obs import log as obs_log
+    from replicant.resources import TECHNIQUE_CATALOG
+
+    sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sink.bind(("127.0.0.1", 0))
+    port = int(sink.getsockname()[1])
+
+    obs_log.reset_for_tests()
+    obs_log.install(capacity=500, level="debug")
+    try:
+        orch = Orchestrator(load_catalog(TECHNIQUE_CATALOG), Settings(manifest_dir=str(tmp_path)))
+        orch.run(
+            RunRequest(
+                technique_id="REP-001",
+                intensity="low",
+                duration="20s",
+                collector=CollectorProfile(name="t", host="127.0.0.1", port=port, transport="udp"),
+                no_send=False,
+                pace="burst",
+            )
+        )
+        messages = [e.message for e in obs_log.snapshot()]
+    finally:
+        sink.close()
+        obs_log.reset_for_tests()
+
+    drift = [m for m in messages if "days" in m and "eventtime" in m or "event time is" in m]
+    assert drift, "no drift line was logged for a live run"
+    # The default anchor is historical, so nothing may call it future-dated.
+    assert not any("from now" in m for m in drift), drift
+    assert any("in the past" in m or "ago" in m for m in drift), drift

@@ -152,9 +152,16 @@ def _run_scenario(
         return
     with Progress(console=console) as progress:
         task = progress.add_task(f"emitting {scenario.id}", total=composed.total_count)
-        result = orchestrator.run_scenario(
-            request, scenarios, on_progress=lambda c, t: progress.update(task, completed=c)
-        )
+        try:
+            result = orchestrator.run_scenario(
+                request, scenarios, on_progress=lambda c, t: progress.update(task, completed=c)
+            )
+        except (RuntimeError, NotImplementedError, OSError) as exc:
+            # This path had no handler at all, unlike its _run_technique sibling.
+            # A refused collector therefore left the menu with a traceback and no
+            # menu, which is the worst of the failure modes in this file.
+            console.print(f"  [red]run refused[/red]: {exc}")
+            return
     console.print(f"  {result.event_count} events · manifest {result.manifest_path}")
     console.print(f"  advisory {result.advisory_path}")
 
@@ -298,7 +305,7 @@ def _run_technique(orchestrator: Orchestrator, request: RunRequest, console: Con
             sending=not request.no_send and request.collector is not None,
             plan=plan,
         )
-    except (RuntimeError, NotImplementedError) as exc:
+    except (RuntimeError, NotImplementedError, OSError) as exc:
         console.print(f"  [red]cannot run[/red]: {exc}")
         return
     console.print(f"  {preview.describe()}")
@@ -319,7 +326,7 @@ def _run_technique(orchestrator: Orchestrator, request: RunRequest, console: Con
 
         try:
             result = orchestrator.run(request, on_progress=on_progress)
-        except (RuntimeError, NotImplementedError) as exc:
+        except (RuntimeError, NotImplementedError, OSError) as exc:
             console.print(f"  [red]run refused[/red]: {exc}")
             return
         progress.update(task, completed=result.event_count)

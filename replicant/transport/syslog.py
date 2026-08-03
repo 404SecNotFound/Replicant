@@ -523,10 +523,19 @@ class SyslogEmitter:
         profile: CollectorProfile,
         hostname: str = "FGT-LAB-01",
         connect_timeout: float = 5.0,
+        send_timeout: float = 30.0,
     ) -> None:
         self.profile = profile
         self.hostname = hostname
         self.connect_timeout = connect_timeout
+        # Separate from the connect budget on purpose. `connect()` used to leave
+        # the 5s connect timeout on the socket, so every later `sendall` ran under
+        # it too and a collector applying ordinary backpressure mid-run raised
+        # socket.timeout. Blocking forever instead would trade that for a run that
+        # hangs with no way out, so this is a deliberately generous ceiling: a
+        # stream transport that cannot absorb one line in 30 seconds is not
+        # keeping up, and saying so beats waiting silently.
+        self.send_timeout = send_timeout
         self._sock: socket.socket | None = None
         self.stats = SendStats()
         # Warn once per emitter, not once per datagram. A run that fragments
@@ -558,6 +567,8 @@ class SyslogEmitter:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(self.connect_timeout)
             sock.connect((self.profile.host, self.profile.port))
+            # Hand the socket over to the send phase with its own budget.
+            sock.settimeout(self.send_timeout)
             self._sock = sock
         elif self.profile.transport == "tls":
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -566,6 +577,10 @@ class SyslogEmitter:
                 sock, server_hostname=self.profile.host if self.profile.tls_verify else None
             )
             self._sock.connect((self.profile.host, self.profile.port))
+            # The timeout is set on the raw socket above, before wrap_socket, and
+            # it survives onto the SSLSocket. That is not obvious by reading, and
+            # it is why the tls branch had the same defect as the tcp one.
+            self._sock.settimeout(self.send_timeout)
         else:  # pragma: no cover - Transport literal forbids other values
             raise ValueError(f"unsupported transport: {self.profile.transport}")
 

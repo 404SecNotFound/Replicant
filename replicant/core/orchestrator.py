@@ -278,9 +278,18 @@ class Orchestrator:
         """
 
         line = self.build_test_line(eventtime=int(datetime.now(tz=UTC).timestamp()))
-        with SyslogEmitter(collector, hostname=self.syslog_hostname) as emitter:
-            _log.info("connect test: one benign line, stamped now")
-            return emitter.send_test(line)
+        try:
+            with SyslogEmitter(collector, hostname=self.syslog_hostname) as emitter:
+                _log.info("connect test: one benign line, stamped now")
+                return emitter.send_test(line)
+        except OSError as exc:
+            # This is annotated ``-> bool`` and has to return one. ``__enter__``
+            # calls ``connect()``, so a refused or unreachable collector escaped
+            # the contract entirely and both callers' failure branches were
+            # unreachable: the operator got a traceback where a "could not reach
+            # the collector" message was already written and waiting.
+            _log.warning("connect test failed: %s", describe_error(exc))
+            return False
 
     # -- planning / running ----------------------------------------------------
 
@@ -436,19 +445,28 @@ class Orchestrator:
             # being something the operator has to remember they chose.
             first = datetime.fromtimestamp(events[0].eventtime, tz=UTC)
             drift_days = (datetime.now(tz=UTC) - first).days
+            # `drift_days` is now minus the event time, so a POSITIVE value means
+            # the events are historical. This read "%d days from now", which
+            # described the default historical anchor as future-dated: the exact
+            # opposite of the truth, in the first thing an operator checks when a
+            # SIEM shows nothing. `stale_anchor_warning` in settings.py has always
+            # phrased this correctly; this line did not.
+            direction = "in the past" if drift_days > 0 else "in the future"
             _log.info(
-                "live run: %d events, eps_cap=%d, first eventtime %s UTC (%d days from now)",
+                "live run: %d events, eps_cap=%d, first eventtime %s UTC (%d days %s)",
                 total,
                 eps_cap,
                 first.strftime("%Y-%m-%d %H:%M:%S"),
-                drift_days,
+                abs(drift_days),
+                direction,
             )
             if abs(drift_days) >= 2:
                 _log.warning(
-                    "event time is %d days from now while the syslog header is stamped now. "
+                    "event time is %d days %s while the syslog header is stamped now. "
                     "A SIEM keying on parsed event time will not match recent-window rules, "
                     "and the events will look absent rather than late. Use anchor 'now'.",
-                    drift_days,
+                    abs(drift_days),
+                    direction,
                 )
         try:
             if sink is not None:
