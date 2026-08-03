@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { useState } from "react";
-import { Check, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -24,7 +24,39 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { testConnection, vendorShortLabel, type Collector } from "@/lib/api";
+import { testConnection, vendorShortLabel, type Collector, type PathReport } from "@/lib/api";
+
+/** Badge copy, keyed by verdict.
+ *
+ * The word "verified" appears nowhere, on any transport. It was set from a UDP
+ * `sendto` succeeding, which only proves a route exists, and it read green
+ * against a collector that could not receive anything across two live lab
+ * sessions. A glanced-at green badge is indistinguishable from a correct one,
+ * so no state the tool can observe by itself earns that word: the strongest
+ * honest claim on UDP is that the datagram left this host.
+ *
+ * Exhaustive over BadgeState, so a new verdict without copy fails to compile.
+ */
+const BADGE: Record<BadgeState, { label: string; tone: string }> = {
+  untested: { label: "not tested", tone: "text-text-3" },
+  testing: { label: "testing…", tone: "text-text-3" },
+  stale: { label: "not tested", tone: "text-text-3" },
+  sent_unconfirmed: { label: "sent, unconfirmed", tone: "text-signal" },
+  handshake_ok: { label: "handshake ok", tone: "text-signal" },
+  refused: { label: "refused", tone: "text-destructive" },
+  name_not_resolved: { label: "name not resolved", tone: "text-destructive" },
+  failed: { label: "failed", tone: "text-destructive" },
+};
+
+type BadgeState =
+  | "untested"
+  | "testing"
+  | "stale"
+  | "sent_unconfirmed"
+  | "handshake_ok"
+  | "refused"
+  | "name_not_resolved"
+  | "failed";
 
 interface Props {
   epsCap: number;
@@ -49,11 +81,21 @@ export function ConnectionCard({
   const [tlsVerify, setTlsVerify] = useState(collector?.tls_verify ?? true);
   const [tlsCafile, setTlsCafile] = useState(collector?.tls_cafile ?? "");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [report, setReport] = useState<PathReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // A test result belongs to the target it was obtained for. Editing the host
+  // after a test used to leave the previous verdict on screen describing an
+  // address that was no longer in the form, which is the same class of lie the
+  // verdict exists to remove.
+  const targetKey = `${host}|${port}|${transport}|${tlsVerify}|${tlsCafile}`;
+  const [testedKey, setTestedKey] = useState<string | null>(null);
+  const stale = testedKey !== null && testedKey !== targetKey;
 
   async function handleTest() {
     setBusy(true);
-    setResult(null);
+    setReport(null);
+    setError(null);
     const target: Collector = { host, port: Number(port), transport };
     if (transport === "tls") {
       target.tls_verify = tlsVerify;
@@ -61,26 +103,33 @@ export function ConnectionCard({
     }
     try {
       const resp = await testConnection(target, vendor);
-      if (resp.ok) {
-        onCollectorChange(target);
-        setResult({ ok: true, message: `Test log sent to ${resp.endpoint}. Confirm on collector.` });
-      } else {
-        setResult({ ok: false, message: resp.error || "transport error" });
-      }
+      setReport(resp.report ?? null);
+      setTestedKey(targetKey);
+      // A collector is armed whenever the operator asked for it. A negative
+      // verdict is reported, never enforced: a firewall that drops ICMP would
+      // otherwise block a working lab, which is worse than the defect being
+      // fixed here.
+      onCollectorChange(target);
     } catch (err) {
-      setResult({ ok: false, message: (err as Error).message });
+      setError((err as Error).message);
     } finally {
       setBusy(false);
     }
   }
 
+  const badge: BadgeState = busy
+    ? "testing"
+    : error
+      ? "failed"
+      : stale || !report
+        ? "untested"
+        : report.verdict;
+
   return (
     <section className="rounded-lg border bg-card p-4">
       <div className="mb-3.5 flex items-baseline justify-between">
         <span className="text-[13px] font-semibold">Collector</span>
-        <span className="font-mono text-[10.5px] text-text-3">
-          {collector ? "verified" : "not connected"}
-        </span>
+        <span className={cn("font-mono text-[10.5px]", BADGE[badge].tone)}>{BADGE[badge].label}</span>
       </div>
 
       <div className="u-label mb-1.5">Vendor profile</div>
@@ -179,21 +228,64 @@ export function ConnectionCard({
         <span className="font-mono text-[11px] text-text-3">cap {epsCap} eps</span>
       </div>
 
-      {result && (
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-[11.5px] leading-relaxed text-destructive">
+          <X className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {report && !stale && !error && (
         <div
+          data-testid="connect-report"
           className={cn(
-            "mt-3 flex items-start gap-2 rounded-md border p-2.5 text-[11.5px] leading-relaxed",
-            result.ok
-              ? "border-border text-foreground"
-              : "border-destructive/40 bg-destructive/10 text-destructive",
+            "mt-3 space-y-2 rounded-md border p-2.5 text-[11.5px] leading-relaxed",
+            report.verdict === "refused" ||
+              report.verdict === "failed" ||
+              report.verdict === "name_not_resolved"
+              ? "border-destructive/40 bg-destructive/10 text-destructive"
+              : "border-border text-foreground",
           )}
         >
-          {result.ok ? (
-            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
-          ) : (
-            <X className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {/* The path, first and in monospace.
+              This is the part that answers the defect, not the probe above it.
+              A destination on its own never looks wrong: "10.20.0.125:514" reads
+              as perfectly ordinary, and it survived two lab sessions and a dozen
+              log lines. Beside its own source address it does not. */}
+          {report.source && (
+            <div className="font-mono text-[11px]">
+              {report.source} <span className="text-text-3">-&gt;</span> {report.host}:
+              {report.port}
+              {report.interface ? (
+                <span className="text-text-3">
+                  {" "}
+                  via {report.interface}
+                  {report.gateway ? ` (gateway ${report.gateway})` : " (direct)"}
+                </span>
+              ) : (
+                // Stated, not omitted. Silence would let the operator infer a
+                // directness that was never established: route_for reads
+                // /proc/net/route and answers for nothing on macOS.
+                <span className="text-text-3"> (route not determined on this platform)</span>
+              )}
+            </div>
           )}
-          <span>{result.message}</span>
+
+          {report.claim && <div className="text-signal">{report.claim}</div>}
+
+          <div>{report.summary}</div>
+
+          {/* Both required and both non-empty. A verdict without its limits is
+              the same defect wearing better wording. */}
+          <div className="text-text-3">
+            Proves: {report.proves} Does not prove: {report.does_not_prove}
+          </div>
+        </div>
+      )}
+
+      {stale && (
+        <div className="mt-3 rounded-md border p-2.5 text-[11.5px] leading-relaxed text-text-3">
+          The target changed since the last test. Send a test log to describe this one.
         </div>
       )}
     </section>

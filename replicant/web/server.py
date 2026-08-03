@@ -73,6 +73,7 @@ from replicant.core.orchestrator import Orchestrator, PacingPreview, effective_i
 from replicant.core.pacing import MAX_SPEED, SPEED_WITHOUT_PLAN, Pace
 from replicant.obs import log as obs_log
 from replicant.scenario.engine import implemented_technique_ids
+from replicant.transport.syslog import probe_collector
 from replicant.web.pty_bridge import bridge_terminal
 from replicant.web.runner import RunInProgressError, RunManager
 
@@ -635,14 +636,19 @@ def create_app(
             tls_verify=body.tls_verify,
             tls_cafile=body.tls_cafile,
         )
-        try:
-            ok = orch.send_test(collector)
-        except OSError as exc:
-            return {"ok": False, "error": str(exc), "endpoint": collector.endpoint()}
+        line = orch.build_test_line()
+        # A verdict, not a bool. The bool was rendered as a green "verified" and
+        # on UDP its only guaranteed meaning is that the kernel accepted the
+        # datagram, which is true whenever any route exists. It said "verified"
+        # against an unreachable collector across two live lab sessions.
+        report = probe_collector(collector, payload=line)
         return {
-            "ok": ok,
+            # Retained so an older client still gets a sane answer, but nothing
+            # in this UI decides anything from it any more.
+            "ok": report.ok,
             "endpoint": collector.endpoint(),
-            "line": orch.build_test_line(),
+            "line": line,
+            "report": report.as_dict(),
         }
 
     def _confined_output(to_file: str | None) -> str | None:

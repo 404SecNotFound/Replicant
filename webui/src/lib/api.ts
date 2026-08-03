@@ -249,11 +249,42 @@ export interface Collector {
   tls_cafile?: string | null;
 }
 
+/** What a connect test established, and what it did not.
+ *
+ * Replaces the bool this endpoint used to be judged on. On UDP that bool only
+ * meant the kernel accepted the datagram, which is true whenever a route
+ * exists, and the UI rendered it as a green "verified".
+ */
+export interface PathReport {
+  host: string;
+  port: number;
+  transport: string;
+  verdict:
+    | "sent_unconfirmed"
+    | "refused"
+    | "handshake_ok"
+    | "name_not_resolved"
+    | "failed";
+  summary: string;
+  proves: string;
+  does_not_prove: string;
+  source: string | null;
+  interface: string | null;
+  gateway: string | null;
+  /** null means the platform could not answer, which is stated, not hidden. */
+  direct: boolean | null;
+  claim: string | null;
+  path: string;
+}
+
 export const testConnection = (collector: Collector, vendor?: string) =>
-  api<{ ok: boolean; endpoint: string; line?: string; error?: string }>("/api/connect/test", {
-    method: "POST",
-    body: JSON.stringify({ ...collector, vendor }),
-  });
+  api<{ ok: boolean; endpoint: string; line?: string; error?: string; report?: PathReport }>(
+    "/api/connect/test",
+    {
+      method: "POST",
+      body: JSON.stringify({ ...collector, vendor }),
+    },
+  );
 
 export interface RunBody {
   technique_id: string;

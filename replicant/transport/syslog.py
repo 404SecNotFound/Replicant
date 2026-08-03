@@ -24,14 +24,17 @@ is bound to exactly one :class:`CollectorProfile` and never opens any other targ
 
 from __future__ import annotations
 
+import errno
 import ipaddress
 import socket
 import ssl
 import struct
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import TracebackType
+from typing import Any
 
 from replicant.core.models import CollectorProfile
 from replicant.obs.log import get_logger, verbose
@@ -220,6 +223,271 @@ def describe_path(host: str, port: int) -> str:
     # mistyped one was handed to a router.
     hop = "direct" if route.is_direct else f"gateway {route.gateway}"
     return f"{source[0]} -> {host}:{port} via {route.interface} ({hop})"
+
+
+def segment_claim(source: str | None, dest: str) -> str | None:
+    """State whether these two addresses can be on one segment, from arithmetic.
+
+    Deliberately independent of the routing table. ``route_for`` parses
+    ``/proc/net/route`` and returns None for every address on macOS, so the
+    off-segment warning it feeds is dead on any non-Linux host. This works
+    anywhere because it is pure ``ipaddress`` arithmetic.
+
+    Conservative on purpose. It speaks only when no plausible netmask could put
+    both ends on one link (different RFC1918 blocks, or one private and one not,
+    where a covering mask would have to be /4 or shorter), and offers a softer
+    "likely direct" for a shared /24.
+
+    **Its honest limit, which is a decision rather than an oversight:** it is
+    silent for two addresses inside one private block. ``10.0.20.127`` and
+    ``10.20.0.125`` are the real lab pair that cost two sessions, and a /12
+    covering both is perfectly legal, so calling it wrong would be a guess. On
+    Linux the route lookup catches that case; here, silence beats overclaiming.
+    """
+
+    if source is None:
+        return None
+    try:
+        src = ipaddress.ip_address(source)
+        dst = ipaddress.ip_address(dest)
+    except ValueError:
+        return None
+    if src.version != 4 or dst.version != 4:
+        # Declined rather than guessed. The source address is still shown.
+        return None
+    if src == dst:
+        return None
+
+    src_net = ipaddress.ip_network(f"{src}/24", strict=False)
+    if dst in src_net:
+        return f"{src} and {dest} share a /24, so they are likely directly connected."
+
+    def block(addr: ipaddress.IPv4Address) -> str | None:
+        for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
+            if addr in ipaddress.ip_network(cidr):
+                return cidr
+        return None
+
+    src_block, dst_block = block(src), block(dst)
+    if src_block == dst_block:
+        # Same private block, different /24: a wider mask is plausible. Silent.
+        return None
+    return (
+        f"A {src} interface cannot reach {dest} without a router. "
+        "If the collector is meant to be on this segment, check the address."
+    )
+
+
+@dataclass
+class PathReport:
+    """What a connect test actually established, and what it did not.
+
+    Replaces a bare bool. The bool was rendered as a green "verified", and on UDP
+    its only guaranteed meaning is that the kernel accepted the datagram, which
+    is true whenever any route exists. It read "verified" against an unreachable
+    collector across two live lab sessions.
+
+    ``proves`` and ``does_not_prove`` are both required and both non-empty. A
+    verdict without its limits is the same defect wearing better wording.
+    """
+
+    host: str
+    port: int
+    transport: str
+    verdict: str
+    summary: str
+    proves: str
+    does_not_prove: str
+    source: str | None = None
+    interface: str | None = None
+    gateway: str | None = None
+    # None means the platform could not answer, which is rendered as a stated
+    # line rather than as absence. Silence lets an operator infer a directness
+    # that was never established.
+    direct: bool | None = None
+    claim: str | None = None
+
+    @property
+    def destination(self) -> str:
+        return self.host
+
+    @property
+    def ok(self) -> bool:
+        """Whether anything was delivered to the stack. Never blocks a run."""
+        return self.verdict in {"sent_unconfirmed", "handshake_ok"}
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "host": self.host,
+            "port": self.port,
+            "transport": self.transport,
+            "verdict": self.verdict,
+            "summary": self.summary,
+            "proves": self.proves,
+            "does_not_prove": self.does_not_prove,
+            "source": self.source,
+            "interface": self.interface,
+            "gateway": self.gateway,
+            "direct": self.direct,
+            "claim": self.claim,
+            "path": (
+                f"{self.source} -> {self.host}:{self.port}"
+                if self.source
+                else f"{self.host}:{self.port}"
+            ),
+        }
+
+
+def probe_collector(profile: CollectorProfile, payload: str) -> PathReport:
+    """Send one line and report what that established, per transport.
+
+    Safety rule 1 holds and the socket count goes down: exactly one socket, to
+    exactly the host and port the operator configured, and the source comes from
+    ``getsockname()`` on that same socket rather than from a second one.
+
+    UDP connects rather than using ``sendto`` so the peer's ICMP port-unreachable
+    can surface as ECONNREFUSED. That is the one thing a UDP probe genuinely
+    proves. Its **absence proves nothing**: measured, the mistyped lab address
+    returns no error at all, because a router discarded the datagram and said
+    nothing. ``send`` is used, never ``sendto``, which is EISCONN on Darwin once
+    connected.
+    """
+
+    data = payload.encode("utf-8", errors="replace")
+    source: str | None = None
+    sock: socket.socket | None = None
+    try:
+        if profile.transport == "udp":
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(5.0)
+            sock.connect((profile.host, profile.port))
+            source = str(sock.getsockname()[0])
+            sock.send(data)
+            # One read of the kernel's error flag. Local, sends nothing. The wait
+            # gives a loopback ICMP time to arrive; off-link it is best effort.
+            time.sleep(0.25)
+            err = sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+            if err == errno.ECONNREFUSED:
+                return _report(
+                    profile,
+                    source,
+                    verdict="refused",
+                    summary=(
+                        f"The host answered: nothing is listening on "
+                        f"{profile.transport}/{profile.port}."
+                    ),
+                    proves="The destination host is reachable and that port is closed.",
+                    does_not_prove="That the address is the collector you meant.",
+                )
+            return _report(
+                profile,
+                source,
+                verdict="sent_unconfirmed",
+                summary=(
+                    f"{len(data)} bytes left {source} for {profile.host}:{profile.port}. "
+                    "UDP has no acknowledgement, so nothing here can confirm receipt."
+                ),
+                proves="The datagram was accepted by this host's network stack.",
+                does_not_prove=(
+                    "That anything received it. A discarded datagram and a delivered "
+                    "one are indistinguishable from this end. Confirm it on the collector."
+                ),
+            )
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5.0)
+        if profile.transport == "tls":
+            context = ssl.create_default_context(cafile=profile.tls_cafile)
+            if not profile.tls_verify:
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+            sock = context.wrap_socket(
+                sock, server_hostname=profile.host if profile.tls_verify else None
+            )
+        sock.connect((profile.host, profile.port))
+        source = str(sock.getsockname()[0])
+        sock.sendall(data)
+        checked = profile.transport == "tls" and profile.tls_verify
+        return _report(
+            profile,
+            source,
+            verdict="handshake_ok",
+            summary=(
+                f"A {profile.transport.upper()} handshake completed with a listener at "
+                f"{profile.host}:{profile.port}."
+                + (
+                    ""
+                    if profile.transport != "tls"
+                    else (
+                        " The certificate chain was checked."
+                        if checked
+                        else " The certificate was NOT checked (verification is off)."
+                    )
+                )
+            ),
+            proves="Something accepted a connection at that address and port.",
+            does_not_prove=(
+                "That it is your collector, or that the line was parsed."
+                if checked
+                else "That it is your collector. Nothing about its identity was established."
+            ),
+        )
+    except socket.gaierror:
+        # EAI_* numbering, not errno. errno.errorcode[8] is ENOEXEC on Darwin, so
+        # a naive lookup reports "exec format error" for a DNS failure.
+        return _report(
+            profile,
+            None,
+            verdict="name_not_resolved",
+            summary=f"{profile.host} could not be resolved.",
+            proves="Nothing. The name never became an address.",
+            does_not_prove="Anything about the collector.",
+        )
+    except OSError as exc:
+        verdict = "refused" if exc.errno == errno.ECONNREFUSED else "failed"
+        return _report(
+            profile,
+            source,
+            verdict=verdict,
+            summary=f"{type(exc).__name__}: {exc}",
+            proves="Nothing was delivered.",
+            does_not_prove="Anything about the collector.",
+        )
+    finally:
+        if sock is not None:
+            sock.close()
+
+
+def _report(
+    profile: CollectorProfile,
+    source: str | None,
+    *,
+    verdict: str,
+    summary: str,
+    proves: str,
+    does_not_prove: str,
+) -> PathReport:
+    """Attach the path disclosure that actually makes a mistyped address visible.
+
+    This, not the probe, is the part that answers the defect. A destination on
+    its own never looks wrong; beside its source it does.
+    """
+
+    route = route_for(profile.host)
+    return PathReport(
+        host=profile.host,
+        port=profile.port,
+        transport=profile.transport,
+        verdict=verdict,
+        summary=summary,
+        proves=proves,
+        does_not_prove=does_not_prove,
+        source=source,
+        interface=route.interface if route else None,
+        gateway=route.gateway if route else None,
+        direct=route.is_direct if route else None,
+        claim=segment_claim(source, profile.host),
+    )
 
 
 @dataclass
