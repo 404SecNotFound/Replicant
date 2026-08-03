@@ -22,7 +22,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunPanel } from "./RunPanel";
-import { getPlanPreview } from "@/lib/api";
+import { ApiError, getActiveRun, getPlanPreview, startRun, stopRun } from "@/lib/api";
 import { makeTechnique } from "@/test/factories";
 
 // Only the preview is stubbed. It is the one call the form makes before a run,
@@ -31,6 +31,9 @@ import { makeTechnique } from "@/test/factories";
 vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   getPlanPreview: vi.fn(),
+  getActiveRun: vi.fn(),
+  startRun: vi.fn(),
+  stopRun: vi.fn(),
 }));
 
 const COLLECTOR = { host: "10.20.0.50", port: 514, transport: "udp" as const };
@@ -220,5 +223,93 @@ describe("RunPanel pacing", () => {
     await waitFor(() =>
       expect(screen.getByTestId("pace-consequence")).toHaveTextContent(/will not match/i),
     );
+  });
+});
+
+// The single-run lock, and why the form could not see it.
+//
+// Only one run may be active, because each carries its own rate limiter and two
+// against one collector would multiply the eps cap (safety rule 4). That is
+// correct. What was wrong is that `running` is per-panel state: selecting a
+// different technique remounted the panel, the flag reset, the button
+// re-enabled, and pressing it produced a 409 naming a hex run id the operator
+// could not resolve, see, or stop.
+//
+// It became acute when a configured collector started defaulting to plan pace,
+// because a REP-001 run is then just under four hours rather than seconds. The
+// reported symptom was "I set up the collector, press start, and nothing
+// happens", across several techniques.
+describe("RunPanel single-run lock", () => {
+  beforeEach(() => {
+    vi.mocked(getPlanPreview).mockResolvedValue({
+      event_count: 49,
+      plan_span_s: 14280,
+      compressed_span_s: 14280,
+      projected_s: 14280,
+      projected_by_pace: { plan: 14280, burst: 0.24 },
+      pace: "plan",
+      speed: 1,
+    });
+    vi.mocked(getActiveRun).mockResolvedValue({
+      run_id: null,
+      technique_id: null,
+      status: null,
+    });
+    vi.mocked(stopRun).mockResolvedValue(undefined as never);
+  });
+
+  it("names the technique holding the lock instead of showing an idle form", async () => {
+    vi.mocked(getActiveRun).mockResolvedValue({
+      run_id: "abc123",
+      technique_id: "REP-004",
+      status: "running",
+      event_count: 12,
+      total: 900,
+    });
+
+    renderPanel();
+
+    // The operator is looking at REP-001 while REP-004 holds the lock. Naming it
+    // is the whole point: "a run is already in progress: 9f3c..." was not
+    // something anyone could act on.
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveTextContent(/REP-004 is already running/);
+    expect(notice).toHaveTextContent(/12 of 900 events/);
+  });
+
+  it("offers to stop the run that is holding the lock", async () => {
+    vi.mocked(getActiveRun).mockResolvedValue({
+      run_id: "abc123",
+      technique_id: "REP-004",
+      status: "running",
+    });
+
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole("button", { name: /stop the running/i }));
+
+    expect(stopRun).toHaveBeenCalledWith("abc123");
+  });
+
+  it("says which technique refused the start when the server rejects it", async () => {
+    vi.mocked(startRun).mockRejectedValue(
+      new ApiError("a run is already in progress", 409, {
+        message: "a run is already in progress",
+        run_id: "abc123",
+        technique_id: "REP-004",
+      }),
+    );
+
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /^Run and send/ }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/REP-004 is already running/);
+  });
+
+  it("does not claim a run is active when none is", async () => {
+    renderPanel();
+
+    await waitFor(() => expect(getActiveRun).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /stop the running/i })).toBeNull();
   });
 });

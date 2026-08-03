@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Play, Square } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import { SignalReadout } from "@/components/SignalReadout";
 import { cn } from "@/lib/utils";
-import { startRun, stopRun, getRunStatus, getPlanPreview, runEventsUrl, type Collector, type Manifest, type RunBody, type Technique } from "@/lib/api";
+import { ApiError, getActiveRun, startRun, stopRun, getRunStatus, getPlanPreview, runEventsUrl, type ActiveRun, type Collector, type Manifest, type RunBody, type Technique } from "@/lib/api";
 import { pollRunUntilTerminal } from "@/lib/runLifecycle";
 import { anchorNotice, defaultAnchor, type AnchorChoice } from "@/lib/anchor";
 import {
@@ -99,6 +99,16 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   const [preview, setPreview] = useState<PlanPreview | null>(null);
 
   const [running, setRunning] = useState(false);
+  // The run holding the server's single-run lock, when it is not this panel's.
+  //
+  // Only one run may be active, because each carries its own rate limiter and
+  // two against one collector would multiply the eps cap (safety rule 4). But
+  // `running` above is per-panel state: selecting a different technique remounts
+  // this component, the flag resets, the button re-enables, and the start then
+  // fails with a 409 naming a run the operator cannot see. Asking the server on
+  // mount is the only way to know, because the server is the only thing that
+  // does.
+  const [lockedBy, setLockedBy] = useState<ActiveRun | null>(null);
   const [count, setCount] = useState(0);
   const [total, setTotal] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
@@ -121,6 +131,24 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   // Trailing observations of (timestamp, cumulative count), used to average the
   // emission rate over RATE_WINDOW_MS instead of over a single 220ms tick.
   const historyRef = useRef<{ t: number; c: number }[]>([]);
+
+  // Ask the server what is running, on mount and whenever the technique changes,
+  // which is exactly when this component's own state has just been thrown away.
+  const refreshLock = useCallback(async () => {
+    try {
+      const active = await getActiveRun();
+      if (!mountedRef.current) return;
+      const mine = active.run_id !== null && active.run_id === runIdRef.current;
+      setLockedBy(active.run_id && !mine ? active : null);
+    } catch {
+      // A failed probe must not invent a lock that would disable the button.
+      if (mountedRef.current) setLockedBy(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshLock();
+  }, [refreshLock, technique]);
 
   useEffect(() => setSeed(String(defaultSeed)), [defaultSeed]);
   useEffect(() => {
@@ -334,6 +362,19 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
         });
       };
     } catch (err) {
+      // A 409 is not a failure to report and forget: another run holds the lock,
+      // and the operator needs to know which one and be able to end it. The
+      // structured detail is what makes that possible.
+      if (err instanceof ApiError && err.status === 409) {
+        const detail = err.detail as { run_id?: string; technique_id?: string } | null;
+        setLockedBy({
+          run_id: detail?.run_id ?? null,
+          technique_id: detail?.technique_id ?? null,
+          status: "running",
+        });
+        setRunning(false);
+        return;
+      }
       setError((err as Error).message);
       setRunning(false);
     }
@@ -341,6 +382,14 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
 
   async function handleStop() {
     if (runIdRef.current) await stopRun(runIdRef.current).catch(() => undefined);
+  }
+
+  /** End the run holding the lock, then re-probe so the button comes back. */
+  async function handleStopLocked() {
+    if (!lockedBy?.run_id) return;
+    await stopRun(lockedBy.run_id).catch(() => undefined);
+    setLockedBy(null);
+    void refreshLock();
   }
 
   if (!technique) {
@@ -356,7 +405,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
     );
   }
 
-  const canRun = technique.implemented && !running;
+  const canRun = technique.implemented && !running && !lockedBy;
   const pct = total > 0 ? Math.min(100, Math.round((count / total) * 100)) : running ? 5 : 0;
 
   // The button says where the events go. Two switches above it decided that
@@ -553,6 +602,32 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           value={filePath}
           onChange={(e) => setFilePath(e.target.value)}
         />
+      )}
+
+      {/* Another run holds the single-run lock. Stated here, beside the button it
+          disables, because the previous behaviour was a dead button and a 409
+          quoting a hex id: the operator had no way to tell a busy server from a
+          broken one, and reported it as "I press start and nothing happens". */}
+      {lockedBy && (
+        <div
+          role="status"
+          className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-[12px] leading-relaxed text-signal"
+        >
+          <span>
+            {lockedBy.technique_id ?? "Another run"} is already running, and only one run
+            may be active at a time so the events-per-second cap still means something.
+            {typeof lockedBy.total === "number" && lockedBy.total > 0
+              ? ` ${lockedBy.event_count ?? 0} of ${lockedBy.total} events so far.`
+              : ""}
+          </span>
+          <button
+            onClick={handleStopLocked}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-signal/50 px-2.5 text-[12px] font-medium transition-colors hover:bg-signal/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Square className="h-2.5 w-2.5" />
+            Stop the running {lockedBy.technique_id ?? "run"}
+          </button>
+        </div>
       )}
 
       {/* run controls */}

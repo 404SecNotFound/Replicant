@@ -119,6 +119,26 @@ export interface Manifest {
   [key: string]: unknown;
 }
 
+/** An error that kept the response's status and structured detail.
+ *
+ * FastAPI's `detail` is a string for most failures but an object where the
+ * client has to act on the parts rather than print the whole. Flattening it to
+ * `new Error(detail)` rendered those as "[object Object]", so the information
+ * that made the error actionable was destroyed at the one place that could have
+ * used it.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: unknown;
+
+  constructor(message: string, status: number, detail: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(path, {
     ...init,
@@ -129,11 +149,27 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!resp.ok) {
-    const detail = await resp.json().catch(() => ({ detail: resp.statusText }));
-    throw new Error(detail.detail || `request failed: ${resp.status}`);
+    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
+    const detail = body.detail;
+    const message =
+      typeof detail === "string"
+        ? detail
+        : (detail as { message?: string } | null)?.message || `request failed: ${resp.status}`;
+    throw new ApiError(message, resp.status, detail);
   }
   return resp.json() as Promise<T>;
 }
+
+export interface ActiveRun {
+  run_id: string | null;
+  technique_id: string | null;
+  status: string | null;
+  event_count?: number;
+  total?: number;
+}
+
+/** Which run holds the single-run lock. Server state, so only the server knows. */
+export const getActiveRun = () => api<ActiveRun>("/api/runs/active");
 
 export const getCatalog = () => api<CatalogResponse>("/api/catalog");
 export const getConfig = () => api<ConfigResponse>("/api/config");

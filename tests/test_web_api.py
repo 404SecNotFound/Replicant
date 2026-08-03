@@ -444,7 +444,7 @@ def test_start_run_while_one_active_returns_409(client: TestClient, monkeypatch)
     from replicant.web import runner as runner_mod
 
     def busy(self, request, settings=None, total=None):  # type: ignore[no-untyped-def]
-        raise runner_mod.RunInProgressError("run-abc")
+        raise runner_mod.RunInProgressError("run-abc", "REP-007")
 
     monkeypatch.setattr(runner_mod.RunManager, "start", busy)
     resp = client.post(
@@ -453,4 +453,10 @@ def test_start_run_while_one_active_returns_409(client: TestClient, monkeypatch)
         json={"technique_id": "REP-001", "intensity": "low", "no_send": True},
     )
     assert resp.status_code == 409
-    assert "in progress" in resp.json()["detail"]
+    # Structured rather than prose: the client has to name the technique holding
+    # the lock and offer to stop that run, and parsing a hex id back out of a
+    # sentence is not a contract worth having.
+    detail = resp.json()["detail"]
+    assert "in progress" in detail["message"]
+    assert detail["run_id"] == "run-abc"
+    assert detail["technique_id"] == "REP-007"
