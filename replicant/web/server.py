@@ -624,6 +624,38 @@ def create_app(
             "techniques": _technique_json(catalog),
         }
 
+    # Sample lines, cached by what determines them.
+    #
+    # The endpoint returns three lines and used to build the entire plan to get
+    # them, every time the operator selected a technique: REP-004 at high
+    # intensity is 180,000 events and about 1.6 seconds of pure CPU, discarded
+    # immediately. It cannot simply build three and stop, because the sample is
+    # deliberately the first, middle and last event, and the middle of three is
+    # not the middle of the run.
+    #
+    # Caching is exact rather than approximate: the request is built from a fixed
+    # seed and a fixed intensity, so (technique, intensity, vendor) determines the
+    # output completely. Bounded because a server is long-lived and the catalog
+    # times intensities times vendors is 24 * 3 * 3, which fits comfortably.
+    sample_cache: dict[tuple[str, str, str], list[str]] = {}
+    SAMPLE_CACHE_MAX = 256
+
+    def _sample_lines(orch: Orchestrator, request: RunRequest, vendor_id: str) -> list[str]:
+        key = (request.technique_id, request.intensity, vendor_id)
+        cached = sample_cache.get(key)
+        if cached is not None:
+            return cached
+        events = list(orch.build_plan(request).events)
+        if events:
+            idxs = sorted({0, len(events) // 2, len(events) - 1})
+            lines = [orch.render_line(events[i]) for i in idxs]
+        else:
+            lines = []
+        if len(sample_cache) >= SAMPLE_CACHE_MAX:  # pragma: no cover - 216 possible keys
+            sample_cache.clear()
+        sample_cache[key] = lines
+        return lines
+
     @app.get("/api/catalog/{technique_id}/sample", dependencies=[Depends(require_token)])
     def technique_sample(
         technique_id: str,
@@ -641,12 +673,7 @@ def create_app(
             seed=settings.default_seed,
             no_send=True,
         )
-        events = list(orch.build_plan(request).events)
-        if events:
-            idxs = sorted({0, len(events) // 2, len(events) - 1})
-            lines = [orch.render_line(events[i]) for i in idxs]
-        else:
-            lines = []
+        lines = _sample_lines(orch, request, _resolve_vendor(vendor))
         return {
             "technique_id": technique.id,
             "vendor": _resolve_vendor(vendor),
