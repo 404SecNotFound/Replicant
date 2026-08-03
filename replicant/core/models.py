@@ -97,6 +97,14 @@ class Technique(BaseModel):
     name: str
     ndr_rule: str
     ndr_uc: str
+    #: What running this technique is meant to establish, in one sentence.
+    #:
+    #: The catalog described *what a technique emits* in detail and never said
+    #: *what it is for*. The UI filled the gap with a template ("emits synthetic
+    #: X telemetry that exercises Y"), which is true of all 24 entries and
+    #: therefore tells an operator nothing about which one to pick. Every entry
+    #: states its own objective, and a parametrized test asserts none is missing.
+    objective: str = ""
     attack: AttackMapping = Field(default_factory=AttackMapping)
     fortigate: FortigateBinding
     cef_fields_held: list[str] = Field(default_factory=list)

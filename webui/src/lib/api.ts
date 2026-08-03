@@ -38,6 +38,8 @@ export interface Technique {
   name: string;
   ndr_rule: string;
   ndr_uc: string;
+  /** What running this technique is meant to establish. One sentence. */
+  objective: string;
   log_type: string;
   subtype: string;
   attack: string[];

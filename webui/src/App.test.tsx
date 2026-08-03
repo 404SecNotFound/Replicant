@@ -27,6 +27,7 @@ const TECHNIQUE: api.Technique = {
   name: "Beaconing",
   ndr_rule: "rule",
   ndr_uc: "UC-001",
+  objective: "Prove a detection can catch a beacon by its interval.",
   log_type: "traffic",
   subtype: "forward",
   attack: ["T1071"],

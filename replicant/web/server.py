@@ -440,6 +440,10 @@ def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
                 "name": technique.name,
                 "ndr_rule": technique.ndr_rule,
                 "ndr_uc": technique.ndr_uc,
+                # What running this establishes. The UI used to synthesise a
+                # sentence from log_type and rule id, which read as specific and
+                # was identical in meaning for all 24 entries.
+                "objective": technique.objective,
                 "log_type": technique.fortigate.log_type,
                 "subtype": technique.fortigate.subtype,
                 "attack": technique.attack.techniques,

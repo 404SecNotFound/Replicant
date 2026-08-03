@@ -54,6 +54,8 @@ techniques:
     name: "Periodic C2 callback (low-and-slow)"
     ndr_rule: "NDR-C2-001"
     ndr_uc: "UC-001"
+    objective: >-
+      Prove a detection can catch a beacon whose individual sessions each look ordinary, by keying on the regular interval between them rather than on volume.
     attack:
       tactics: ["TA0011 Command and Control"]
       techniques: ["T1071", "T1571"]
@@ -81,6 +83,8 @@ techniques:
     name: "Vertical port scan (one host, many ports)"
     ndr_rule: "NDR-RECON-002"
     ndr_uc: "UC-002a"
+    objective: >-
+      Prove a port-scan rule fires when one source touches many ports on a single host inside a window.
     attack:
       tactics: ["TA0007 Discovery"]
       techniques: ["T1046"]
@@ -107,6 +111,8 @@ techniques:
     name: "Horizontal sweep (one port, many hosts)"
     ndr_rule: "NDR-RECON-002"
     ndr_uc: "UC-002b"
+    objective: >-
+      Prove a sweep rule fires on one port probed across many hosts, which is the shape a vertical-scan rule misses.
     attack:
       tactics: ["TA0007 Discovery"]
       techniques: ["T1046", "T1018"]
@@ -132,6 +138,8 @@ techniques:
     name: "DNS tunneling / DNS exfil"
     ndr_rule: "NDR-C2-003"
     ndr_uc: "UC-003"
+    objective: >-
+      Prove a DNS tunnelling rule fires on high unique-label cardinality under one parent domain, rather than on query volume.
     attack:
       tactics: ["TA0011 Command and Control", "TA0010 Exfiltration"]
       techniques: ["T1071.004", "T1048.003"]
@@ -158,6 +166,8 @@ techniques:
     name: "Outbound exfil volume anomaly"
     ndr_rule: "NDR-EXFIL-004"
     ndr_uc: "UC-004"
+    objective: >-
+      Prove an egress-volume rule fires on an out-byte spike measured against that host's own baseline, not a global threshold.
     attack:
       tactics: ["TA0010 Exfiltration"]
       techniques: ["T1041", "T1048"]
@@ -184,6 +194,8 @@ techniques:
     name: "Destination fan-out burst"
     ndr_rule: "NDR-RECON-005"
     ndr_uc: "UC-005"
+    objective: >-
+      Prove a fan-out rule fires when one host suddenly contacts far more distinct destinations than it normally does.
     attack:
       tactics: ["TA0007 Discovery"]
       techniques: ["T1018", "T1046"]
@@ -209,6 +221,8 @@ techniques:
     name: "Brute force and password spray"
     ndr_rule: "NDR-ATO-006"
     ndr_uc: "UC-006"
+    objective: >-
+      Prove a credential-attack rule separates a spray or brute force from the sparse, self-correcting auth failures every network produces.
     attack:
       tactics: ["TA0006 Credential Access"]
       techniques: ["T1110", "T1110.003", "T1110.004"]
@@ -235,6 +249,8 @@ techniques:
     name: "Newly observed external destination per host"
     ndr_rule: "NDR-C2-007"
     ndr_uc: "UC-007"
+    objective: >-
+      Prove a per-host novelty rule fires on an external destination this particular host has never contacted before.
     attack:
       tactics: ["TA0011 Command and Control", "TA0042 Resource Development"]
       techniques: ["T1071", "T1583"]
@@ -259,6 +275,8 @@ techniques:
     name: "IDS/IPS event-rate spike"
     ndr_rule: "NDR-RECON-008"
     ndr_uc: "UC-008"
+    objective: >-
+      Prove an IPS rule fires on a rate spike above the low, steady alert baseline a segment normally shows.
     attack:
       tactics: ["TA0043 Reconnaissance"]
       techniques: ["T1595", "T1190"]
@@ -284,6 +302,8 @@ techniques:
     name: "Denied outbound connection burst"
     ndr_rule: "NDR-C2-009"
     ndr_uc: "UC-009"
+    objective: >-
+      Prove a denied-egress rule separates a burst of blocked outbound attempts from the routine policy denials that always exist.
     attack:
       tactics: ["TA0011 Command and Control"]
       techniques: ["T1071", "T1090"]
@@ -309,6 +329,8 @@ techniques:
     name: "VPN geovelocity anomaly"
     ndr_rule: "NDR-ATO-010"
     ndr_uc: "UC-010"
+    objective: >-
+      Prove a geovelocity rule fires on two VPN logins too far apart in distance to be reconciled with the time between them.
     attack:
       tactics: ["TA0001 Initial Access"]
       techniques: ["T1078", "T1133"]
@@ -346,6 +368,8 @@ techniques:
     name: "Jittered and fleet-aggregate C2 callback"
     ndr_rule: "NDR-C2-011"
     ndr_uc: "UC-011"
+    objective: >-
+      Prove a beacon rule survives jitter and still resolves at fleet aggregate, without firing on the legitimate periodic software that dominates this pattern.
     attack:
       tactics: ["TA0011 Command and Control"]
       techniques: ["T1071", "T1029"]
@@ -372,6 +396,8 @@ techniques:
     name: "Self-propagating malware spread (worm-like)"
     ndr_rule: "NDR-LATERAL-012"
     ndr_uc: "UC-012"
+    objective: >-
+      Prove a lateral-spread rule keys on a growing population of source hosts rather than on east-west SMB traffic, which is normal on its own.
     attack:
       tactics: ["TA0008 Lateral Movement", "TA0007 Discovery"]
       techniques: ["T1210", "T1021.002", "T1046"]
@@ -398,6 +424,8 @@ techniques:
     name: "Cryptomining pool session"
     ndr_rule: "NDR-IMPACT-013"
     ndr_uc: "UC-013"
+    objective: >-
+      Prove a mining rule separates a metronomic pool session from a long-lived business session that is bursty in bytes.
     attack:
       tactics: ["TA0040 Impact"]
       techniques: ["T1496"]
@@ -424,6 +452,8 @@ techniques:
     name: "Low-throughput DNS exfiltration"
     ndr_rule: "NDR-EXFIL-014"
     ndr_uc: "UC-014"
+    objective: >-
+      Prove a DNS exfiltration rule still fires when the query rate is entirely normal, so cardinality is the only thing left to key on.
     attack:
       tactics: ["TA0010 Exfiltration", "TA0011 Command and Control"]
       techniques: ["T1048.003", "T1071.004"]
@@ -451,6 +481,8 @@ techniques:
     name: "DGA NXDOMAIN cluster"
     ndr_rule: "NDR-C2-015"
     ndr_uc: "UC-015"
+    objective: >-
+      Prove a DGA rule keys on clustered NXDOMAIN responses and is not defeated by the steady benign NXDOMAIN trickle from typos and stale records.
     attack:
       tactics: ["TA0011 Command and Control"]
       techniques: ["T1568.002", "T1071.004"]
@@ -477,6 +509,8 @@ techniques:
     name: "Encrypted DNS (DoH) policy bypass"
     ndr_rule: "NDR-C2-016"
     ndr_uc: "UC-016"
+    objective: >-
+      Prove a rule can notice an absence: a host's resolver traffic stopping when it switches to encrypted DNS, which most rules never look for.
     attack:
       tactics: ["TA0011 Command and Control", "TA0005 Defense Evasion"]
       techniques: ["T1572", "T1071.004"]
@@ -503,6 +537,8 @@ techniques:
     name: "Lateral movement login chain"
     ndr_rule: "NDR-LATERAL-017"
     ndr_uc: "UC-017"
+    objective: >-
+      Prove a lateral-movement rule separates a host-to-host login chain from an admin star pattern carrying the same number of logins.
     attack:
       tactics: ["TA0008 Lateral Movement", "TA0006 Credential Access"]
       techniques: ["T1021", "T1078", "T1550"]
@@ -529,6 +565,8 @@ techniques:
     name: "Stealth scan below rate threshold"
     ndr_rule: "NDR-RECON-018"
     ndr_uc: "UC-018"
+    objective: >-
+      Prove a scan rule still fires below its rate threshold, which needs long-window aggregation across the whole source pool.
     attack:
       tactics: ["TA0007 Discovery", "TA0043 Reconnaissance"]
       techniques: ["T1046", "T1595.001"]
@@ -555,6 +593,8 @@ techniques:
     name: "First contact with a newly registered domain"
     ndr_rule: "NDR-C2-019"
     ndr_uc: "UC-019"
+    objective: >-
+      Prove an organisation-wide novelty rule fires on first contact with a newly registered domain, which per-host novelty (REP-008) cannot see.
     attack:
       tactics: ["TA0011 Command and Control", "TA0042 Resource Development"]
       techniques: ["T1583.001", "T1071"]
@@ -580,6 +620,8 @@ techniques:
     name: "Inbound perimeter scan reception"
     ndr_rule: "NDR-RECON-020"
     ndr_uc: "UC-020"
+    objective: >-
+      Supply a realistic inbound perimeter scan as a false-positive source, to prove outbound scan rules do not fire on traffic arriving from the internet.
     attack:
       tactics: ["TA0043 Reconnaissance"]
       techniques: ["T1595.001", "T1595.002"]
@@ -607,6 +649,8 @@ techniques:
     name: "Multi-stage IDS alert chain (kill-chain ordered)"
     ndr_rule: "NDR-CORR-021"
     ndr_uc: "UC-021"
+    objective: >-
+      Prove a correlation rule keys on the kill-chain order of alerts rather than on how many arrived in a window.
     attack:
       tactics: ["TA0043 Reconnaissance", "TA0001 Initial Access", "TA0011 Command and Control"]
       techniques: ["T1595", "T1190", "T1071"]
@@ -633,6 +677,8 @@ techniques:
     name: "TLS 1.3 C2 with flow-only signal"
     ndr_rule: "NDR-C2-022"
     ndr_uc: "UC-022"
+    objective: >-
+      Prove a C2 rule works on flow features alone, when TLS 1.3 leaves no payload or certificate detail to inspect.
     attack:
       tactics: ["TA0011 Command and Control"]
       techniques: ["T1071.001", "T1573.002"]
@@ -660,6 +706,8 @@ techniques:
     name: "Internal host as proxy relay node"
     ndr_rule: "NDR-C2-023"
     ndr_uc: "UC-023"
+    objective: >-
+      Prove a relay rule distinguishes an unsanctioned internal proxy from a sanctioned one behaving identically, where asset role is the only difference.
     attack:
       tactics: ["TA0011 Command and Control"]
       techniques: ["T1090", "T1090.001"]
