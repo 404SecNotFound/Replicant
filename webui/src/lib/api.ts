@@ -344,11 +344,23 @@ export interface RunStatus {
 export const getRunStatus = (runId: string) =>
   api<RunStatus>(`/api/runs/${encodeURIComponent(runId)}`);
 
+// Neither of these carries a credential in the query string any more.
+//
+// EventSource and WebSocket cannot set request headers, which is why the token
+// used to be appended here. But a URL is the least private part of a request: it
+// reaches server logs, browser history and the Referer header, and the value
+// being appended was the *persistent* launch token from
+// ~/.config/replicant/web-token. That was half of F-04.
+//
+// Both are same-origin, so the httpOnly session cookie authenticates them with
+// no query parameter at all. The cookie is set on the first authenticated load,
+// which is always the page load that precedes either of these.
+
 export function runEventsUrl(runId: string): string {
-  return `/api/runs/${runId}/events?token=${encodeURIComponent(TOKEN)}`;
+  return `/api/runs/${encodeURIComponent(runId)}/events`;
 }
 
 export function terminalWsUrl(): string {
   const scheme = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${scheme}://${window.location.host}/ws/terminal?token=${encodeURIComponent(TOKEN)}`;
+  return `${scheme}://${window.location.host}/ws/terminal`;
 }
