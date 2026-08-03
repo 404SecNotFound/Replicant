@@ -198,3 +198,88 @@ class TestFinalProgress:
             handle.publish({"type": "line", "data": str(i)})
 
         assert len(handle.history) == MAX_HISTORY_ITEMS
+
+
+class TestManifestCompleteness:
+    """The manifest should answer questions about its own run without help.
+
+    Review finding #1: ScenarioManifest recorded vendor and duration, RunManifest
+    did not, and neither recorded the rate in force or what the socket actually
+    did. A manifest that cannot say which profile rendered it, or how many
+    datagrams left, is a weaker audit record than safety rule 5 implies.
+    """
+
+    def test_a_run_records_its_vendor_duration_and_rate(self, tmp_path: Path) -> None:
+        orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
+        result = orch.run(
+            RunRequest(
+                technique_id="REP-001",
+                intensity="low",
+                duration="90s",
+                seed=1337,
+                no_send=True,
+            )
+        )
+
+        assert result.manifest.vendor == "fortigate"
+        assert result.manifest.duration == "90s"
+        assert result.manifest.rate is not None and result.manifest.rate > 0
+
+    def test_a_sending_run_records_what_the_socket_did(self, tmp_path: Path) -> None:
+        import socket as _socket
+
+        listener = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+        try:
+            orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
+            result = orch.run(
+                RunRequest(
+                    technique_id="REP-001",
+                    intensity="low",
+                    duration="60s",
+                    no_send=False,
+                    pace="burst",
+                    collector=CollectorProfile(
+                        name="t", host="127.0.0.1", port=port, transport="udp"
+                    ),
+                )
+            )
+        finally:
+            listener.close()
+
+        stats = result.manifest.send_stats
+        assert stats is not None
+        assert stats["sends"] == result.event_count
+        assert stats["errors"] == 0
+
+    def test_a_run_with_no_collector_records_no_send_stats(self, tmp_path: Path) -> None:
+        """None is the honest answer, not a row of zeroes that reads like a send."""
+        orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
+        result = orch.run(RunRequest(technique_id="REP-001", intensity="low", no_send=True))
+
+        assert result.manifest.send_stats is None
+
+    def test_an_older_manifest_without_the_new_fields_still_loads(self) -> None:
+        """Every new field is defaulted, as pace and speed were before them."""
+        from replicant.core.models import RunManifest
+
+        manifest = RunManifest(
+            replicant_version="0.1.0",
+            technique_id="REP-001",
+            technique_name="x",
+            ndr_uc="UC-001",
+            intensity="low",
+            seed=1,
+            params={},
+            entities={},
+            target="none",
+            transport="none",
+            event_count=1,
+            started_at="t",
+            ended_at="t",
+            anchor_epoch=0,
+        )
+
+        assert manifest.vendor == ""
+        assert manifest.send_stats is None

@@ -231,6 +231,9 @@ class Orchestrator:
         self.engine = engine or ScenarioEngine()
         self.profile = profile or build_profile(self.settings)
         self._stop = threading.Event()
+        #: What the last run's socket actually did, or None when it had no
+        #: collector. Set by _emit on every exit path and read into the manifest.
+        self.last_send_stats: dict[str, int] | None = None
 
     # -- vendor identity -------------------------------------------------------
 
@@ -357,6 +360,7 @@ class Orchestrator:
         file_path = request.to_file
 
         self.reset()
+        self.last_send_stats = None
         plan = self.build_plan(request)
 
         target, transport = self._describe_target(request, send)
@@ -412,6 +416,10 @@ class Orchestrator:
             warmup_note=warmup,
             pace=pace,
             speed=request.speed,
+            vendor=self.settings.vendor,
+            duration=request.duration,
+            rate=eps_cap,
+            send_stats=self.last_send_stats,
             status=_run_status(failure, stopped),
             error=describe_error(failure) if failure is not None else None,
         )
@@ -641,6 +649,17 @@ class Orchestrator:
             if sink is not None:
                 sink.close()
             if emitter is not None:
+                # Captured before close, and on every exit path, so a run that
+                # failed part-way still records what its socket actually did.
+                # `event_count` counts events rendered; this counts datagrams the
+                # kernel accepted, and the two differing is the interesting case.
+                # getattr, not emitter.stats: the emitter is an injection point
+                # and several test doubles implement only send/close. Requiring a
+                # stats attribute would make this record cost every future fake a
+                # field it does not otherwise need.
+                stats = getattr(emitter, "stats", None)
+                if stats is not None:
+                    self.last_send_stats = stats.as_dict()
                 emitter.close()
         return count, stopped
 

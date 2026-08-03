@@ -222,6 +222,19 @@ class RunManifest(BaseModel):
     # ones that raise, so a short manifest and a failed one have to be
     # distinguishable: without this a run that died after two events looks
     # exactly like a run that was only ever meant to emit two.
+    # Which vendor dialect rendered these events. ScenarioManifest has always
+    # recorded it; RunManifest did not, so a manifest could not answer "which
+    # profile produced this?" without re-reading the settings that made it.
+    vendor: str = ""
+    #: The --duration the operator asked for, verbatim, or None for the default.
+    duration: str | None = None
+    #: The events-per-second ceiling actually in force for this run.
+    rate: int | None = None
+    #: What the socket really did: sends, bytes, errors, oversize. None when the
+    #: run had no collector. `event_count` counts events rendered; this counts
+    #: datagrams handed to the kernel, and the two differing is the interesting
+    #: case rather than an inconsistency.
+    send_stats: dict[str, int] | None = None
     status: RunStatus = "done"
     #: Bounded description of the failure, or None. Type and message only, never
     #: a traceback: this is an operator record, not a debugger.
