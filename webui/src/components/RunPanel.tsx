@@ -74,7 +74,15 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   const [intensity, setIntensity] = useState("medium");
   const [duration, setDuration] = useState("");
   const [seed, setSeed] = useState(String(defaultSeed));
-  const [sendToCollector, setSendToCollector] = useState(false);
+  // null means the operator has not decided, which follows the collector: one
+  // that is configured and verified is a statement of intent, and it is the same
+  // statement `replicant run REP-001 --host ...` makes on the CLI, where sending
+  // is the default and `--no-send` is the opt-out. This form defaulted the other
+  // way, so a verified collector plus a technique plus the run button produced a
+  // run that rendered every event and delivered none. An explicit toggle wins and
+  // survives a reconnect, so turning it off is not undone by the collector panel.
+  const [sendChoice, setSendChoice] = useState<boolean | null>(null);
+  const sendToCollector = sendChoice ?? collector !== null;
   const [toFile, setToFile] = useState(false);
   const [filePath, setFilePath] = useState("./out/replicant.log");
   const [anchor, setAnchor] = useState<AnchorChoice>(defaultAnchor(false));
@@ -122,7 +130,11 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [technique]);
   useEffect(() => {
-    if (collector === null) setSendToCollector(false);
+    // Losing the collector clears the explicit choice rather than forcing it off,
+    // so the switch follows the next collector instead of staying stuck on a
+    // decision made about a destination that no longer exists. Same reasoning as
+    // the anchor reset below.
+    if (collector === null) setSendChoice(null);
   }, [collector]);
 
   // Whether a run started right now would go to a collector. Drives both the
@@ -435,7 +447,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           <span className="u-label">Destination</span>
           <div className="flex gap-4">
             <label className={cn("flex items-center gap-2 text-[12.5px]", collector ? "text-muted-foreground" : "text-text-4")}>
-              <Switch checked={sendToCollector} onCheckedChange={setSendToCollector} disabled={!collector} />
+              <Switch checked={sendToCollector} onCheckedChange={setSendChoice} disabled={!collector} />
               Collector
             </label>
             <label className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
