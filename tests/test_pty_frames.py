@@ -27,10 +27,12 @@ from __future__ import annotations
 
 import pytest
 
-from replicant.web.pty_bridge import MAX_DIMENSION, _bounded
+from replicant.web.pty_bridge import MAX_DIMENSION, MIN_DIMENSION, _bounded
 
 
-@pytest.mark.parametrize("value", [1, 30, 200, MAX_DIMENSION])
+# 1 was in this list. It is now refused: see MIN_DIMENSION, and the
+# one-character-per-line terminal that accepting it produced.
+@pytest.mark.parametrize("value", [MIN_DIMENSION, 30, 200, MAX_DIMENSION])
 def test_a_usable_dimension_is_accepted(value: int) -> None:
     assert _bounded(value, 30) == value
 
@@ -53,3 +55,38 @@ def test_a_non_integer_dimension_is_refused(value: object) -> None:
     terminal to a single row."""
 
     assert _bounded(value, 30) is None
+
+
+# A terminal one column wide is not a terminal.
+#
+# Found while verifying F-04 in a real browser: the xterm fit addon runs against
+# a container that is briefly zero-width (a tab that has not been laid out yet, a
+# hidden pane), computes cols=1, and sends it. `_bounded` accepted anything from
+# 1 to MAX_DIMENSION, so the PTY was duly resized to one column and every
+# subsequent prompt wrapped one character per line. The banner printed before the
+# resize stayed readable, which is what makes it look like a rendering fault
+# rather than a resize the server agreed to.
+#
+# Floored server-side rather than client-side. The client is the thing that was
+# wrong, and a bound that only holds when the client is correct is not a bound.
+def test_a_degenerate_width_is_refused() -> None:
+    from replicant.web.pty_bridge import MIN_DIMENSION, _bounded
+
+    assert _bounded(1, 100) is None
+    assert _bounded(MIN_DIMENSION - 1, 100) is None
+
+
+def test_a_usable_width_is_still_accepted() -> None:
+    from replicant.web.pty_bridge import MIN_DIMENSION, _bounded
+
+    assert _bounded(MIN_DIMENSION, 100) == MIN_DIMENSION
+    assert _bounded(100, 100) == 100
+    assert _bounded(200, 100) == 200
+
+
+def test_the_floor_leaves_room_for_the_menu() -> None:
+    """The Rich menu draws an 80-column table; a floor below that would ship a
+    terminal that connects and is still unusable."""
+    from replicant.web.pty_bridge import MIN_DIMENSION
+
+    assert MIN_DIMENSION >= 20

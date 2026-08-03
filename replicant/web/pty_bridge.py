@@ -131,6 +131,16 @@ MAX_INPUT_CHARS = 8 * 1024
 #: Terminal dimensions. `struct.pack` on an unbounded int raises, and a browser
 #: never legitimately reports either of these outside the range.
 MAX_DIMENSION = 1000
+#: And the floor. The xterm fit addon measures its container, so a tab that has
+#: not been laid out yet, or a hidden pane, makes it compute 1 column and send it.
+#: The bound accepted that, the PTY was duly resized to one column, and every
+#: prompt after it wrapped one character per line. The banner printed before the
+#: resize stayed readable, which is what made it look like a rendering fault
+#: rather than a resize the server had agreed to.
+#:
+#: Floored here rather than in the client. The client is the thing that was
+#: wrong, and a bound that only holds when the client is correct is not a bound.
+MIN_DIMENSION = 20
 #: Backlog of PTY output. A browser that stops reading must not grow this without
 #: limit; past the bound the oldest chunk is dropped, which corrupts scrollback
 #: rather than exhausting the host.
@@ -144,7 +154,7 @@ def _bounded(value: object, fallback: int) -> int | None:
         return fallback
     if isinstance(value, bool) or not isinstance(value, int):
         return None
-    return value if 1 <= value <= MAX_DIMENSION else None
+    return value if MIN_DIMENSION <= value <= MAX_DIMENSION else None
 
 
 def _write_all(fd: int, payload: bytes) -> None:
