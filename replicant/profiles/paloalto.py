@@ -301,7 +301,12 @@ class PaloAltoProfile(VendorProfile):
         ext["suser"] = require(event.duser, "duser")
         ext["src"] = require(event.src, "src")
         ext["act"] = e.get("fgt_action", event.action)
-        ext["PanOSEventID"] = "auth-fail"
+        # Follows the event, as _globalprotect above already does. This was
+        # hardcoded to "auth-fail" while PanOSStatus beside it carried the truth,
+        # which is the worse half of the bug: the event id is the field a
+        # correlation rule matches on, so a successful REP-018 admin login was
+        # indexed as an authentication failure while claiming success one key over.
+        ext["PanOSEventID"] = "auth-fail" if e.get("status") != "success" else "auth-succ"
         ext["PanOSModule"] = "general"
         ext["PanOSStatus"] = e["status"]
         ext["cs1Label"] = "Client"
