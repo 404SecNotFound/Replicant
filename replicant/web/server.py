@@ -19,8 +19,13 @@ a stop control, and open the real terminal menu over a websocket PTY bridge.
 
 Access: the server binds loopback by default but any local address is allowed, so the
 controls do not assume a local-only listener. Every API and websocket call requires
-the persistent token, accepted as a Bearer header, an ``X-Replicant-Token`` header, a
-query parameter, or an httpOnly ``SameSite=Strict`` session cookie. A middleware
+a credential: either the persistent launch token (a Bearer header, an
+``X-Replicant-Token`` header, or a query parameter), or the httpOnly
+``SameSite=Strict`` session cookie the server issues in exchange for it. The cookie
+holds a short-lived random id from :class:`SessionStore`, never the launch token
+itself, so it expires, can be revoked one browser at a time, and is worth nothing
+once it lapses. The browser therefore never puts a credential in a URL, which is
+what kept the launch token out of server logs, history and Referer. A middleware
 rejects any Host that is not the bind address, loopback, or an explicitly allowed
 name (the DNS-rebinding guard). Because the cookie is the only credential a browser
 attaches by itself, a cookie-authenticated write must also carry a matching Origin.
@@ -43,6 +48,7 @@ import secrets
 import socket
 import sys
 import threading
+import time
 import webbrowser
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -120,6 +126,67 @@ _WILDCARD_BINDS = frozenset({"0.0.0.0", "::"})
 # Set on the first authenticated load so the token does not have to live in the
 # URL bar for the rest of the session.
 SESSION_COOKIE = "replicant_session"
+
+#: How long a browser session is good for. Long enough that an operator running a
+#: four hour plan-paced technique is not logged out mid-run, short enough that a
+#: cookie copied off a shared machine is not a permanent credential.
+SESSION_TTL_S = 12 * 3600
+
+
+class SessionStore:
+    """Short-lived random session ids, exchanged for the persistent launch token.
+
+    F-04: the cookie used to hold the launch token itself, the same value that
+    sits in ``~/.config/replicant/web-token``. That made the cookie the master
+    credential: no expiry, no rotation, and no way to revoke one browser without
+    regenerating the token file and breaking every other client.
+
+    An id here grants the same access while it lives, and nothing once it does
+    not. The launch token remains the bootstrap and the only thing a non-browser
+    client needs, because a script cannot run a cookie jar.
+
+    No lock: every caller is a coroutine on one event loop.
+    """
+
+    def __init__(self, ttl_s: int = SESSION_TTL_S, clock: Any = None) -> None:
+        self.ttl_s = ttl_s
+        self._clock = clock or time.monotonic
+        self._expiry: dict[str, float] = {}
+
+    def __len__(self) -> int:
+        return len(self._expiry)
+
+    def _sweep(self) -> None:
+        """Drop expired ids. Called on issue, so a reconnect loop cannot grow this
+        without bound on a long-lived server."""
+        now = self._clock()
+        for sid in [s for s, exp in self._expiry.items() if exp <= now]:
+            del self._expiry[sid]
+
+    def issue(self) -> str:
+        self._sweep()
+        sid = secrets.token_urlsafe(32)
+        self._expiry[sid] = self._clock() + self.ttl_s
+        return sid
+
+    def validate(self, sid: str) -> bool:
+        if not sid:
+            return False
+        expiry = self._expiry.get(sid)
+        if expiry is None:
+            return False
+        if expiry <= self._clock():
+            del self._expiry[sid]
+            return False
+        return True
+
+    def revoke(self, sid: str) -> None:
+        self._expiry.pop(sid, None)
+
+    def revoke_all(self) -> None:
+        self._expiry.clear()
+
+
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -420,6 +487,9 @@ def create_app(
     # Idempotent, so a test that builds several apps does not stack handlers.
     obs_log.install()
     manager = RunManager(catalog, settings)
+    # Per app, not module-global: two apps in one process (the test suite builds
+    # several) must not be able to authenticate each other's browsers.
+    sessions = SessionStore()
     base_orchestrator = Orchestrator(catalog, settings)
 
     def _resolve_vendor(vendor: str | None) -> str:
@@ -466,11 +536,15 @@ def create_app(
             ("header", bearer.strip() if scheme.lower() == "bearer" else ""),
             ("header", request.headers.get("x-replicant-token") or ""),
             ("query", request.query_params.get("token") or ""),
-            ("cookie", request.cookies.get(SESSION_COOKIE) or ""),
         )
         for source, supplied in candidates:
             if supplied and secrets.compare_digest(token, supplied):
                 return source
+        # The cookie is checked against the session store, never against the
+        # launch token. It used to hold that token verbatim, which made a value
+        # the browser stores indefinitely into the master credential (F-04).
+        if sessions.validate(request.cookies.get(SESSION_COOKIE) or ""):
+            return "cookie"
         return None
 
     def _origin_ok(connection: HTTPConnection, *, required: bool) -> bool:
@@ -513,10 +587,16 @@ def create_app(
         if source is not None and source != "cookie" and response.status_code < 400:
             response.set_cookie(
                 SESSION_COOKIE,
-                token,
+                # A fresh short-lived id, not the launch token. See SessionStore.
+                sessions.issue(),
                 httponly=True,
                 samesite="strict",
                 path="/",
+                max_age=sessions.ttl_s,
+                # Only over https, where it means anything. Setting it on the
+                # loopback http the tool serves by default would stop the cookie
+                # being sent at all, which is a worse outcome than not setting it.
+                secure=request.url.scheme == "https",
             )
         return response
 
@@ -804,6 +884,23 @@ def create_app(
                 )
             ),
         }
+
+    @app.post("/api/session/logout")
+    def logout(request: Request) -> JSONResponse:
+        """End this browser's session without touching the launch token.
+
+        The point of the exchange: revoking one browser used to mean
+        regenerating the token file, which logged out every other client and
+        every script. Deliberately unauthenticated, because presenting a session
+        id you want destroyed is not something to gate: the worst an attacker can
+        do is end a session they already hold.
+        """
+
+        sid = request.cookies.get(SESSION_COOKIE) or ""
+        sessions.revoke(sid)
+        response = JSONResponse({"ok": True})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
 
     # Declared before /api/runs/{run_id}: FastAPI matches in registration order,
     # and the parameterised route would otherwise swallow "active" as an id.

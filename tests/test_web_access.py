@@ -66,6 +66,21 @@ def make_client(
     return TestClient(app, base_url=base_url)
 
 
+def establish_session(client: TestClient) -> None:
+    """Authenticate once with the launch token so the server issues a session.
+
+    These tests used to write the launch token straight into the cookie, because
+    that is literally what the cookie held. F-04 replaced it with a short-lived
+    id the server mints, so the only way to get a valid cookie is to be given
+    one. That is the point of the change, and it is why this helper exists rather
+    than a constant.
+    """
+
+    resp = client.get("/api/health", params={"token": TOKEN})
+    assert resp.status_code == 200
+    assert client.cookies.get(SESSION_COOKIE)
+
+
 @pytest.fixture()
 def config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the config dir at a temp path so tests never touch ~/.config."""
@@ -193,7 +208,7 @@ def test_bearer_header_authenticates(tmp_path: Path) -> None:
 
 def test_session_cookie_authenticates(tmp_path: Path) -> None:
     client = make_client(tmp_path)
-    client.cookies.set(SESSION_COOKIE, TOKEN)
+    establish_session(client)
 
     assert client.get("/api/catalog").status_code == 200
 
@@ -264,7 +279,7 @@ def test_cookie_authenticated_write_requires_a_matching_origin(tmp_path: Path) -
     # cross-site POST automatically, which a token in a header or query string
     # never was.
     client = make_client(tmp_path)
-    client.cookies.set(SESSION_COOKIE, TOKEN)
+    establish_session(client)
 
     resp = client.post(
         "/api/runs",
@@ -277,7 +292,7 @@ def test_cookie_authenticated_write_requires_a_matching_origin(tmp_path: Path) -
 
 def test_cookie_authenticated_write_accepts_a_same_origin_request(tmp_path: Path) -> None:
     client = make_client(tmp_path)
-    client.cookies.set(SESSION_COOKIE, TOKEN)
+    establish_session(client)
 
     resp = client.post(
         "/api/runs",
@@ -292,7 +307,7 @@ def test_cookie_authenticated_write_without_an_origin_is_refused(tmp_path: Path)
     # Browsers send Origin on every non-GET. A cookie-authenticated write with no
     # Origin at all is not something the SPA produces, so it fails closed.
     client = make_client(tmp_path)
-    client.cookies.set(SESSION_COOKIE, TOKEN)
+    establish_session(client)
 
     resp = client.post("/api/runs", json={"technique_id": "REP-001", "no_send": True})
 
@@ -316,7 +331,7 @@ def test_header_authenticated_write_needs_no_origin(tmp_path: Path) -> None:
 
 def test_cookie_authenticated_read_needs_no_origin(tmp_path: Path) -> None:
     client = make_client(tmp_path)
-    client.cookies.set(SESSION_COOKIE, TOKEN)
+    establish_session(client)
 
     assert client.get("/api/catalog").status_code == 200
 
