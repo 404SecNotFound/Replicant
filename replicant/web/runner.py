@@ -25,14 +25,18 @@ from __future__ import annotations
 import queue
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from queue import Full, Queue
 from typing import Any
 
 from replicant.config.settings import Settings
 from replicant.core.models import Catalog, EventRecord, RunRequest
-from replicant.core.orchestrator import Orchestrator
+from replicant.core.orchestrator import Orchestrator, run_record_of
 
 MAX_STREAM_LINES = 2000
+# Replayed to a consumer that connects after a run has already finished, which
+# is routine: the client starts the run and then opens the stream.
+MAX_HISTORY_ITEMS = MAX_STREAM_LINES + 64
 QUEUE_MAXSIZE = 8000
 # A terminal handle is kept so the client can fetch its final status/manifest, but
 # only this many are retained: without a bound, ``_runs`` grows for the life of the
@@ -64,7 +68,9 @@ class RunInProgressError(RuntimeError):
 class RunHandle:
     run_id: str
     orchestrator: Orchestrator
-    queue: queue.Queue[dict[str, Any]]
+    #: The first subscriber's queue, kept as an attribute for the tests and
+    #: callers that predate fan-out. Publishing goes through :meth:`publish`.
+    queue: Queue[dict[str, Any]]
     total: int
     # Which technique this run is emitting. Recorded so the active-run endpoint
     # and the 409 can name it: the form's own "running" flag is per-panel state
@@ -77,6 +83,62 @@ class RunHandle:
     manifest: dict[str, Any] | None = None
     manifest_path: str | None = None
     event_count: int = 0
+    #: Every live SSE consumer. One queue each, because a shared queue is
+    #: destructive: `get()` removes the item, so two browser tabs on one run each
+    #: received a random subset of the lines and neither saw the whole stream
+    #: (F-12). Fan-out also isolates a stalled reader, whose own queue fills while
+    #: everyone else keeps up.
+    subscribers: list[Queue[dict[str, Any]]] = field(default_factory=list)
+    #: What has been published so far, so a consumer that connects after the run
+    #: finished still receives it. Bounded by MAX_STREAM_LINES + a little for the
+    #: progress and terminal items.
+    history: list[dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # The handle's own queue is the first subscriber, so existing callers
+        # that read `handle.queue` keep working unchanged.
+        self.subscribers.append(self.queue)
+
+    def subscribe(self) -> Queue[dict[str, Any]]:
+        """A private queue for one consumer, seeded with what it missed.
+
+        The replay is not optional. The client starts a run and *then* opens the
+        stream, so a short run routinely finishes before the subscriber exists.
+        Under the old shared queue that worked by accident: nothing had drained
+        it, so a late consumer found the whole run waiting. Fan-out removes that
+        accident, and without history a fast run streams nothing at all.
+
+        Bounded by the same MAX_STREAM_LINES that already caps what a run
+        streams, so this holds no more than the old single queue did.
+        """
+
+        subscriber: Queue[dict[str, Any]] = Queue(maxsize=QUEUE_MAXSIZE)
+        for item in list(self.history):
+            try:
+                subscriber.put_nowait(item)
+            except Full:  # pragma: no cover - history is bounded below QUEUE_MAXSIZE
+                break
+        self.subscribers.append(subscriber)
+        return subscriber
+
+    def unsubscribe(self, subscriber: Queue[dict[str, Any]]) -> None:
+        # Never drop the handle's own queue: it is what a caller with no
+        # subscription still reads, and the worker would otherwise publish into
+        # nothing.
+        if subscriber is not self.queue and subscriber in self.subscribers:
+            self.subscribers.remove(subscriber)
+
+    def publish(self, item: dict[str, Any]) -> None:
+        """Offer to every subscriber. A full queue drops for that reader only."""
+
+        self.history.append(item)
+        if len(self.history) > MAX_HISTORY_ITEMS:
+            del self.history[: len(self.history) - MAX_HISTORY_ITEMS]
+        for subscriber in list(self.subscribers):
+            try:
+                subscriber.put_nowait(item)
+            except Full:
+                self.dropped += 1
 
 
 class RunManager:
@@ -174,16 +236,10 @@ class RunManager:
             if streamed >= MAX_STREAM_LINES:
                 return
             streamed += 1
-            try:
-                handle.queue.put_nowait({"type": "line", "data": line})
-            except queue.Full:
-                handle.dropped += 1
+            handle.publish({"type": "line", "data": line})
 
         def on_progress(count: int, total: int) -> None:
-            try:
-                handle.queue.put_nowait({"type": "progress", "count": count, "total": total})
-            except queue.Full:
-                pass
+            handle.publish({"type": "progress", "count": count, "total": total})
 
         try:
             result = handle.orchestrator.run(request, on_progress=on_progress, on_event=on_event)
@@ -204,13 +260,27 @@ class RunManager:
             )
         except Exception as exc:  # noqa: BLE001 - report any failure to the client
             handle.status = "error"
-            self._offer(handle, {"type": "error", "message": str(exc)})
+            # A failed run still wrote a manifest (F-02). Reporting manifest=None
+            # and event_count=0 while a complete partial record sat on disk meant
+            # the UI could not show what a failed run had actually done, which is
+            # most of what the audit guarantee was for.
+            record = run_record_of(exc) or {}
+            handle.manifest = record.get("manifest")
+            handle.manifest_path = record.get("manifest_path")
+            handle.event_count = int(record.get("event_count") or 0)
+            self._offer(
+                handle,
+                {
+                    "type": "error",
+                    "message": str(exc),
+                    "count": handle.event_count,
+                    "manifest": handle.manifest,
+                    "manifest_path": handle.manifest_path,
+                },
+            )
 
     @staticmethod
     def _offer(handle: RunHandle, item: dict[str, Any]) -> None:
         """Deliver a terminal item, tolerating a client that has stopped reading."""
 
-        try:
-            handle.queue.put(item, timeout=5.0)
-        except queue.Full:  # pragma: no cover - consumer gone; status/manifest still on handle
-            pass
+        handle.publish(item)

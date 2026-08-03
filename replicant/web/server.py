@@ -953,18 +953,27 @@ def create_app(
 
         async def generator() -> Any:
             loop = asyncio.get_running_loop()
-            getter = functools.partial(handle.queue.get, True, 0.25)
-            while True:
-                try:
-                    item = await loop.run_in_executor(None, getter)
-                except queue.Empty:
-                    if handle.status != "running" and handle.queue.empty():
+            # A private queue per consumer. The handle's queue used to be shared,
+            # and `get()` removes the item, so two browser tabs on one run each
+            # took a random subset of the lines and neither saw the whole stream.
+            subscriber = handle.subscribe()
+            getter = functools.partial(subscriber.get, True, 0.25)
+            try:
+                while True:
+                    try:
+                        item = await loop.run_in_executor(None, getter)
+                    except queue.Empty:
+                        if handle.status != "running" and subscriber.empty():
+                            break
+                        yield ": keepalive\n\n"
+                        continue
+                    yield f"data: {json.dumps(item)}\n\n"
+                    if item["type"] in ("done", "error"):
                         break
-                    yield ": keepalive\n\n"
-                    continue
-                yield f"data: {json.dumps(item)}\n\n"
-                if item["type"] in ("done", "error"):
-                    break
+            finally:
+                # Otherwise every closed tab leaves a queue the worker keeps
+                # filling for the life of the run.
+                handle.unsubscribe(subscriber)
 
         return StreamingResponse(
             generator(),

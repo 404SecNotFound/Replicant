@@ -30,6 +30,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from replicant import __version__
 from replicant.audit.manifest import (
@@ -91,6 +92,38 @@ class RunResult:
 
     def summary(self) -> str:
         return human_summary(self.manifest, self.manifest_path)
+
+
+#: Attribute names used to carry a partial run record on a raised exception.
+RUN_RECORD_ATTR = "replicant_run_record"
+
+
+def attach_run_record(
+    exc: BaseException, manifest: dict[str, Any], manifest_path: str, event_count: int
+) -> None:
+    """Attach the manifest of a failed run to the exception that ended it.
+
+    Best effort by design: a few builtin exception types use ``__slots__`` and
+    refuse new attributes. A diagnostic that raises while reporting a failure
+    would replace the operator's real error with its own, which is strictly worse
+    than the missing detail it was trying to add.
+    """
+
+    try:
+        exc.__dict__[RUN_RECORD_ATTR] = {
+            "manifest": manifest,
+            "manifest_path": manifest_path,
+            "event_count": event_count,
+        }
+    except (AttributeError, TypeError):  # pragma: no cover - slotted exception
+        pass
+
+
+def run_record_of(exc: BaseException) -> dict[str, Any] | None:
+    """The partial record :func:`attach_run_record` left, if there is one."""
+
+    record = getattr(exc, RUN_RECORD_ATTR, None)
+    return record if isinstance(record, dict) else None
 
 
 def _run_status(failure: BaseException | None, stopped: bool) -> RunStatus:
@@ -387,6 +420,14 @@ class Orchestrator:
             # Recorded, then raised unchanged. The caller still sees the original
             # exception and its traceback; the manifest is a side effect, not a
             # replacement for the error.
+            #
+            # The record is attached to the exception rather than wrapped in a new
+            # one, because the caller has no other way to find it: the whole point
+            # of re-raising unchanged is that the operator sees their real error.
+            # The web runner reported manifest=None and event_count=0 on failure
+            # while a complete partial manifest sat on disk, which quietly undid
+            # half of what F-02 was for.
+            attach_run_record(failure, manifest.model_dump(), str(manifest_path), count)
             raise failure
         return RunResult(manifest, manifest_path, count, plan, stopped)
 
@@ -590,6 +631,13 @@ class Orchestrator:
         except KeyboardInterrupt:
             stopped = True
         finally:
+            # One final callback with the real total. The cadence above only fires
+            # on multiples of 100, so a 250-event run reported 200 as its last
+            # word and every consumer sat at 80% on a finished run. Emitted in
+            # `finally` so a stop or a transport failure also gets a true count
+            # rather than leaving the last round number standing.
+            if on_progress is not None and count % 100 != 0:
+                on_progress(count, total)
             if sink is not None:
                 sink.close()
             if emitter is not None:
