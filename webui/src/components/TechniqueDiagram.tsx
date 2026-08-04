@@ -99,7 +99,7 @@ function mono(
   y: number,
   text: string,
   fill = FG,
-  size = 10,
+  size = 11.5,
   anchor: "start" | "middle" | "end" = "middle",
 ) {
   return (
@@ -122,7 +122,7 @@ function Glyph({ arch }: { arch: Arch }) {
             </g>
           ))}
           <line x1={178} y1={YC + 24} x2={226} y2={YC + 24} stroke={T4} strokeWidth={1} />
-          {mono(202, YC + 21, "Δt", T3, 9)}
+          {mono(202, YC + 21, "Δt", T3, 10.5)}
         </g>
       );
     }
@@ -138,7 +138,7 @@ function Glyph({ arch }: { arch: Arch }) {
               <circle cx={px} cy={y} r={3} fill={i === 3 ? SIG : CARD} stroke={i === 3 ? SIG : EDGE} strokeWidth={1} />
             </g>
           ))}
-          {mono(px + 34, YC + 3, "dpt↑", T3, 9)}
+          {mono(px + 34, YC + 3, "dpt↑", T3, 10.5)}
         </g>
       );
     }
@@ -153,7 +153,7 @@ function Glyph({ arch }: { arch: Arch }) {
               <circle cx={x} cy={YC + 42} r={3} fill={CARD} stroke={EDGE} strokeWidth={1} />
             </g>
           ))}
-          {mono(338, YC + 62, "dst .1 → .254", T3, 9)}
+          {mono(338, YC + 62, "dst .1 → .254", T3, 10.5)}
         </g>
       );
     }
@@ -186,7 +186,7 @@ function Glyph({ arch }: { arch: Arch }) {
           {mono(321, YC + 4, "kf7x…q4z.sync.example.net", SIG, 10)}
           <line x1={428} y1={YC} x2={474} y2={YC} stroke={EDGE} strokeWidth={1.2} />
           <circle cx={480} cy={YC} r={4} fill={CARD} stroke={EDGE} strokeWidth={1} />
-          {mono(480, YC + 20, "resolver", T3, 9)}
+          {mono(480, YC + 20, "resolver", T3, 10.5)}
         </g>
       );
     }
@@ -202,7 +202,7 @@ function Glyph({ arch }: { arch: Arch }) {
           <path d={`M176 ${YC - 4} L430 ${YC - 16} L430 ${YC - 22} L470 ${YC} L430 ${YC + 22} L430 ${YC + 16} L176 ${YC + 4} Z`} fill="url(#volArrow)" />
           <rect x={200} y={YC + 30} width={240} height={9} rx={4.5} fill={CARD} stroke={HAIR} strokeWidth={1} />
           <rect x={202} y={YC + 32} width={206} height={5} rx={2.5} fill={SIG} />
-          {mono(320, YC + 56, "out ≫ in, sustained", T3, 9)}
+          {mono(320, YC + 56, "out ≫ in, sustained", T3, 10.5)}
         </g>
       );
     }
@@ -214,8 +214,8 @@ function Glyph({ arch }: { arch: Arch }) {
           {xs.map((x, i) =>
             i < 4 ? <Cross key={i} x={x} y={YC} s={5} color={RED} /> : <Check key={i} x={x} y={YC} color={SIG} />,
           )}
-          {mono(436, YC + 22, "success", SIG, 9)}
-          {mono(256, YC + 22, "fail ×N", T3, 9)}
+          {mono(436, YC + 22, "success", SIG, 10.5)}
+          {mono(256, YC + 22, "fail ×N", T3, 10.5)}
         </g>
       );
     }
@@ -233,7 +233,7 @@ function Glyph({ arch }: { arch: Arch }) {
               <Cross x={434} y={y} s={4} color={RED} />
             </g>
           ))}
-          {mono(360, YC + 74, "act=deny burst", T3, 9)}
+          {mono(360, YC + 74, "act=deny burst", T3, 10.5)}
         </g>
       );
     }
@@ -258,8 +258,8 @@ function Glyph({ arch }: { arch: Arch }) {
             d={pointsStar(452, 74, 6.5, 3)}
             fill={SIG}
           />
-          {mono(452, 56, "new dst", SIG, 9)}
-          {mono(300, 172, "known baseline", T3, 9)}
+          {mono(452, 56, "new dst", SIG, 10.5)}
+          {mono(300, 172, "known baseline", T3, 10.5)}
         </g>
       );
     }
@@ -271,7 +271,7 @@ function Glyph({ arch }: { arch: Arch }) {
           <path d={`${d} L482 ${base + 2} L172 ${base + 2} Z`} fill={SIG} opacity={0.13} />
           <path d={d} fill="none" stroke={SIG} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
           <line x1={172} y1={base} x2={482} y2={base} stroke={T4} strokeWidth={0.8} strokeDasharray="2 3" />
-          {mono(344, base - 74, "×20 events/s", SIG, 9)}
+          {mono(344, base - 74, "×20 events/s", SIG, 10.5)}
         </g>
       );
     }
@@ -281,7 +281,7 @@ function Glyph({ arch }: { arch: Arch }) {
           <path d={`M212 158 Q320 46 452 84`} fill="none" stroke={SIG} strokeWidth={1.6} strokeDasharray="4 4" />
           <Pin x={208} y={158} label="geo A" />
           <Pin x={452} y={84} label="geo B" accent />
-          {mono(332, 150, "Δt ≪ travel time", T3, 9)}
+          {mono(332, 150, "Δt ≪ travel time", T3, 10.5)}
         </g>
       );
     }
@@ -305,7 +305,7 @@ function Pin({ x, y, label, accent }: { x: number; y: number; label: string; acc
     <g>
       <path d={`M${x} ${y + 8} C${x - 8} ${y - 2} ${x - 6} ${y - 12} ${x} ${y - 12} C${x + 6} ${y - 12} ${x + 8} ${y - 2} ${x} ${y + 8} Z`} fill={CARD} stroke={c} strokeWidth={1.3} />
       <circle cx={x} cy={y - 5} r={2.4} fill={c} />
-      {mono(x, y + 22, label, accent ? SIG : T3, 9)}
+      {mono(x, y + 22, label, accent ? SIG : T3, 10.5)}
     </g>
   );
 }
@@ -327,13 +327,13 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
       <title>{`${technique.name}: ${CAPTION[arch]}`}</title>
 
       {/* zone labels */}
-      <text x={24} y={26} fontFamily="'IBM Plex Sans',sans-serif" fontSize={9.5} letterSpacing="1.4" fill={T3}>
+      <text x={24} y={26} fontFamily="'IBM Plex Sans',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
         SOURCE
       </text>
-      <text x={320} y={26} textAnchor="middle" fontFamily="'IBM Plex Sans',sans-serif" fontSize={9.5} letterSpacing="1.4" fill={T3}>
+      <text x={320} y={26} textAnchor="middle" fontFamily="'IBM Plex Sans',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
         {CAPTION[arch].toUpperCase()}
       </text>
-      <text x={616} y={26} textAnchor="end" fontFamily="'IBM Plex Sans',sans-serif" fontSize={9.5} letterSpacing="1.4" fill={T3}>
+      <text x={616} y={26} textAnchor="end" fontFamily="'IBM Plex Sans',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
         DETECTION
       </text>
 
@@ -342,7 +342,7 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
 
       {/* source chip */}
       <rect x={22} y={YC - 18} width={104} height={36} rx={7} fill={CARD} stroke={HAIR} strokeWidth={1} />
-      <text x={74} y={YC - 2} textAnchor="middle" fontFamily="'IBM Plex Sans',sans-serif" fontSize={11} fontWeight={600} fill={FG}>
+      <text x={74} y={YC - 2} textAnchor="middle" fontFamily="'IBM Plex Sans',sans-serif" fontSize={12.5} fontWeight={600} fill={FG}>
         {source[0]}
       </text>
       {mono(74, YC + 12, source[1], T3, 9.5)}
@@ -353,14 +353,14 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
       {/* detection chip */}
       <rect x={512} y={YC - 20} width={106} height={40} rx={7} fill="hsl(var(--signal) / 0.06)" stroke={SIG} strokeWidth={1.2} />
       <circle cx={526} cy={YC - 8} r={2.8} fill={SIG} style={{ animation: "rsig 1.8s ease-in-out infinite" }} />
-      {mono(569, YC - 4, technique.ndr_uc, FG, 10)}
-      {mono(565, YC + 12, technique.ndr_rule, T3, 8.5)}
+      {mono(569, YC - 4, technique.ndr_uc, FG, 11)}
+      {mono(565, YC + 12, technique.ndr_rule, T3, 10.5)}
 
       {/* varied fields = the emitted signal */}
-      <text x={128} y={206} fontFamily="'IBM Plex Sans',sans-serif" fontSize={9.5} letterSpacing="1.2" fill={T3}>
+      <text x={128} y={206} fontFamily="'IBM Plex Sans',sans-serif" fontSize={11} letterSpacing="1.2" fill={T3}>
         SIGNAL FIELDS
       </text>
-      {mono(214, 206, technique.cef_fields_varied.join("  ·  ") || "—", SIG, 10, "start")}
+      {mono(238, 206, technique.cef_fields_varied.join("  ·  ") || "—", SIG, 11, "start")}
     </svg>
   );
 }

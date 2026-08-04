@@ -431,7 +431,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
         <div>
           <label className="u-label mb-1.5 block">Intensity</label>
           <Select value={intensity} onValueChange={setIntensity}>
-            <SelectTrigger className="h-9 text-[13px]">
+            <SelectTrigger className="h-9 text-body">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -449,7 +449,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           </label>
           <Input
             id="duration"
-            className="h-9 font-mono text-[13px]"
+            className="h-9 font-mono text-data"
             placeholder="preset"
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
@@ -461,7 +461,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           </label>
           <Input
             id="seed"
-            className="h-9 font-mono text-[13px]"
+            className="h-9 font-mono text-data"
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
           />
@@ -472,7 +472,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           </label>
           <Input
             id="rate"
-            className="h-9 font-mono text-[13px]"
+            className="h-9 font-mono text-data"
             placeholder={`${epsCap}/s`}
             inputMode="numeric"
             title="Events per second. Blank uses the configured cap. Lower it if your collector drops events."
@@ -483,7 +483,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
         <div>
           <label className="u-label mb-1.5 block">Anchor</label>
           <Select value={anchor} onValueChange={(v) => setAnchor(v as AnchorChoice)}>
-            <SelectTrigger className="h-9 text-[13px]" aria-label="Event time anchor">
+            <SelectTrigger className="h-9 text-body" aria-label="Event time anchor">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -495,11 +495,11 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
         <div className="col-span-2 flex flex-col gap-2 sm:col-span-4 lg:col-span-1 lg:items-end">
           <span className="u-label">Destination</span>
           <div className="flex gap-4">
-            <label className={cn("flex items-center gap-2 text-[12.5px]", collector ? "text-muted-foreground" : "text-text-4")}>
+            <label className={cn("flex items-center gap-2 text-body", collector ? "text-muted-foreground" : "text-text-4")}>
               <Switch checked={sendToCollector} onCheckedChange={setSendChoice} disabled={!collector} />
               Collector
             </label>
-            <label className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+            <label className="flex items-center gap-2 text-body text-muted-foreground">
               <Switch checked={toFile} onCheckedChange={setToFile} />
               File
             </label>
@@ -525,7 +525,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
               return (
                 <label
                   key={choice}
-                  className="flex items-center gap-2 text-[12.5px] text-muted-foreground"
+                  className="flex items-center gap-2 text-body text-muted-foreground"
                 >
                   <input
                     type="radio"
@@ -537,7 +537,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
                   <span>
                     {choice === "plan" ? "Plan time" : "Burst"}
                     {projected !== null && (
-                      <b className="ml-1.5 font-mono text-[11.5px] font-medium text-foreground">
+                      <b className="ml-1.5 font-mono text-micro font-medium text-foreground">
                         {fmtSpan(projected)}
                       </b>
                     )}
@@ -553,26 +553,26 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
               </label>
               <Input
                 id="speed"
-                className="h-8 w-16 font-mono text-[12px]"
+                className="h-8 w-16 font-mono text-data"
                 inputMode="numeric"
                 title="Compress the plan timeline. Event times compress with it."
                 value={speed}
                 onChange={(e) => setSpeed(e.target.value)}
               />
-              <span className="text-[12px] text-text-3">x</span>
+              <span className="text-body text-text-3">x</span>
             </div>
           )}
         </div>
         <p
           data-testid="pace-consequence"
-          className="mt-2 text-[12px] leading-relaxed text-muted-foreground"
+          className="mt-2 text-body leading-relaxed text-muted-foreground"
         >
           {paceConsequence(pace, speedNum, preview)}
         </p>
       </div>
 
       {!collector && (
-        <p className="mt-2.5 font-mono text-[11px] leading-relaxed text-text-3">
+        <p className="mt-2.5 font-mono text-micro leading-relaxed text-text-3">
           No collector configured. Sends fail closed. Connect one, or write to file.
         </p>
       )}
@@ -581,7 +581,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       {collector && !sending && !toFile && (
         <div
           role="status"
-          className="mt-2.5 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-[12px] leading-relaxed text-signal"
+          className="mt-2.5 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-body leading-relaxed text-signal"
         >
           No destination selected. This run will render events and neither send nor write
           them, and the readout will still show a rate, because it measures rendering. Turn
@@ -591,14 +591,14 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       {anchorNotice(anchor, sending, anchorEpoch) && (
         <div
           role="status"
-          className="mt-2.5 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-[12px] leading-relaxed text-signal"
+          className="mt-2.5 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-body leading-relaxed text-signal"
         >
           {anchorNotice(anchor, sending, anchorEpoch)}
         </div>
       )}
       {toFile && (
         <Input
-          className="mt-2.5 h-8 max-w-xs font-mono text-[12px]"
+          className="mt-2.5 h-8 max-w-xs font-mono text-data"
           value={filePath}
           onChange={(e) => setFilePath(e.target.value)}
         />
@@ -611,7 +611,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       {lockedBy && (
         <div
           role="status"
-          className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-[12px] leading-relaxed text-signal"
+          className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-body leading-relaxed text-signal"
         >
           <span>
             {lockedBy.technique_id ?? "Another run"} is already running, and only one run
@@ -622,7 +622,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           </span>
           <button
             onClick={handleStopLocked}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-signal/50 px-2.5 text-[12px] font-medium transition-colors hover:bg-signal/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-signal/50 px-2.5 text-body font-medium transition-colors hover:bg-signal/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Square className="h-2.5 w-2.5" />
             Stop the running {lockedBy.technique_id ?? "run"}
@@ -635,7 +635,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
         <button
           onClick={handleStart}
           disabled={!canRun}
-          className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-[13px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-body font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Play className="h-3.5 w-3.5" />
           {destinationLabel}
@@ -643,7 +643,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
         <button
           onClick={handleStop}
           disabled={!running}
-          className="inline-flex h-9 items-center gap-2 rounded-md border px-4 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-9 items-center gap-2 rounded-md border px-4 text-body font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Square className="h-3 w-3" />
           Stop
@@ -651,7 +651,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       </div>
 
       {error && (
-        <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-[12px] text-destructive">
+        <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-body text-destructive">
           {error}
         </div>
       )}
@@ -672,11 +672,11 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       {/* live stream */}
       <div className="mb-2 mt-[22px] flex items-center justify-between">
         <span className="u-label">Live CEF · {vendor}</span>
-        <span className="font-mono text-[10.5px] text-text-3">tail · last {MAX_VISIBLE}</span>
+        <span className="font-mono text-label text-text-3">tail · last {MAX_VISIBLE}</span>
       </div>
       <div
         ref={logRef}
-        className="scroll-thin h-[132px] overflow-y-auto rounded-lg border bg-well p-3 font-mono text-[11px] leading-[1.85] text-text-3"
+        className="scroll-thin h-[132px] overflow-y-auto rounded-lg border bg-well p-3 font-mono text-micro leading-[1.85] text-text-3"
       >
         {linesRef.current.length === 0 ? (
           <div className="grid h-full place-items-center text-text-3">
@@ -694,7 +694,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       {/* manifest */}
       {manifest && (
         <div className="mt-4 rounded-lg border p-4">
-          <div className="mb-3 flex items-center gap-2 text-[12.5px] font-semibold">
+          <div className="mb-3 flex items-center gap-2 text-body font-semibold">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-muted-foreground">
               <path d="M2.5 7.5 L5.5 10.5 L11.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
@@ -714,14 +714,14 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
             ].map(([k, v]) => (
               <div key={k} className="u-label">
                 {k}
-                <b className="mt-0.5 block font-mono text-[12.5px] font-medium normal-case tracking-normal text-foreground">
+                <b className="mt-0.5 block font-mono text-data font-medium normal-case tracking-normal text-foreground">
                   {String(v)}
                 </b>
               </div>
             ))}
           </div>
           {manifest.warmup_note && (
-            <div className="mt-3 font-mono text-[11px] text-text-3">note: {manifest.warmup_note}</div>
+            <div className="mt-3 font-mono text-micro text-text-3">note: {manifest.warmup_note}</div>
           )}
         </div>
       )}

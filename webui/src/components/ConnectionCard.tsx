@@ -128,8 +128,8 @@ export function ConnectionCard({
   return (
     <section className="rounded-lg border bg-card p-4">
       <div className="mb-3.5 flex items-baseline justify-between">
-        <span className="text-[13px] font-semibold">Collector</span>
-        <span className={cn("font-mono text-[10.5px]", BADGE[badge].tone)}>{BADGE[badge].label}</span>
+        <span className="text-body font-semibold">Collector</span>
+        <span className={cn("font-mono text-label", BADGE[badge].tone)}>{BADGE[badge].label}</span>
       </div>
 
       <div className="u-label mb-1.5">Vendor profile</div>
@@ -145,7 +145,7 @@ export function ConnectionCard({
             aria-checked={v === vendor}
             onClick={() => onVendorChange(v)}
             className={cn(
-              "h-7 flex-1 rounded-[5px] text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "h-7 flex-1 whitespace-nowrap rounded-[5px] text-label font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               v === vendor
                 ? "bg-elev text-foreground shadow-sm"
                 : "text-text-3 hover:text-foreground",
@@ -163,7 +163,7 @@ export function ConnectionCard({
           </label>
           <Input
             id="host"
-            className="h-9 font-mono text-[13px]"
+            className="h-9 font-mono text-data"
             value={host}
             onChange={(e) => setHost(e.target.value)}
           />
@@ -174,7 +174,7 @@ export function ConnectionCard({
           </label>
           <Input
             id="port"
-            className="h-9 font-mono text-[13px]"
+            className="h-9 font-mono text-data"
             value={port}
             onChange={(e) => setPort(e.target.value)}
           />
@@ -182,7 +182,7 @@ export function ConnectionCard({
         <div>
           <label className="u-label mb-1.5 block">Trans</label>
           <Select value={transport} onValueChange={setTransport}>
-            <SelectTrigger className="h-9 font-mono text-[13px]">
+            <SelectTrigger className="h-9 font-mono text-data">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -198,7 +198,7 @@ export function ConnectionCard({
         <div className="mt-3 grid grid-cols-[auto_1fr] items-end gap-3">
           <div className="flex items-center gap-2 pb-2">
             <Switch id="tlsverify" checked={tlsVerify} onCheckedChange={setTlsVerify} />
-            <label htmlFor="tlsverify" className="whitespace-nowrap text-[12.5px] text-muted-foreground">
+            <label htmlFor="tlsverify" className="whitespace-nowrap text-body text-muted-foreground">
               Verify cert
             </label>
           </div>
@@ -208,7 +208,7 @@ export function ConnectionCard({
             </label>
             <Input
               id="cafile"
-              className="h-9 font-mono text-[12px]"
+              className="h-9 font-mono text-data"
               value={tlsCafile}
               onChange={(e) => setTlsCafile(e.target.value)}
               placeholder="/path/to/ca.pem"
@@ -221,15 +221,15 @@ export function ConnectionCard({
         <button
           onClick={handleTest}
           disabled={busy || !host}
-          className="h-8 rounded-md border px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-8 rounded-md border px-3 text-body font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {busy ? "Sending…" : "Send test log"}
         </button>
-        <span className="font-mono text-[11px] text-text-3">cap {epsCap} eps</span>
+        <span className="font-mono text-micro text-text-3">cap {epsCap} eps</span>
       </div>
 
       {error && (
-        <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-[11.5px] leading-relaxed text-destructive">
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-label leading-relaxed text-destructive">
           <X className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{error}</span>
         </div>
@@ -239,7 +239,7 @@ export function ConnectionCard({
         <div
           data-testid="connect-report"
           className={cn(
-            "mt-3 space-y-2 rounded-md border p-2.5 text-[11.5px] leading-relaxed",
+            "mt-3 space-y-2 rounded-md border p-2.5 text-label leading-relaxed",
             report.verdict === "refused" ||
               report.verdict === "failed" ||
               report.verdict === "name_not_resolved"
@@ -253,7 +253,7 @@ export function ConnectionCard({
               as perfectly ordinary, and it survived two lab sessions and a dozen
               log lines. Beside its own source address it does not. */}
           {report.source && (
-            <div className="font-mono text-[11px]">
+            <div className="font-mono text-micro">
               {report.source} <span className="text-text-3">-&gt;</span> {report.host}:
               {report.port}
               {report.interface ? (
@@ -284,7 +284,7 @@ export function ConnectionCard({
       )}
 
       {stale && (
-        <div className="mt-3 rounded-md border p-2.5 text-[11.5px] leading-relaxed text-text-3">
+        <div className="mt-3 rounded-md border p-2.5 text-label leading-relaxed text-text-3">
           The target changed since the last test. Send a test log to describe this one.
         </div>
       )}

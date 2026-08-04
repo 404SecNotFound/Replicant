@@ -185,3 +185,32 @@ describe("filterTechniques", () => {
     ]);
   });
 });
+
+// The type scale.
+//
+// Before it there were eleven hardcoded sizes across 84 call sites and no scale
+// in the design doc at all. Measured on the rendered page, 58 of 104 text
+// elements sat below 12px and only 3 reached the 16px browser default. The
+// smallest thing on screen was an 8.5px rule id inside the signal-path diagram.
+//
+// This asserts the scale exists and stays ordered. It cannot catch a component
+// picking the wrong rung, which is a judgement call, but it does catch the scale
+// being quietly widened back out into eleven ad hoc values.
+describe("type scale", () => {
+  it("is ordered, and nothing reads below 11px", async () => {
+    const config = (await import("../../tailwind.config.js")).default;
+    const sizes = config.theme.extend.fontSize as Record<string, [string, unknown]>;
+
+    const px = Object.fromEntries(
+      Object.entries(sizes).map(([k, v]) => [k, parseFloat(v[0])]),
+    );
+
+    expect(px.micro).toBeGreaterThanOrEqual(11);
+    expect(px.label).toBeGreaterThan(px.micro);
+    expect(px.body).toBeGreaterThan(px.label);
+    expect(px.lede).toBeGreaterThan(px.body);
+    expect(px.title).toBeGreaterThan(px.lede);
+    // Prose has to clear the size the old UI used for everything.
+    expect(px.body).toBeGreaterThanOrEqual(14);
+  });
+});

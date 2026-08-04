@@ -59,8 +59,8 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
   return (
     <section className="flex min-h-0 flex-col">
       <div className="mb-3 flex items-baseline justify-between">
-        <span className="text-[13px] font-semibold">Techniques</span>
-        <span className="font-mono text-[10.5px] text-text-3">
+        <span className="text-body font-semibold">Techniques</span>
+        <span className="font-mono text-label text-text-3">
           {filtering ? `${shown} of ${techniques.length}` : `${techniques.length} · ATT&CK`}
         </span>
       </div>
@@ -73,7 +73,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
           placeholder="id, name, use case, ATT&CK"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="h-8 w-full rounded-md border bg-transparent pl-8 pr-2.5 font-mono text-[11.5px] placeholder:text-text-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-8 w-full rounded-md border bg-transparent pl-8 pr-2.5 font-mono text-micro placeholder:text-text-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </div>
 
@@ -86,7 +86,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
               onClick={() => toggleLogType(value)}
               aria-pressed={on}
               className={cn(
-                "rounded border px-1.5 py-0.5 font-mono text-[9.5px] transition-colors",
+                "rounded border px-1.5 py-0.5 font-mono text-micro transition-colors",
                 on
                   ? "border-signal/50 bg-signal/10 text-signal"
                   : "text-text-3 hover:text-muted-foreground",
@@ -100,7 +100,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
 
       <div className="-mx-2 flex min-h-0 flex-col overflow-y-auto scroll-thin">
         {groups.length === 0 && (
-          <p className="px-2.5 py-4 text-[12px] text-muted-foreground">
+          <p className="px-2.5 py-4 text-body text-muted-foreground">
             No techniques match that filter.
           </p>
         )}
@@ -118,7 +118,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
                   className={cn("h-3 w-3 text-text-4 transition-transform", open && "rotate-90")}
                 />
                 <span className="u-label flex-1">{tacticLabel(group.tactic)}</span>
-                <span className="font-mono text-[9.5px] text-text-3">
+                <span className="font-mono text-micro text-text-3">
                   {group.techniques.length}
                 </span>
               </button>
@@ -139,17 +139,17 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
                       {sel && (
                         <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded bg-foreground" />
                       )}
-                      <span className="col-start-1 row-start-1 text-[13px] font-medium">
+                      <span className="col-start-1 row-start-1 text-body font-medium">
                         {t.name}
                       </span>
-                      <span className="col-start-2 row-start-1 justify-self-end font-mono text-[9.5px] text-text-3">
+                      <span className="col-start-2 row-start-1 justify-self-end font-mono text-micro text-text-3">
                         {t.attack[0] ?? ""}
                       </span>
-                      <span className="col-start-1 row-start-2 font-mono text-[10.5px] text-text-3">
+                      <span className="col-start-1 row-start-2 font-mono text-label text-text-3">
                         {t.id} · {logTypeOf(t)}
                       </span>
                       {!t.implemented && (
-                        <span className="col-start-2 row-start-2 justify-self-end font-mono text-[9px] font-semibold uppercase tracking-wide text-signal">
+                        <span className="col-start-2 row-start-2 justify-self-end font-mono text-micro font-semibold uppercase tracking-wide text-signal">
                           soon
                         </span>
                       )}
