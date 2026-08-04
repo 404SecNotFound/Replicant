@@ -6,6 +6,117 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-04
+
+A security and correctness release. Everything actionable from two independent
+reviews, plus three defects that surfaced during a live LogRhythm lab session and
+that neither review found.
+
+**Upgrade from 0.5.0.** That release is affected by every item in the "Security"
+section below, including a cross-origin hijack of the embedded terminal.
+
+### Security
+
+- **Cross-site WebSocket hijack of the terminal (F-01).** Origin validation compared
+  hostnames and ignored scheme and port, so any other development server on an
+  analyst's laptop could drive the PTY using the ambient session cookie. An origin is
+  now the `(scheme, host, port)` triple, and it is required on every handshake.
+- **The session cookie was the master token (F-04).** It held the persistent launch
+  token from `~/.config/replicant/web-token` verbatim: no expiry, no rotation, and no
+  way to revoke one browser without regenerating the token file and breaking every
+  other client. The cookie now carries a short-lived random session id the server can
+  expire and revoke, and `POST /api/session/logout` ends one browser only. The token
+  is also gone from EventSource and WebSocket query strings, where URLs reach server
+  logs, history and Referer.
+- **A terminal child could hang the whole server (F-05).** Termination sent SIGTERM and
+  then blocked on `waitpid` on the asyncio event loop, so a child ignoring SIGTERM
+  froze every request the server was serving. Termination is now non-blocking with
+  SIGKILL escalation. Terminal sessions are also capped, globally and per client.
+- **Failed runs wrote no manifest (F-02).** Safety rule 5 says every run writes one, and
+  the failure path is the one that most needs it.
+- **Markdown in the Docs tab could execute same-origin code (F-03),** plus a
+  `javascript:` link protocol hole found while fixing it. A Content-Security-Policy is
+  now sent as defence in depth.
+- **`--no-auth` opened HTTP but rejected every terminal session (F-06).**
+- **Web file output could truncate arbitrary paths (F-07).** Output is confined to a
+  server-chosen directory.
+- **Malformed duration strings were accepted silently (F-09).** `-1h` parsed as a
+  positive hour, `abc123` as 123 seconds. A typo produced a run of a different length
+  and no signal.
+
+### Fixed: the telemetry was wrong on two of three vendors
+
+- **A successful login rendered as a failed one.** Check Point hardcoded
+  `act=Reject` and `auth_status=Failed Login`, and Palo Alto hardcoded
+  `PanOSEventID=auth-fail`, on the `event:system` path. The engine only ever sends
+  `status=success` there, so **every** administrative login in REP-018 was
+  self-contradictory, wrong in exactly the field a correlation rule matches, on the
+  technique whose whole premise is successful logins moving host to host. FortiGate was
+  always correct. A detection engineer tuning against this would have concluded their
+  rule was broken.
+
+### Fixed: runs that looked like they were working
+
+- **A configured collector did not mean send.** The web form's destination switch
+  defaulted off and the API defaulted `no_send=True`, so a verified collector plus a
+  technique plus the run button produced a run that rendered every event and delivered
+  none, while the stream, the progress and the events-per-second readout all looked
+  identical to a working run. Measured after the fix: CLI 200 datagrams, web 200
+  datagrams, identical parameters. The send path was never broken, only its default.
+- **The single-run lock was invisible.** Only one run may be active, which is correct
+  because concurrent runs multiply the eps cap. But the form's `running` flag is
+  per-panel state, so a page reload showed an idle form while the server was hours into
+  a plan-paced run, and pressing the button produced a 409 naming a run id the operator
+  could not resolve, see or stop. `GET /api/runs/active` reports it, and the form names
+  the technique holding the lock and offers to stop it.
+- **`Send test log` reported `verified` against a collector that could not receive
+  anything.** It was set from a UDP `sendto` succeeding, which only proves a route
+  exists, and it showed green against an unreachable address across two lab sessions.
+  The word is gone from the codebase entirely. What replaced it is disclosure rather
+  than a probe: the connect test now reports what it proved and what it did not, and
+  shows the source address beside the destination, because that is what makes a
+  mistyped address visible. (A connected-UDP probe to the real mistyped lab address
+  returns no error at all, so it would not have caught it.)
+- **A collector that will not talk to us produced a traceback**, not a message. The
+  transports raise `OSError` and every run handler caught only
+  `(RuntimeError, NotImplementedError)`. The connect timeout also governed every later
+  send, so a collector applying ordinary backpressure raised `socket.timeout` mid-run.
+- **Drift messages reversed past and future (F-13),** describing the default historical
+  anchor as future-dated.
+
+### Added
+
+- **Every use case states its core objective**, one sentence on what running it is meant
+  to establish, shown first in the web UI. The panel used to open with "emits synthetic
+  X telemetry that exercises Y", which is true of all 24 entries and so answered nothing.
+- **IPv6 collectors (F-10).** Every socket was `AF_INET`; the address family now comes
+  from `getaddrinfo`.
+- **Run manifests are self-describing:** `vendor`, `duration`, `rate` and `send_stats`.
+  `send_stats` counts datagrams the kernel accepted, against `event_count` which counts
+  events rendered.
+
+### Changed
+
+- The run event stream fans out (F-12): each consumer gets its own queue seeded with
+  bounded history, so two browser tabs no longer split one run between them.
+- Progress reports a final callback with the true count, instead of stopping at the last
+  multiple of 100.
+- Sample lines are cached, so selecting a technique no longer rebuilds a 180,000-event
+  plan to show three lines.
+- Packaging metadata uses the PEP 639 SPDX form (F-15); LICENSE and NOTICE now ship in
+  the wheel.
+- A terminal resize below 20 columns is refused rather than honoured.
+
+### Known limitations
+
+- **F-08 is open.** The events-per-second cap is per process, so several processes can
+  multiply it against one collector. Terminal sessions are now capped, which bounds it,
+  but the remedy (a host-level lease, or an enforced single-process scope) is undecided.
+- **F-14 is partially addressed.** Production dependencies audit clean; the remaining
+  advisories are development-only and their fixes require dropping Node 18.
+- Vendor fidelity for Palo Alto and Check Point remains `[Unverified]` against real
+  appliances, as before.
+
 ## [0.5.0] - 2026-08-01
 
 Replicant emulates a TTP by writing the telemetry the attack would have produced, so
