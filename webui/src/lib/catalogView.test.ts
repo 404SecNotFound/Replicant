@@ -198,12 +198,17 @@ describe("filterTechniques", () => {
 // being quietly widened back out into eleven ad hoc values.
 describe("type scale", () => {
   it("is ordered, and nothing reads below 11px", async () => {
-    const config = (await import("../../tailwind.config.js")).default;
-    const sizes = config.theme.extend.fontSize as Record<string, [string, unknown]>;
-
-    const px = Object.fromEntries(
-      Object.entries(sizes).map(([k, v]) => [k, parseFloat(v[0])]),
-    );
+    // Imported as raw text, not as a module. The config is plain JS with no
+    // type declaration, so a normal import fails `tsc` under noImplicitAny, and
+    // the frontend build, the installer job and the wheel job all run that
+    // build. `?raw` is typed as string by vite/client, so this stays type-clean.
+    const source = (await import("../../tailwind.config.js?raw")).default;
+    const px: Record<string, number> = {};
+    for (const [, name, value] of source.matchAll(
+      /(\w+):\s*\["([0-9.]+)px"/g,
+    )) {
+      px[name] = parseFloat(value);
+    }
 
     expect(px.micro).toBeGreaterThanOrEqual(11);
     expect(px.label).toBeGreaterThan(px.micro);
