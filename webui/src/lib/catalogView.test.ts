@@ -185,3 +185,37 @@ describe("filterTechniques", () => {
     ]);
   });
 });
+
+// The type scale.
+//
+// Before it there were eleven hardcoded sizes across 84 call sites and no scale
+// in the design doc at all. Measured on the rendered page, 58 of 104 text
+// elements sat below 12px and only 3 reached the 16px browser default. The
+// smallest thing on screen was an 8.5px rule id inside the signal-path diagram.
+//
+// This asserts the scale exists and stays ordered. It cannot catch a component
+// picking the wrong rung, which is a judgement call, but it does catch the scale
+// being quietly widened back out into eleven ad hoc values.
+describe("type scale", () => {
+  it("is ordered, and nothing reads below 11px", async () => {
+    // Imported as raw text, not as a module. The config is plain JS with no
+    // type declaration, so a normal import fails `tsc` under noImplicitAny, and
+    // the frontend build, the installer job and the wheel job all run that
+    // build. `?raw` is typed as string by vite/client, so this stays type-clean.
+    const source = (await import("../../tailwind.config.js?raw")).default;
+    const px: Record<string, number> = {};
+    for (const [, name, value] of source.matchAll(
+      /(\w+):\s*\["([0-9.]+)px"/g,
+    )) {
+      px[name] = parseFloat(value);
+    }
+
+    expect(px.micro).toBeGreaterThanOrEqual(11);
+    expect(px.label).toBeGreaterThan(px.micro);
+    expect(px.body).toBeGreaterThan(px.label);
+    expect(px.lede).toBeGreaterThan(px.body);
+    expect(px.title).toBeGreaterThan(px.lede);
+    // Prose has to clear the size the old UI used for everything.
+    expect(px.body).toBeGreaterThanOrEqual(14);
+  });
+});

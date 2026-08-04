@@ -18,6 +18,27 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // The type scale.
+      //
+      // Before this there were ELEVEN hardcoded sizes across 84 call sites
+      // (9, 9.5, 10.5, 11, 11.5, 12, 12.5, 13, 14, 23, 25) and no scale in the
+      // design doc at all. That is not a scale, it is eleven separate decisions
+      // made one component at a time, each locally reasonable and never compared.
+      // Measured on the rendered page: 58 of 104 text elements sat below 12px and
+      // only 3 reached the 16px browser default.
+      //
+      // The distinction that matters is READ versus SCAN. Prose is read in
+      // sentences and needs size; tabular and monospace data is scanned, and
+      // density genuinely helps there. So `data` and `mono` stay tight while
+      // `body` and `lede` grow, and nothing is below 11px any more.
+      fontSize: {
+        micro: ["11px", { lineHeight: "1.45" }],   // was 9 / 9.5, diagram captions
+        label: ["12px", { lineHeight: "1.5" }],    // was 10 / 10.5, section + nav labels
+        data: ["12.5px", { lineHeight: "1.55" }],  // scanned values, tags, chips
+        body: ["14px", { lineHeight: "1.6" }],     // was 13, prose you actually read
+        lede: ["15px", { lineHeight: "1.6" }],     // the technique objective
+        title: ["24px", { lineHeight: "1.25" }],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

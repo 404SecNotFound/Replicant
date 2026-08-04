@@ -147,7 +147,7 @@ export function LogsView() {
               title={option.hint}
               aria-pressed={level === option.id}
               className={cn(
-                "rounded-sm border px-2.5 py-1 text-[12px] transition-colors",
+                "rounded-sm border px-2.5 py-1 text-body transition-colors",
                 level === option.id
                   ? "border-signal/60 bg-signal/10 text-foreground"
                   : "text-muted-foreground hover:text-foreground",
@@ -159,7 +159,7 @@ export function LogsView() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="font-mono text-[11.5px] text-text-3">
+          <span className="font-mono text-micro text-text-3">
             {counts.total} line{counts.total === 1 ? "" : "s"}
             {counts.warnings > 0 && (
               <span className="text-signal"> · {counts.warnings} warning</span>
@@ -186,7 +186,7 @@ export function LogsView() {
       </div>
 
       {error && (
-        <p className="rounded-sm border border-destructive/40 px-2.5 py-1.5 text-[12px] text-destructive">
+        <p className="rounded-sm border border-destructive/40 px-2.5 py-1.5 text-body text-destructive">
           {error}
         </p>
       )}
@@ -196,7 +196,7 @@ export function LogsView() {
         onScroll={onScroll}
         // min-w-0 so one long line scrolls inside this box instead of stretching
         // the page. See docs/webui-reskin-design.md section 5.
-        className="min-w-0 flex-1 overflow-auto rounded-sm border bg-card p-2.5 font-mono text-[12px] leading-[1.55]"
+        className="min-w-0 flex-1 overflow-auto rounded-sm border bg-card p-2.5 font-mono text-data leading-[1.55]"
       >
         {entries.length === 0 ? (
           <p className="text-text-3">
@@ -226,7 +226,7 @@ export function LogsView() {
             const node = bodyRef.current;
             if (node) node.scrollTop = node.scrollHeight;
           }}
-          className="self-center rounded-sm border px-2.5 py-1 text-[12px] text-muted-foreground hover:text-foreground"
+          className="self-center rounded-sm border px-2.5 py-1 text-body text-muted-foreground hover:text-foreground"
         >
           Jump to latest
         </button>

@@ -71,19 +71,19 @@ export function SignalReadout({
     <div className="my-5 overflow-hidden rounded-[10px] border bg-[linear-gradient(180deg,hsl(var(--signal)_/_0.03),transparent_40%)]">
       <div className="flex items-center justify-between px-4 pb-1.5 pt-3.5">
         <div className="flex items-baseline gap-2">
-          <span className="font-mono text-[25px] font-medium leading-none tracking-tight text-signal">
+          <span className="font-mono text-title font-medium leading-none tracking-tight text-signal">
             {eps}
           </span>
-          <span className="font-mono text-[11px] text-text-3">events / sec</span>
+          <span className="font-mono text-micro text-text-3">events / sec</span>
           {running && (
-            <span className="ml-1.5 inline-flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-signal">
+            <span className="ml-1.5 inline-flex items-center gap-1.5 font-mono text-micro uppercase tracking-[0.12em] text-signal">
               <span className="h-[5px] w-[5px] rounded-full bg-signal" />
               emitting
             </span>
           )}
         </div>
         <span
-          className="font-mono text-[11px] text-text-3"
+          className="font-mono text-micro text-text-3"
           title={
             capApplies
               ? `Sends are held to ${cap} events per second.`
@@ -134,7 +134,7 @@ export function SignalReadout({
         <div className="absolute inset-y-0 left-0 bg-signal transition-[width]" style={{ width: `${pct}%` }} />
       </div>
 
-      <div className="flex justify-between border-t px-4 py-2.5 font-mono text-[11px] text-text-3">
+      <div className="flex justify-between border-t px-4 py-2.5 font-mono text-micro text-text-3">
         <span>
           elapsed <b className="font-medium text-muted-foreground">{elapsedLabel}</b>
         </span>

@@ -171,6 +171,21 @@ def button_by_text(text: str) -> str:
     )
 
 
+def button_starting_with(prefix: str) -> str:
+    """Match on a stable prefix rather than a whole label.
+
+    The run button used to read "Start run". It now names its destination, so it
+    is "Run and send to 10.0.20.125:514", "Run and write to file" or "Run without
+    sending" depending on where the events are going. An exact match silently
+    stopped working and this script only failed the next time someone ran it,
+    which was months later.
+    """
+    return (
+        "[...document.querySelectorAll('button')]"
+        f".find(b => b.textContent.trim().startsWith({json.dumps(prefix)}))"
+    )
+
+
 def shot_name(view: str, theme: str) -> str:
     """`webui-emitter.png` for dark, `webui-emitter-light.png` for light.
 
@@ -285,7 +300,7 @@ async def capture_all(url: str, theme: str, views: set[str]) -> None:
                 await asyncio.sleep(0.8)
                 # No collector and no output file: the run emits to the browser
                 # stream and writes nothing to disk.
-                await page.click(button_by_text("Start run"))
+                await page.click(button_starting_with("Run "))
                 # Capture just after the plan drains. REP-004's default is 108000
                 # events and the useful window is narrow: at 2.2s the readout still
                 # showed single digits, and a looser "wait until the rate is high"

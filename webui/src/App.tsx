@@ -162,7 +162,7 @@ export default function App() {
     <button
       onClick={() => setTab(id)}
       className={cn(
-        "py-[17px] text-[13px] font-medium transition-colors",
+        "py-[17px] text-body font-medium transition-colors",
         tab === id
           ? "text-foreground shadow-[inset_0_-2px_0_hsl(var(--foreground))]"
           : "text-muted-foreground hover:text-foreground",
@@ -184,7 +184,7 @@ export default function App() {
           <span className="text-sm font-semibold tracking-tight">Replicant</span>
           {/* The environment chip is orientation, not state. It is the first thing
               to go when the bar runs out of room. */}
-          <span className="ml-1 hidden border-l pl-2.5 font-mono text-[11px] text-text-3 lg:inline">
+          <span className="ml-1 hidden border-l pl-2.5 font-mono text-micro text-text-3 lg:inline">
             lab · 10.20.0.0/16
           </span>
         </div>
@@ -200,7 +200,7 @@ export default function App() {
           {config.terminal_enabled && navItem("terminal", "Terminal")}
         </nav>
         <div className="flex items-center gap-2.5 sm:gap-4">
-          <span className="flex items-center gap-2 font-mono text-[11.5px] text-text-3">
+          <span className="flex items-center gap-2 font-mono text-micro text-text-3">
             {collector ? (
               <>
                 <span className="h-1.5 w-1.5 flex-none rounded-full bg-signal" />
@@ -242,7 +242,7 @@ export default function App() {
             className="flex items-center justify-between gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:hidden"
           >
             <span className="u-label">Collector and techniques</span>
-            <span className="flex items-center gap-2 font-mono text-[11px] text-text-3">
+            <span className="flex items-center gap-2 font-mono text-micro text-text-3">
               {/* Naming the selection keeps the collapsed state informative: what
                   is armed is the one thing you lose by closing this. */}
               {selected?.id ?? "none selected"}
