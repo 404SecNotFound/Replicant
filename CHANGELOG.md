@@ -6,6 +6,71 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-08-04
+
+A readability release. No behaviour changes, no new techniques, nothing in the
+emitted telemetry moves. Upgrading is worthwhile only if you look at the web UI.
+
+### Fixed: more than half the web UI rendered below 12px
+
+Reported plainly as "the text is quite small, you have to really focus your
+eyes". Measured on the rendered page rather than argued about:
+
+| | |
+|---|---|
+| most common size in the whole UI | **10.5px** (30 of 104 elements) |
+| below 12px | **58 of 104** |
+| at or above the 16px browser default | **3 of 104** |
+| smallest text on screen | **8.5px**, a rule id inside the signal-path diagram |
+| contrast failures | **1** |
+
+Contrast was fine. It was audited during the reskin and the audit held. Size was
+never audited at all, and that was the real gap.
+
+It was also not a design decision. `docs/webui-reskin-design.md` defines a
+palette, spacing and a motif and contains no type scale whatsoever, while the
+code carried **eleven hardcoded sizes across 84 call sites**. Eleven sizes is not
+a scale, it is eleven separate decisions taken one component at a time and never
+compared with each other.
+
+The scale added here distinguishes **read** from **scan**, which is the
+distinction that was missing. Prose is read in sentences and needs size;
+monospace and tabular data is scanned, and density genuinely helps there. So
+scanned data stays tight at 12.5px while body prose moves from 13px to 14px, the
+technique objective gets its own 15px, and nothing renders below 11px. Six named
+rungs replace the eleven ad hoc values, so the next component cannot invent a
+twelfth.
+
+Two regressions were introduced by the change and caught by measuring again
+afterwards, both recorded because the second one had shipped once before:
+
+- `SIGNAL FIELDS` in the signal-path diagram grew wide enough to sit on top of
+  its own values. The values moved rather than the label shrinking back.
+- `Check Point` wrapped to two lines in the vendor picker and doubled the
+  control height. It needs 84.1px in an 83.7px segment, so half a pixel of
+  growth tipped it over; it had always been marginal. Restored to 12px and given
+  `nowrap`, so the next long vendor name overflows visibly instead of silently
+  reflowing, which is exactly how it shipped that way the first time.
+
+### Fixed: the screenshot script had been broken for months
+
+`scripts/capture-webui-screenshots.py` clicked a button labelled `Start run`.
+v0.5.1's predecessor renamed that button to name its destination, so the script
+had been failing since, and nobody knew, because it only runs when someone
+regenerates screenshots. It now matches on a stable prefix. All five images in
+`docs/images/` are regenerated against the new scale.
+
+### Changed
+
+- README test count corrected to 952.
+
+### Unchanged
+
+Every known limitation from 0.5.1 still stands, including **F-08** (the
+events-per-second cap is per process) and **F-14** (remaining advisories are
+development-only and their fixes drop Node 18). Palo Alto and Check Point vendor
+fidelity remains `[Unverified]` against real appliances.
+
 ## [0.5.1] - 2026-08-04
 
 A security and correctness release. Everything actionable from two independent
