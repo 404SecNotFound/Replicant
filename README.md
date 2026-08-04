@@ -394,7 +394,7 @@ The run form carries the same choice as a **Pacing** control, with both options 
 The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP, TCP, and TLS transport, catalog validation, the orchestrator end-to-end, and the web API.
 
 ```bash
-./.venv/bin/pytest          # 828 tests
+./.venv/bin/pytest          # 952 tests
 (cd webui && npm test)      # 136 frontend tests
 ./.venv/bin/black --check replicant tests
 ./.venv/bin/ruff check replicant tests
