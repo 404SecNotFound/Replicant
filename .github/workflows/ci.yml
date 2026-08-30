@@ -183,8 +183,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Satisfies the minimums natively: full install including the frontend.
+          # Ships Node 18, which the Node 20 floor (vite 8, vitest 4) no longer
+          # accepts, so the frontend cannot be built from its own repositories.
+          # The CLI path is still the supported one here and is what this proves.
           - image: debian:12
+            flags: "--yes --no-web"
+            expect_exit: 0
+          # Ships Python 3.13 and Node 20, so it satisfies both minimums
+          # natively. This is the full install including the frontend, the case
+          # debian:12 covered until the Node floor moved.
+          - image: debian:13
             flags: "--yes"
             expect_exit: 0
           # Ships Python 3.9 and Node 16. Python resolves to a versioned package,

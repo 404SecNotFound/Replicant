@@ -18,6 +18,16 @@ vite 5 to 8, vitest 2 to 4, `@vitejs/plugin-react` 4 to 6, jsdom 25 to 30.
 `npm audit` now reports **0 vulnerabilities**. The installer's `MIN_NODE_MAJOR`
 is 20 and the CI frontend matrix is 20 and 22.
 
+`jsdom` is pinned to 26 rather than 30 on purpose: 30 requires Node 22.22+, above
+the floor being declared here, and pinning it keeps the test toolchain inside the
+platform the installer actually promises. `npm audit` is clean at 26.
+
+**Debian 12 can no longer build the web UI from its own repositories.** It ships
+Node 18. The installer refuses correctly and says so, and the CI matrix now
+covers it with `--no-web` while `debian:13`, which ships Node 20, carries the
+full install case. That is the real cost of dropping Node 18 and it is stated
+rather than discovered later.
+
 One config change came with vite 8, which tightened dev-server filesystem
 access: `TechniqueDiagram.test.tsx` reads the real technique catalog with `?raw`
 so its coverage check sees the shipped 24 entries rather than a fixture that
