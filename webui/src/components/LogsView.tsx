@@ -147,9 +147,9 @@ export function LogsView() {
               title={option.hint}
               aria-pressed={level === option.id}
               className={cn(
-                "rounded-sm border px-2.5 py-1 text-body transition-colors",
+                "rounded-btn border px-2.5 py-1 font-mono text-label uppercase tracking-[-0.24px] transition-colors",
                 level === option.id
-                  ? "border-signal/60 bg-signal/10 text-foreground"
+                  ? "border-muted-foreground bg-background text-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -207,7 +207,9 @@ export function LogsView() {
           entries.map((entry) => (
             <div key={entry.seq} className="flex gap-2 whitespace-pre-wrap break-words">
               <span className="flex-none text-text-4">{formatTime(entry.ts)}</span>
-              <span className={cn("w-[52px] flex-none uppercase", LEVEL_STYLE[entry.level])}>
+              {/* Wide enough for WARNING in JetBrains Mono at text-data; 52px
+                  fit the old face and wrapped this one mid-word. */}
+              <span className={cn("w-[68px] flex-none uppercase", LEVEL_STYLE[entry.level])}>
                 {entry.level}
               </span>
               <span className="flex-none text-text-4">{entry.logger.replace("replicant.", "")}</span>
