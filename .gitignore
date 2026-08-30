@@ -28,3 +28,4 @@ manifests/
 # Local agent and session working docs, not part of the published project
 AGENTS.md
 docs/end-to-end-debug-audit-*.md
+re-fresh-*.md
