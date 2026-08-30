@@ -257,7 +257,7 @@ def test_event_fixture_count_matches_reference() -> None:
     assert len(_events()) == len(_golden_payloads())
 
 
-@pytest.mark.parametrize("index", range(7))
+@pytest.mark.parametrize("index", range(8))
 def test_golden_line_byte_for_byte(index: int) -> None:
     profile = PaloAltoProfile()
     label, event = _events()[index]
