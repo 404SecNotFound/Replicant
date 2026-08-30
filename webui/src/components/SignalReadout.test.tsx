@@ -78,27 +78,38 @@ describe("SignalReadout", () => {
   });
 
   it("scales the waveform against the cap when samples are small", () => {
-    // scale = max(cap * 0.25, ...samples, 1). With cap 2000 and a lone sample of
-    // 10, the floor of 500 dominates, so the point sits near the baseline rather
-    // than filling the height. Asserting the geometry catches a scale inversion,
-    // which is invisible to a smoke test that only checks the SVG rendered.
+    // scale = max(...samples, cap * 0.25, 1) while the cap applies. With cap
+    // 2000 and a lone sample of 10, the floor of 500 dominates, so the point
+    // sits near the baseline rather than filling the height. Asserting the
+    // geometry catches a scale inversion, which is invisible to a smoke test
+    // that only checks the SVG rendered.
     const { container } = render(<SignalReadout {...base} cap={2000} samples={[10]} />);
     const path = container.querySelector("path");
     expect(path).not.toBeNull();
     const d = path!.getAttribute("d") ?? "";
-    // BOTTOM is 66 and the plot height is 52, so 10/500 of the way up from 66
-    // is ~64.96. Well below the midpoint of the 14..66 band.
+    // BOTTOM is 32 and the plot band is 28, so 10/500 of the way up from 32 is
+    // ~31.4. Well below the midpoint of the 4..32 band.
     const firstY = Number(d.replace(/^M[\d.]+ /, "").split(" ")[0]);
-    expect(firstY).toBeGreaterThan(60);
-    expect(firstY).toBeLessThanOrEqual(66);
+    expect(firstY).toBeGreaterThan(29);
+    expect(firstY).toBeLessThanOrEqual(32);
   });
 
   it("lifts the waveform toward the top when a sample reaches the cap", () => {
     const { container } = render(<SignalReadout {...base} cap={100} samples={[100]} />);
     const d = container.querySelector("path")!.getAttribute("d") ?? "";
     const firstY = Number(d.replace(/^M[\d.]+ /, "").split(" ")[0]);
-    // At the scale ceiling the point should sit at TOP (14), not the baseline.
-    expect(firstY).toBeCloseTo(14, 1);
+    // At the scale ceiling the point should sit at TOP (4), not the baseline.
+    expect(firstY).toBeCloseTo(4, 1);
+  });
+
+  it("labels the plot's own scale so autoscaled readings stay self-describing", () => {
+    const { container } = render(
+      <SignalReadout {...base} capApplies={false} samples={[40, 80]} />,
+    );
+    // Uncapped, the scale follows the largest sample; the top hairline label
+    // must state that value or the filled band misreads as a large rate.
+    const texts = [...container.querySelectorAll("text")].map((t) => t.textContent);
+    expect(texts).toContain("80");
   });
 
   it("labels the window it was given, not a hardcoded one", () => {

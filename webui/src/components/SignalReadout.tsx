@@ -12,9 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The signal readout: Replicant's ownable motif. Shows the live emission rate
-// (events per second) over the run window as a waveform, against the eps cap.
-// Data is real: `samples` are eps values sampled from the run's count deltas.
+// The war-room frame: Replicant's live instrument. A darker dashboard panel
+// holding the run's metric tiles, an instrumented sparkline of the emission
+// rate, and the plan progress track.
+//
+// Every number here derives from the same counters the run reports; nothing is
+// invented for the display. The mock's bytes tile does not ship because the
+// stream carries no byte counter, and a readout that cannot be measured must
+// not render. All values are RENDERED/EMITTED counts: on UDP nothing here
+// proves delivery, which is why no wording in this frame claims it.
 
 interface Props {
   eps: number;
@@ -37,10 +43,11 @@ interface Props {
   windowSeconds: number;
 }
 
-const W = 900;
-const H = 76;
-const TOP = 14;
-const BOTTOM = 66;
+const W = 220;
+const H = 44;
+const TOP = 4;
+const BOTTOM = 32;
+const LEFT = 16; // room for the scale labels
 
 export function SignalReadout({
   eps,
@@ -54,94 +61,143 @@ export function SignalReadout({
   elapsedLabel,
   windowSeconds,
 }: Props) {
-  const scale = Math.max(cap * 0.25, ...samples, 1);
-  const span = W * 0.66; // the emitted portion; the rest is the projection lane
-  const pts =
-    samples.length > 0
-      ? samples.map((v, i) => {
-          const x = (i / Math.max(samples.length - 1, 1)) * span;
-          const y = BOTTOM - (Math.min(v, scale) / scale) * (BOTTOM - TOP);
-          return `${x.toFixed(1)} ${y.toFixed(1)}`;
-        })
-      : [`0 ${BOTTOM}`];
-  const line = "M" + pts.join(" L");
-  const area = `${line} L${span.toFixed(1)} ${H} L0 ${H} Z`;
+  // When the cap applies it puts a floor under the scale, so a small rate sits
+  // near the baseline instead of dramatically filling the band (DEF-002's
+  // guard). The top hairline is labeled with the real scale value either way,
+  // so the plot always says what its own ceiling is.
+  const scale = Math.max(...samples, capApplies ? cap * 0.25 : 0, 1);
+  const mean = samples.length > 0 ? samples.reduce((a, b) => a + b, 0) / samples.length : 0;
+  const yFor = (v: number) => BOTTOM - (Math.min(v, scale) / scale) * (BOTTOM - TOP);
+  const pts = samples.map((v, i) => {
+    const x = LEFT + (i / Math.max(samples.length - 1, 1)) * (W - LEFT - 4);
+    return [x, yFor(v)] as const;
+  });
+  const line = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+  const last = pts[pts.length - 1];
 
   return (
-    <div className="my-5 overflow-hidden rounded-[10px] border bg-[linear-gradient(180deg,hsl(var(--signal)_/_0.03),transparent_40%)]">
-      <div className="flex items-center justify-between px-4 pb-1.5 pt-3.5">
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono text-title font-medium leading-none tracking-tight text-signal">
-            {eps}
-          </span>
-          <span className="font-mono text-micro text-text-3">events / sec</span>
-          {running && (
-            <span className="ml-1.5 inline-flex items-center gap-1.5 font-mono text-micro uppercase tracking-[0.12em] text-signal">
-              <span className="h-[5px] w-[5px] rounded-full bg-signal" />
-              emitting
-            </span>
-          )}
+    <div className="my-6 overflow-hidden rounded-lg border bg-frame">
+      {/* frame bar */}
+      <div className="flex items-center gap-4 border-b border-elev px-6 py-4">
+        <div className="flex gap-2" aria-hidden="true">
+          <span className="block h-2 w-2 rounded-full bg-border" />
+          <span className="block h-2 w-2 rounded-full bg-border" />
+          <span className="block h-2 w-2 rounded-full bg-border" />
         </div>
-        <span
-          className="font-mono text-micro text-text-3"
-          title={
-            capApplies
-              ? `Sends are held to ${cap} events per second.`
-              : "The events-per-second cap governs sending. This run has no collector, " +
-                "so nothing throttles it and the rate can exceed the configured cap."
-          }
-        >
-          {capApplies ? `cap ${cap}` : "uncapped"} · window {windowSeconds}s
+        <span className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
+          Replicant — emission
         </span>
+        {running ? (
+          <span className="ml-auto flex items-center gap-2 font-mono text-label uppercase tracking-[-0.24px] text-signal">
+            <span className="block h-1.5 w-1.5 rounded-full bg-signal" />
+            emitting
+          </span>
+        ) : (
+          <span className="ml-auto flex items-center gap-2 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
+            <span className="block h-1.5 w-1.5 rounded-full bg-text-4" />
+            idle
+          </span>
+        )}
       </div>
 
-      <svg className="block h-[76px] w-full" viewBox="0 0 900 76" preserveAspectRatio="none">
-        <line
-          x1="0"
-          y1="15"
-          x2="900"
-          y2="15"
-          stroke="hsl(var(--foreground) / 0.06)"
-          strokeWidth="1"
-          strokeDasharray="3 5"
-        />
-        <path d={area} fill="url(#sig-fill)" />
-        <path
-          d={line}
-          fill="none"
-          stroke="hsl(var(--signal))"
-          strokeWidth="1.7"
-          strokeLinejoin="round"
-        />
-        <path
-          d={`M${span} ${pts.length ? pts[pts.length - 1].split(" ")[1] : BOTTOM} L900 ${
-            pts.length ? pts[pts.length - 1].split(" ")[1] : BOTTOM
-          }`}
-          fill="none"
-          stroke="hsl(var(--text-4))"
-          strokeWidth="1.3"
-          strokeDasharray="2 3"
-        />
-        <defs>
-          <linearGradient id="sig-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="hsl(var(--signal))" stopOpacity="0.15" />
-            <stop offset="1" stopColor="hsl(var(--signal))" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-      </svg>
+      {/* metric tiles */}
+      <div className="flex flex-col sm:flex-row">
+        <div className="flex-1 border-b border-elev p-5 sm:border-b-0">
+          <div className="mb-3 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
+            Events emitted
+          </div>
+          <div className="text-title tracking-[-0.9px] text-foreground">
+            {count.toLocaleString()}
+          </div>
+          <div className="mt-2 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
+            {total > 0 ? `of ${total.toLocaleString()} planned` : "no plan armed"}
+          </div>
+        </div>
 
-      <div className="relative h-[3px] bg-well">
-        <div className="absolute inset-y-0 left-0 bg-signal transition-[width]" style={{ width: `${pct}%` }} />
+        <div className="flex-1 border-b border-elev p-5 sm:border-b-0 sm:border-l">
+          <div className="mb-3 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
+            Rate
+          </div>
+          <div className="text-title tracking-[-0.9px] text-foreground">
+            {eps.toLocaleString()}{" "}
+            <span className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
+              eps
+            </span>
+          </div>
+          {/* The instrumented sparkline: scale hairlines with real values, the
+              dotted mean, a time axis. A line on its own is decoration; the
+              scale is what makes it a reading. */}
+          <svg
+            className="mt-2 block h-11 w-full max-w-[220px]"
+            viewBox={`0 0 ${W} ${H}`}
+            preserveAspectRatio="none"
+            role="img"
+            aria-label={`Emission rate over the last ${windowSeconds} seconds`}
+          >
+            <line x1={LEFT} y1={TOP} x2={W} y2={TOP} stroke="hsl(var(--elev))" strokeWidth="1" />
+            <line x1={LEFT} y1={BOTTOM} x2={W} y2={BOTTOM} stroke="hsl(var(--elev))" strokeWidth="1" />
+            <text x="0" y={TOP + 3} fontFamily="'JetBrains Mono',monospace" fontSize="8" fill="hsl(var(--text-4))">
+              {Math.round(scale)}
+            </text>
+            <text x="0" y={BOTTOM + 2.5} fontFamily="'JetBrains Mono',monospace" fontSize="8" fill="hsl(var(--text-4))">
+              0
+            </text>
+            {samples.length > 1 && (
+              <line
+                x1={LEFT}
+                y1={yFor(mean)}
+                x2={W}
+                y2={yFor(mean)}
+                stroke="hsl(var(--border))"
+                strokeWidth="1"
+                strokeDasharray="1.5 3.5"
+              />
+            )}
+            {samples.length > 0 && (
+              <path d={line} fill="none" stroke="hsl(var(--signal))" strokeWidth="1.5" />
+            )}
+            {last && <circle cx={last[0]} cy={last[1]} r="2.5" fill="hsl(var(--signal))" />}
+            <text x={LEFT} y={H - 1} fontFamily="'JetBrains Mono',monospace" fontSize="8" fill="hsl(var(--text-4))">
+              T-{windowSeconds}S
+            </text>
+            <text x={W} y={H - 1} textAnchor="end" fontFamily="'JetBrains Mono',monospace" fontSize="8" fill="hsl(var(--text-4))">
+              NOW
+            </text>
+          </svg>
+        </div>
+
+        <div className="flex-1 p-5 sm:border-l sm:border-elev">
+          <div className="mb-3 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
+            Elapsed
+          </div>
+          <div className="font-mono text-title tracking-[-0.9px] text-foreground">
+            {elapsedLabel}
+          </div>
+          <div
+            className="mt-2 font-mono text-label uppercase tracking-[-0.24px] text-text-4"
+            title={
+              capApplies
+                ? `Sends are held to ${cap} events per second.`
+                : "The events-per-second cap governs sending. This run has no collector, " +
+                  "so nothing throttles it and the rate can exceed the configured cap."
+            }
+          >
+            {capApplies ? `cap ${cap} eps` : "uncapped"} · window {windowSeconds}s
+          </div>
+        </div>
       </div>
 
-      <div className="flex justify-between border-t px-4 py-2.5 font-mono text-micro text-text-3">
-        <span>
-          elapsed <b className="font-medium text-muted-foreground">{elapsedLabel}</b>
-        </span>
-        <span>
-          emitted <b className="font-medium text-muted-foreground">{count}</b>
-          {total ? ` / est ${total}` : ""}
-        </span>
+      {/* progress track */}
+      <div className="px-6 pb-5 pt-2">
+        <div className="relative mb-3 h-0.5 bg-elev">
+          <div
+            className="absolute inset-y-0 left-0 bg-signal transition-[width]"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
+          {pct}%{total > 0 ? ` · ${count.toLocaleString()} of ${total.toLocaleString()}` : ""}
+        </div>
       </div>
     </div>
   );

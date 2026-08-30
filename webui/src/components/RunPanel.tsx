@@ -13,8 +13,8 @@
 // limitations under the License.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, Square } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { CefLine } from "@/components/CefLine";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -530,14 +530,14 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
                   <input
                     type="radio"
                     name="pace"
-                    className="h-3.5 w-3.5 accent-signal"
+                    className="h-3.5 w-3.5 accent-foreground"
                     checked={pace === choice}
                     onChange={() => setPace(choice)}
                   />
                   <span>
                     {choice === "plan" ? "Plan time" : "Burst"}
                     {projected !== null && (
-                      <b className="ml-1.5 font-mono text-micro font-medium text-foreground">
+                      <b className="ml-1.5 font-mono text-micro font-normal text-foreground">
                         {fmtSpan(projected)}
                       </b>
                     )}
@@ -581,7 +581,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       {collector && !sending && !toFile && (
         <div
           role="status"
-          className="mt-2.5 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-body leading-relaxed text-signal"
+          className="mt-2.5 rounded-btn border border-signal/50 p-3 text-body leading-relaxed text-signal"
         >
           No destination selected. This run will render events and neither send nor write
           them, and the readout will still show a rate, because it measures rendering. Turn
@@ -591,7 +591,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       {anchorNotice(anchor, sending, anchorEpoch) && (
         <div
           role="status"
-          className="mt-2.5 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-body leading-relaxed text-signal"
+          className="mt-2.5 rounded-btn border border-signal/50 p-3 text-body leading-relaxed text-signal"
         >
           {anchorNotice(anchor, sending, anchorEpoch)}
         </div>
@@ -611,7 +611,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       {lockedBy && (
         <div
           role="status"
-          className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-signal/40 bg-signal/10 p-2.5 text-body leading-relaxed text-signal"
+          className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-btn border border-signal/50 p-3 text-body leading-relaxed text-signal"
         >
           <span>
             {lockedBy.technique_id ?? "Another run"} is already running, and only one run
@@ -622,36 +622,33 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           </span>
           <button
             onClick={handleStopLocked}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-signal/50 px-2.5 text-body font-medium transition-colors hover:bg-signal/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex items-center rounded-btn border border-signal/50 px-2.5 py-1.5 font-mono text-label uppercase tracking-[-0.24px] transition-colors hover:border-signal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Square className="h-2.5 w-2.5" />
             Stop the running {lockedBy.technique_id ?? "run"}
           </button>
         </div>
       )}
 
-      {/* run controls */}
-      <div className="mt-4 flex gap-2">
+      {/* run controls, in the machine voice: the primary states the destination */}
+      <div className="mt-4 flex flex-wrap gap-3">
         <button
           onClick={handleStart}
           disabled={!canRun}
-          className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-body font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex items-center rounded-btn bg-primary px-5 py-2.5 font-mono text-label uppercase tracking-[-0.24px] text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <Play className="h-3.5 w-3.5" />
           {destinationLabel}
         </button>
         <button
           onClick={handleStop}
           disabled={!running}
-          className="inline-flex h-9 items-center gap-2 rounded-md border px-4 text-body font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex items-center rounded-btn border px-5 py-2.5 font-mono text-label uppercase tracking-[-0.24px] text-foreground transition-colors hover:border-muted-foreground disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <Square className="h-3 w-3" />
-          Stop
+          Stop run
         </button>
       </div>
 
       {error && (
-        <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-body text-destructive">
+        <div className="mt-4 rounded-btn border border-destructive/50 p-3 text-body text-destructive">
           {error}
         </div>
       )}
@@ -669,32 +666,33 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
         elapsedLabel={elapsed}
       />
 
-      {/* live stream */}
-      <div className="mb-2 mt-[22px] flex items-center justify-between">
-        <span className="u-label">Live CEF · {vendor}</span>
-        <span className="font-mono text-label text-text-3">tail · last {MAX_VISIBLE}</span>
-      </div>
-      <div
-        ref={logRef}
-        className="scroll-thin h-[132px] overflow-y-auto rounded-lg border bg-well p-3 font-mono text-micro leading-[1.85] text-text-3"
-      >
-        {linesRef.current.length === 0 ? (
-          <div className="grid h-full place-items-center text-text-3">
-            {running ? "waiting for events…" : "Streamed CEF appears here on run."}
-          </div>
-        ) : (
-          linesRef.current.map((line, i) => (
-            <div key={i} className="truncate">
-              {line}
+      {/* live stream: the mock's event stream, an outlined canvas card. Emphasis
+          inside a line is brightness only: header bone, extension gray. */}
+      <div className="mt-6 rounded-lg border bg-background p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="u-label">Event stream · {vendor}</span>
+          <span className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
+            tail · last {MAX_VISIBLE}
+          </span>
+        </div>
+        <div
+          ref={logRef}
+          className="scroll-thin h-[132px] overflow-y-auto font-mono text-data leading-[1.7] text-text-3"
+        >
+          {linesRef.current.length === 0 ? (
+            <div className="grid h-full place-items-center text-text-4">
+              {running ? "waiting for events…" : "Streamed CEF appears here on run."}
             </div>
-          ))
-        )}
+          ) : (
+            linesRef.current.map((line, i) => <CefLine key={i} line={line} className="truncate" />)
+          )}
+        </div>
       </div>
 
       {/* manifest */}
       {manifest && (
-        <div className="mt-4 rounded-lg border p-4">
-          <div className="mb-3 flex items-center gap-2 text-body font-semibold">
+        <div className="mt-4 rounded-lg bg-card p-6">
+          <div className="mb-4 flex items-center gap-2 text-body">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-muted-foreground">
               <path d="M2.5 7.5 L5.5 10.5 L11.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
@@ -714,7 +712,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
             ].map(([k, v]) => (
               <div key={k} className="u-label">
                 {k}
-                <b className="mt-0.5 block font-mono text-data font-medium normal-case tracking-normal text-foreground">
+                <b className="mt-0.5 block font-mono text-data font-normal normal-case tracking-normal text-foreground">
                   {String(v)}
                 </b>
               </div>
