@@ -41,8 +41,11 @@ const BADGE: Record<BadgeState, { label: string; tone: string }> = {
   untested: { label: "not tested", tone: "text-text-3" },
   testing: { label: "testing…", tone: "text-text-3" },
   stale: { label: "not tested", tone: "text-text-3" },
-  sent_unconfirmed: { label: "sent, unconfirmed", tone: "text-signal" },
-  handshake_ok: { label: "handshake ok", tone: "text-signal" },
+  // Neutral, not orange and not green. "Sent, unconfirmed" colored like a live
+  // signal is the verified-badge lie with a different word; the honest verdicts
+  // read in the plain text color and only a failure gets the signal color.
+  sent_unconfirmed: { label: "sent, unconfirmed", tone: "text-foreground" },
+  handshake_ok: { label: "handshake ok", tone: "text-foreground" },
   refused: { label: "refused", tone: "text-destructive" },
   name_not_resolved: { label: "name not resolved", tone: "text-destructive" },
   failed: { label: "failed", tone: "text-destructive" },
@@ -126,17 +129,22 @@ export function ConnectionCard({
         : report.verdict;
 
   return (
-    <section className="rounded-lg border bg-card p-4">
-      <div className="mb-3.5 flex items-baseline justify-between">
-        <span className="text-body font-semibold">Collector</span>
-        <span className={cn("font-mono text-label", BADGE[badge].tone)}>{BADGE[badge].label}</span>
+    <section className="rounded-lg bg-card px-4 py-5">
+      <div className="u-label mb-2.5">Collector</div>
+      <div className="mb-4 flex items-center gap-2">
+        <span className="h-1.5 w-1.5 flex-none rounded-full bg-text-4" />
+        <span className={cn("font-mono text-label uppercase tracking-[-0.24px]", BADGE[badge].tone)}>
+          {BADGE[badge].label}
+        </span>
       </div>
 
-      <div className="u-label mb-1.5">Vendor profile</div>
+      {/* Content-sized segments with nowrap: "Check Point" has wrapped inside an
+          equal-width segment twice now, so the segments take the width their
+          label needs. The active segment recesses to the canvas color. */}
       <div
         role="radiogroup"
         aria-label="Vendor profile"
-        className="flex gap-0.5 rounded-md border bg-background p-0.5"
+        className="flex w-max max-w-full overflow-hidden rounded-btn border"
       >
         {vendors.map((v) => (
           <button
@@ -145,10 +153,10 @@ export function ConnectionCard({
             aria-checked={v === vendor}
             onClick={() => onVendorChange(v)}
             className={cn(
-              "h-7 flex-1 whitespace-nowrap rounded-[5px] text-label font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "whitespace-nowrap border-r px-2.5 py-2 font-mono text-label uppercase tracking-[-0.24px] transition-colors last:border-r-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               v === vendor
-                ? "bg-elev text-foreground shadow-sm"
-                : "text-text-3 hover:text-foreground",
+                ? "bg-background text-foreground"
+                : "text-text-4 hover:text-foreground",
             )}
           >
             {vendorShortLabel(v)}
@@ -217,15 +225,15 @@ export function ConnectionCard({
         </div>
       )}
 
-      <div className="mt-3.5 flex items-center justify-between">
-        <button
-          onClick={handleTest}
-          disabled={busy || !host}
-          className="h-8 rounded-md border px-3 text-body font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {busy ? "Sending…" : "Send test log"}
-        </button>
-        <span className="font-mono text-micro text-text-3">cap {epsCap} eps</span>
+      <button
+        onClick={handleTest}
+        disabled={busy || !host}
+        className="mt-4 w-full rounded-btn bg-primary px-4 py-2.5 font-mono text-label uppercase tracking-[-0.24px] text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {busy ? "Sending…" : "Send test log"}
+      </button>
+      <div className="mt-3 text-center font-mono text-micro uppercase tracking-[-0.24px] text-text-4">
+        cap {epsCap} eps
       </div>
 
       {error && (
