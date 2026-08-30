@@ -543,7 +543,14 @@ techniques:
     objective: >-
       Prove a lateral-movement rule separates a host-to-host login chain from an admin star pattern carrying the same number of logins.
     attack:
-      tactics: ["TA0008 Lateral Movement"]
+      # Both tactics are carried by the listed techniques, which is the rule
+      # this catalog follows: T1021 is Lateral Movement, and T1078 and T1550
+      # are both Defense Evasion as well. TA0006 Credential Access was listed
+      # here until v0.7.0 and is supported by none of the three; dropping it
+      # left TA0008 alone, which was defensible but discarded the evasion half
+      # of what the chain demonstrates. Using valid accounts and alternate
+      # authentication material to move laterally IS the evasion.
+      tactics: ["TA0008 Lateral Movement", "TA0005 Defense Evasion"]
       techniques: ["T1021", "T1078", "T1550"]
     fortigate:
       log_type: "event"
