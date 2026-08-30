@@ -46,19 +46,6 @@ const LogsView = lazy(() =>
   import("@/components/LogsView").then((m) => ({ default: m.LogsView })),
 );
 
-const MARK = (
-  <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-    <rect x="1.2" y="1.2" width="19.6" height="19.6" rx="5.4" className="stroke-muted-foreground" strokeWidth="1.3" opacity="0.5" />
-    <path
-      d="M4 12.5 L7.6 12.5 L9 7 L11.4 15.5 L13 11 L15 11 L16.4 13 L18 13"
-      className="stroke-signal"
-      strokeWidth="1.5"
-      strokeLinejoin="round"
-      strokeLinecap="round"
-    />
-  </svg>
-);
-
 type Tab = "emitter" | "docs" | "logs" | "terminal";
 
 export default function App() {
@@ -108,14 +95,17 @@ export default function App() {
     );
   }
 
+  // The machine voice for navigation: mono, uppercase, weight 400. The active
+  // tab is a one-pixel hairline in the text color, not a bolder weight; the
+  // Factory system never reaches for bold.
   const navItem = (id: Tab, label: string) => (
     <button
       onClick={() => setTab(id)}
       className={cn(
-        "py-[17px] text-body font-medium transition-colors",
+        "flex h-full items-center border-b font-mono text-label uppercase tracking-[-0.24px] transition-colors",
         tab === id
-          ? "text-foreground shadow-[inset_0_-2px_0_hsl(var(--foreground))]"
-          : "text-muted-foreground hover:text-foreground",
+          ? "border-foreground text-foreground"
+          : "border-transparent text-text-4 hover:text-foreground",
       )}
     >
       {label}
@@ -128,17 +118,16 @@ export default function App() {
     // screen it traps the run stage in a few hundred pixels with no way out.
     <div className="flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
       {/* top bar */}
-      <header className="flex h-[54px] flex-none items-center justify-between gap-3 border-b px-3.5 sm:px-5">
-        <div className="flex min-w-0 items-center gap-2.5">
-          {MARK}
-          <span className="text-sm font-semibold tracking-tight">Replicant</span>
+      <header className="flex h-16 flex-none items-center justify-between gap-3 border-b px-3.5 sm:px-8">
+        <div className="flex h-full min-w-0 items-center gap-2.5">
+          <span className="font-mono text-label uppercase tracking-[0.08em]">Replicant</span>
           {/* The environment chip is orientation, not state. It is the first thing
               to go when the bar runs out of room. */}
-          <span className="ml-1 hidden border-l pl-2.5 font-mono text-micro text-text-3 lg:inline">
+          <span className="ml-1 hidden font-mono text-micro uppercase tracking-[-0.24px] text-text-4 lg:inline">
             lab · 10.20.0.0/16
           </span>
         </div>
-        <nav className="flex gap-4 sm:gap-6">
+        <nav className="flex h-full gap-4 sm:gap-6">
           {navItem("emitter", "Emitter")}
           {navItem("docs", "Docs")}
           {/* Always available. Unlike the terminal this needs no websocket and no
@@ -150,10 +139,13 @@ export default function App() {
           {config.terminal_enabled && navItem("terminal", "Terminal")}
         </nav>
         <div className="flex items-center gap-2.5 sm:gap-4">
-          <span className="flex items-center gap-2 font-mono text-micro text-text-3">
+          <span className="flex items-center gap-2 font-mono text-micro uppercase tracking-[-0.24px] text-text-3">
             {collector ? (
               <>
-                <span className="h-1.5 w-1.5 flex-none rounded-full bg-signal" />
+                {/* Bone, not orange and not green: an armed collector is a fact,
+                    not live emission and not confirmed delivery. Chromatic color
+                    is reserved for live data. */}
+                <span className="h-1.5 w-1.5 flex-none rounded-full bg-foreground" />
                 {/* The dot survives at every width; the address is what gets
                     dropped, since the Collector card below states it in full. */}
                 <span className="hidden md:inline">
@@ -171,7 +163,7 @@ export default function App() {
       </header>
 
       {tab === "emitter" ? (
-        <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[336px_minmax(0,1fr)]">
+        <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[340px_minmax(0,1fr)]">
           {/* Below lg the rail is a disclosure instead of a column. One mechanism
               rather than the drawer-and-bottom-sheet pair the design spec sketched:
               two mechanisms is twice the surface to keep correct for a tool that is
@@ -197,7 +189,7 @@ export default function App() {
           <aside
             id="setup-rail"
             className={cn(
-              "flex-col gap-6 border-b p-5 lg:flex lg:min-h-0 lg:animate-rise lg:overflow-y-auto lg:scroll-thin lg:border-b-0 lg:border-r",
+              "flex-col gap-6 border-b p-6 lg:flex lg:min-h-0 lg:animate-rise lg:overflow-y-auto lg:scroll-thin lg:border-b-0 lg:border-r",
               railOpen ? "flex" : "hidden",
             )}
           >

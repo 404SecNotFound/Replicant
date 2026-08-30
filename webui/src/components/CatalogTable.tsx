@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { useMemo, useState } from "react";
-import { ChevronRight, Search } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { filterTechniques, groupByTactic, LOG_TYPES, logTypeOf } from "@/lib/catalogView";
 import type { Technique } from "@/lib/api";
@@ -59,21 +59,20 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
   return (
     <section className="flex min-h-0 flex-col">
       <div className="mb-3 flex items-baseline justify-between">
-        <span className="text-body font-semibold">Techniques</span>
-        <span className="font-mono text-label text-text-3">
+        <span className="u-label">Techniques</span>
+        <span className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
           {filtering ? `${shown} of ${techniques.length}` : `${techniques.length} · ATT&CK`}
         </span>
       </div>
 
-      <div className="relative mb-2.5">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-4" />
+      <div className="mb-2.5">
         <input
           type="text"
           aria-label="Filter techniques"
           placeholder="id, name, use case, ATT&CK"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="h-8 w-full rounded-md border bg-transparent pl-8 pr-2.5 font-mono text-micro placeholder:text-text-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="w-full rounded-btn border bg-transparent px-3 py-2 font-mono text-label tracking-[-0.24px] placeholder:uppercase placeholder:text-text-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </div>
 
@@ -86,10 +85,13 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
               onClick={() => toggleLogType(value)}
               aria-pressed={on}
               className={cn(
-                "rounded border px-1.5 py-0.5 font-mono text-micro transition-colors",
+                // An active filter is a control state, not live data, so it never
+                // takes the signal color: it recesses to the canvas like the
+                // active vendor segment.
+                "rounded-btn border px-1.5 py-0.5 font-mono text-micro uppercase tracking-[-0.24px] transition-colors",
                 on
-                  ? "border-signal/50 bg-signal/10 text-signal"
-                  : "text-text-3 hover:text-muted-foreground",
+                  ? "border-muted-foreground bg-background text-foreground"
+                  : "text-text-4 hover:text-foreground",
               )}
             >
               {value}
@@ -132,24 +134,22 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
                       aria-current={sel ? "true" : undefined}
                       onClick={() => onSelect(t)}
                       className={cn(
-                        "relative grid w-full grid-cols-[1fr_auto] items-center gap-x-2.5 gap-y-0.5 rounded-md py-2 pl-6 pr-2.5 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "relative grid w-full grid-cols-[1fr_auto] items-center gap-x-2.5 gap-y-1 rounded-btn border-b border-elev py-3 pl-6 pr-2.5 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         sel && "bg-secondary",
                       )}
                     >
                       {sel && (
                         <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded bg-foreground" />
                       )}
-                      <span className="col-start-1 row-start-1 text-body font-medium">
-                        {t.name}
-                      </span>
-                      <span className="col-start-2 row-start-1 justify-self-end font-mono text-micro text-text-3">
+                      <span className="col-start-1 row-start-1 text-body">{t.name}</span>
+                      <span className="col-start-2 row-start-1 justify-self-end font-mono text-micro text-text-4">
                         {t.attack[0] ?? ""}
                       </span>
-                      <span className="col-start-1 row-start-2 font-mono text-label text-text-3">
+                      <span className="col-start-1 row-start-2 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
                         {t.id} · {logTypeOf(t)}
                       </span>
                       {!t.implemented && (
-                        <span className="col-start-2 row-start-2 justify-self-end font-mono text-micro font-semibold uppercase tracking-wide text-signal">
+                        <span className="col-start-2 row-start-2 justify-self-end font-mono text-micro uppercase tracking-[-0.24px] text-text-3">
                           soon
                         </span>
                       )}
