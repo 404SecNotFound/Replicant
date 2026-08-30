@@ -29,13 +29,16 @@
 #                     your own detection content calls the equivalent rule.
 #   ndr_uc:           stable Replicant use-case id, unique per technique
 #   attack:           { tactics: [], techniques: [] }  MITRE ATT&CK
-#   fortigate:        { log_type, subtype, signature_id }  CEF header inputs
+#   fortigate:        { log_type, subtype, signature_id }  log routing and
+#                     display; the CEF header signature ID comes from the
+#                     vendor profile constants, so signature_id here is
+#                     documentation, not a header input
 #   cef_fields_held:  fields kept constant to form the pattern
 #   cef_fields_varied: fields the scenario engine iterates
 #   params:           default_intensity + low/medium/high presets
 #   distributions:    guidance the scenario engine uses to look realistic
 #   benign_baseline:  what normal looks like, so the signal stands out
-#   references:       research anchors (see replicant-fortigate-cef-reference.md)
+#   references:       research anchors (see docs/fortigate-cef-reference.md)
 #   safety_notes:     anything an operator must know
 #
 # INTENSITY MODEL
@@ -100,7 +103,7 @@ techniques:
       medium: { unique_ports: 1000, window_s: 60,  gap_ms: [2, 20] }
       high:   { unique_ports: 4000, window_s: 30,  gap_ms: [1, 5] }
     distributions:
-      dpt: "sweep ascending or randomized across 1-65535"
+      dpt: "randomized across 1-65535"
       out_bytes: "~0"
       action_mix: "mostly deny, occasional accept on open ports"
     benign_baseline: "normal hosts touch a handful of ports on a given dst"
@@ -179,13 +182,13 @@ techniques:
     cef_fields_held: ["src", "dst", "dpt"]
     cef_fields_varied: ["out", "in", "rt", "externalId", "FTNTFGTduration"]
     params:
-      low:    { total_out_mb: 500,   sessions: 20,  dst_count: 1, hours: "off" }
-      medium: { total_out_mb: 2000,  sessions: 40,  dst_count: 2, hours: "off" }
-      high:   { total_out_mb: 5000,  sessions: 60,  dst_count: 3, hours: "off" }
+      low:    { total_out_mb: 500,   sessions: 20,  dst_count: 1 }
+      medium: { total_out_mb: 2000,  sessions: 40,  dst_count: 2 }
+      high:   { total_out_mb: 5000,  sessions: 60,  dst_count: 3 }
     distributions:
       out_bytes: "large; out:in ratio > 20:1"
       dpt_choices: [443, 22, 21]
-      timing: "weighted to off-hours to raise anomaly score"
+      timing: "pinned to off-hours (00:00-06:00) to raise anomaly score"
     benign_baseline: "per-host normal out is 1-500 KB in business hours"
     references: ["UC-004 Outliers Nth Percentile", "fortigate-cef-reference: T1041/T1048"]
     safety_notes: "byte counts are integers in the log only; no real data moves"
@@ -225,7 +228,7 @@ techniques:
       Prove a credential-attack rule separates a spray or brute force from the sparse, self-correcting auth failures every network produces.
     attack:
       tactics: ["TA0006 Credential Access"]
-      techniques: ["T1110", "T1110.003", "T1110.004"]
+      techniques: ["T1110", "T1110.001", "T1110.003"]
     fortigate:
       log_type: "event"
       subtype: "vpn"
@@ -278,7 +281,7 @@ techniques:
     objective: >-
       Prove an IPS rule fires on a rate spike above the low, steady alert baseline a segment normally shows.
     attack:
-      tactics: ["TA0043 Reconnaissance"]
+      tactics: ["TA0043 Reconnaissance", "TA0001 Initial Access"]
       techniques: ["T1595", "T1190"]
     fortigate:
       log_type: "utm"
@@ -372,7 +375,7 @@ techniques:
       Prove a beacon rule survives jitter and still resolves at fleet aggregate, without firing on the legitimate periodic software that dominates this pattern.
     attack:
       tactics: ["TA0011 Command and Control"]
-      techniques: ["T1071", "T1029"]
+      techniques: ["T1071"]
     fortigate:
       log_type: "traffic"
       subtype: "forward"
@@ -512,7 +515,7 @@ techniques:
     objective: >-
       Prove a rule can notice an absence: a host's resolver traffic stopping when it switches to encrypted DNS, which most rules never look for.
     attack:
-      tactics: ["TA0011 Command and Control", "TA0005 Defense Evasion"]
+      tactics: ["TA0011 Command and Control"]
       techniques: ["T1572", "T1071.004"]
     fortigate:
       log_type: "traffic"      # emits a dns:dns-query baseline phase too
@@ -540,11 +543,11 @@ techniques:
     objective: >-
       Prove a lateral-movement rule separates a host-to-host login chain from an admin star pattern carrying the same number of logins.
     attack:
-      tactics: ["TA0008 Lateral Movement", "TA0006 Credential Access"]
+      tactics: ["TA0008 Lateral Movement"]
       techniques: ["T1021", "T1078", "T1550"]
     fortigate:
       log_type: "event"
-      subtype: "vpn"           # plus traffic:forward east-west legs
+      subtype: "vpn"           # plus event:system login records and traffic:forward east-west legs
       signature_id: "39947"    # [Unverified] same caveat as REP-011
       action: "tunnel-up"
     cef_fields_held: []
@@ -557,7 +560,7 @@ techniques:
       path: "a login into hop 1, then each hop becomes the source of the login into the next. Strictly ordered, never overlapping"
       user_switch: "duser changes at switch_at_hop, modelling credential theft partway along the path (the causal-user change Hopper keys on)"
       timing: "hops separated by minutes within window_min"
-    benign_baseline: "an admin star pattern is emitted alongside: one workstation logging into several hosts. Same login count, different shape. Separating star from chain is the detection"
+    benign_baseline: "an admin star pattern is emitted alongside: one workstation logging into several hosts. The star emits path_len-1 logins against the chain's path_len total records (a tunnel-up plus one login per subsequent hop); the shapes, not the counts, are what separate them. Separating star from chain is the detection"
     references: ["Hopper, USENIX Security 2021", "LMDetect 2024", "Euler NDSS 2022"]
     safety_notes: "usernames from the synthetic directory pool, same as REP-007. No authentication is attempted against anything"
 
@@ -610,7 +613,7 @@ techniques:
       medium: { baseline_domains: 500, novel_domains: 3, hosts: 3, window_min: 30 }
       high:   { baseline_domains: 800, novel_domains: 8, hosts: 8, window_min: 15 }
     distributions:
-      baseline: "a stable set of synthetic domains queried repeatedly across hosts, establishing organizational normal"
+      baseline: "a stable set of synthetic domains, each queried once by one host, establishing organizational normal"
       novel: "domains never queried before by any host, low query count, contacted by few hosts"
     benign_baseline: "the baseline_domains phase IS the baseline. Novelty is organization-wide, unlike REP-008 which is novel per host"
     references: ["PREDATOR, Hao et al., CCS 2016"]
@@ -724,7 +727,7 @@ techniques:
       high:   { relay_pairs: 600, lag_ms: [5, 1500],  duration_min: 30, clients: 80 }
     distributions:
       pairing: "each relayed request is an inbound session to the relay host followed within lag_ms by an outbound session from that host, with correlated byte volumes"
-      byte_correlation: "outbound out_bytes approximately equals inbound in_bytes, because the host is forwarding rather than originating"
+      byte_correlation: "outbound out_bytes approximately equals inbound out_bytes (and in to in), because the host is forwarding rather than originating"
       lag: "jittered, and wide at the high preset, per the adversarially-robust framing of the source paper (naive fixed-window timing correlation is evadable)"
     benign_baseline: "a sanctioned proxy host doing the same thing is emitted alongside. The pattern is identical; only the asset role differs. This technique tests whether a detection uses role or only pattern"
     references: ["Beyond RTT: An Adversarially Robust Two-Tiered Approach for Residential Proxy Detection, NDSS"]
