@@ -63,6 +63,10 @@ The Geist Project Authors. Licensed under the SIL Open Font License,
 Version 1.1 (full text: webui/public/fonts/OFL-Geist.txt).
   https://github.com/vercel/geist-font
 
+webui/public/war-room-bg.webp is an AI-generated abstract backdrop (no source
+material with independent authorship), created for this project with Google's
+Nano Banana 2 model via Higgsfield and edited (resized, recompressed) here.
+
 JetBrains Mono, self-hosted as .woff2 under webui/public/fonts. Copyright 2020
 The JetBrains Mono Project Authors. Licensed under the SIL Open Font License,
 Version 1.1 (full text: webui/public/fonts/OFL-JetBrainsMono.txt).

@@ -73,6 +73,11 @@ no red; errors and warnings are status and speak in the signal orange
   `bg-background`) are for the diagram and event stream, which sit ON the canvas.
 - Buttons, nav, inputs, chips: 3px radius (`rounded-btn`).
 - 8px spacing scale. No box-shadow, no gradient, no glow, anywhere.
+- **One sanctioned image** (operator request, added after the mocks): a
+  near-black circuit/topology backdrop on `body`, generated to this palette,
+  under a flat `--background`/0.4 scrim. Cards are opaque, so it reads as
+  texture on the canvas only. Any future imagery goes through the same test:
+  darker than every text pair's measured floor, or it does not ship.
 - Segmented controls: content-sized segments, `white-space: nowrap`, 10-12px
   horizontal padding. "Check Point" has wrapped or clipped three separate times in
   equal-width segments; do not reintroduce `flex-1` there.
