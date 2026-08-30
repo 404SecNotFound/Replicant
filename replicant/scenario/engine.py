@@ -19,8 +19,7 @@ same (seed, technique, params) yields the same plan (blueprint s12). Event times
 are ``anchor_epoch + deterministic offset`` so ``--to-file`` output is byte
 identical across runs with the same seed.
 
-Every catalog technique has a registered builder except REP-016, which needs a
-``dns:dns-response`` render path that does not exist yet. A technique id with no
+Every catalog technique has a registered builder. A technique id with no
 builder raises NotImplementedError rather than emitting an approximation of it.
 """
 
@@ -441,6 +440,7 @@ class ScenarioEngine:
         duration_override_s: int | None,
     ) -> _BuilderResult:
         unique_ports = int(preset["unique_ports"])
+        window_s = int(preset["window_s"])
         gap_lo, gap_hi = (float(v) for v in preset["gap_ms"])
 
         truncated = False
@@ -456,6 +456,16 @@ class ScenarioEngine:
             unique_ports = self.max_events
             truncated = True
 
+        # The window is the detection surface: a vertical-scan rule counts
+        # distinct ports per source INSIDE window_s, so the probes are spread
+        # across the whole window (as REP-003 does) rather than fired at the
+        # gap_ms cadence and finishing long before the window closes. A
+        # duration override is honoured the REP-019 way: the preset density is
+        # kept and the probe count gives way to fit the shorter window.
+        gap_s = window_s / max(unique_ports, 1)
+        if duration_override_s is not None and gap_s > 0:
+            unique_ports = max(1, min(unique_ports, int(duration_override_s / gap_s)))
+
         src = str(rng.choice(entities.internal_hosts))
         dst = str(rng.choice(entities.internal_targets))
         ports = unique_ints(rng, 1, 65535, unique_ports)
@@ -464,7 +474,6 @@ class ScenarioEngine:
 
         events: list[EventRecord] = []
         session = int(rng.integers(10_000, 60_000))
-        cumulative_ms = 0.0
         for index, dpt in enumerate(ports):
             is_open = index in open_indices
             action = "accept" if is_open else "deny"
@@ -472,13 +481,16 @@ class ScenarioEngine:
             service, app = port_service(dpt)
             spt = int(rng.integers(1024, 65535))
             extra = _scan_traffic_extra(is_open, service, app)
+            # gap_ms survives as a small non-negative jitter on the even
+            # spread, so the walk is not a metronome.
+            jitter_s = float(rng.uniform(gap_lo, gap_hi)) / 1000.0
             events.append(
                 EventRecord(
                     log_type=technique.fortigate.log_type,
                     subtype=technique.fortigate.subtype,
                     action=action,
                     level=level,
-                    eventtime=anchor + int(cumulative_ms / 1000),
+                    eventtime=anchor + int(index * gap_s + jitter_s),
                     src=src,
                     spt=spt,
                     dst=dst,
@@ -491,7 +503,6 @@ class ScenarioEngine:
                 )
             )
             session += 1
-            cumulative_ms += float(rng.uniform(gap_lo, gap_hi))
         return events, None, truncated
 
     # -- REP-003 horizontal sweep ---------------------------------------------
@@ -1399,6 +1410,7 @@ class ScenarioEngine:
         targets = entities.internal_targets
         pool = entities.internal_hosts
         infected = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(seed_hosts, len(pool)))]
+        seed_set = set(infected)
         # A fixed fraction of probes land, so the infected population grows
         # geometrically. PORTFILER's signal is the count of DISTINCT sources on a
         # port per window, not the probe volume, so growth is the whole point.
@@ -1442,8 +1454,11 @@ class ScenarioEngine:
 
         # Benign east-west baseline: a small stable set of server sources on the
         # same port. Same protocol, same port, non-growing source population.
+        # Drawn from outside the seed set: a baseline server that is also a seed
+        # host would grow like the worm and the control would stop being one.
+        benign_pool = [host for host in pool if host not in seed_set]
         for server_index in range(3):
-            server = pool[(server_index + 1) % len(pool)]
+            server = benign_pool[(server_index + 1) % len(benign_pool)]
             for step in range(4):
                 if len(events) >= self.max_events:
                     break
@@ -1524,11 +1539,16 @@ class ScenarioEngine:
             if truncated:
                 break
 
-        # Benign long-lived session: same duration profile, bursty bytes.
+        # Benign long-lived session: comparable duration profile, bursty bytes.
         # MineShark had to auto-filter over 99.3% of its alarms, which is the
-        # argument for including this.
+        # argument for including this. The foil must reach the same order of
+        # magnitude as the miner session: a foil that dies after a few minutes
+        # while the miner holds for hours is separable on duration alone, which
+        # is exactly the shortcut the foil exists to deny.
         benign_dst = str(rng.choice(entities.benign_external))
-        for step in range(min(12, shares)):
+        benign_steps = max(1, min(12, shares))
+        step_span_s = max(session_s // benign_steps, share_interval_s)
+        for step in range(benign_steps):
             if len(events) >= self.max_events:
                 break
             events.append(
@@ -1537,11 +1557,11 @@ class ScenarioEngine:
                     src,
                     benign_dst,
                     443,
-                    anchor + step * share_interval_s * 4,
+                    anchor + step * step_span_s,
                     session,
                     int(rng.integers(200, 90_000)),  # bursty, unlike the miner
                     int(rng.integers(200, 400_000)),
-                    (step + 1) * share_interval_s * 4,
+                    (step + 1) * step_span_s,
                 )
             )
         events.sort(key=lambda e: e.eventtime)
@@ -1728,8 +1748,11 @@ class ScenarioEngine:
                 break
 
         # Benign NXDOMAIN trickle: typos and stale records. Without it, a rule
-        # that alerts on any NXDOMAIN at all would look perfect.
+        # that alerts on any NXDOMAIN at all would look perfect. Capped at the
+        # plan window so the trickle cannot outlive the epochs (or a duration
+        # override) it is meant to blend into.
         benign_parent = str(rng.choice(entities.parents))
+        window_s = epochs * epoch_s
         for index in range(min(12, max(self.max_events - len(events), 0))):
             events.append(
                 self._dns_response_record(
@@ -1738,7 +1761,7 @@ class ScenarioEngine:
                     entities.resolver,
                     f"{'wpad' if index % 2 else 'isatap'}.{benign_parent}",
                     "NXDOMAIN",
-                    anchor + index * max(epoch_s // 2, 1),
+                    anchor + min(index * max(epoch_s // 2, 1), window_s),
                     session,
                 )
             )
@@ -2425,6 +2448,23 @@ class ScenarioEngine:
 
     # -- REP-024 internal host as proxy relay ---------------------------------
 
+    @staticmethod
+    def _relay_lag_s(rng: Any, lag_lo: int, lag_hi: int) -> int:
+        """Draw a forwarding lag in whole seconds from a millisecond range.
+
+        The shipped ranges are sub-second to sub-two-second, and the lag is the
+        anti-fixed-window-correlation property of the technique, so it must not
+        be constant. Floor-dividing the range collapses every preset to one
+        constant value; truncating the float draw does the same at the
+        sub-second presets. The sub-second remainder is therefore dithered to a
+        whole second, keeping the drawn variance visible on an integer-second
+        timeline with the expected value equal to the drawn lag.
+        """
+
+        lag_s = float(rng.integers(lag_lo, lag_hi + 1)) / 1000.0
+        whole = int(lag_s)
+        return whole + int(float(rng.random()) < lag_s - whole)
+
     def _plan_proxy_relay(
         self,
         technique: Technique,
@@ -2482,7 +2522,7 @@ class ScenarioEngine:
             # Outbound leg: the relay forwards it. Byte volumes track the inbound
             # leg because the host is forwarding rather than originating, which is
             # the gateway-versus-relayed distinction in the source dataset.
-            lag_s = max(1, int(rng.integers(lag_lo, lag_hi + 1)) // 1000)
+            lag_s = self._relay_lag_s(rng, lag_lo, lag_hi)
             events.append(
                 self._steady_accept(
                     rng,
@@ -2520,13 +2560,15 @@ class ScenarioEngine:
                 )
             )
             session += 1
+            # Same lag draw as the relay legs: a fixed one-second offset would
+            # give the foil a more mechanical signature than the technique.
             events.append(
                 self._steady_accept(
                     rng,
                     sanctioned,
                     str(rng.choice(upstream)),
                     443,
-                    when + 1,
+                    when + self._relay_lag_s(rng, lag_lo, lag_hi),
                     session,
                     request_b,
                     response_b,
