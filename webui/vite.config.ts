@@ -34,6 +34,17 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    // Vite 8 refuses to serve a file outside the project root unless it is
+    // allowed here. TechniqueDiagram.test.tsx imports the real technique
+    // catalog with `?raw` so its coverage check reads the shipped 24 entries
+    // rather than a fixture that could drift from them, and the catalog lives
+    // in the Python package one level up. Without this the suite fails with
+    // "Denied ID .../technique-catalog.yaml?raw".
+    //
+    // Scoped to the repository root rather than disabling `fs.strict`: the dev
+    // server is a developer tool, but it is still a server, and the difference
+    // between "this tree" and "any path on the machine" is worth keeping.
+    fs: { allow: [path.resolve(__dirname, "..")] },
     proxy: {
       "/api": { target: proxyTarget, changeOrigin: true },
       "/ws": { target: proxyTarget, ws: true, changeOrigin: true },
