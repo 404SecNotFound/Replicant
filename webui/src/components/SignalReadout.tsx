@@ -136,10 +136,10 @@ export function SignalReadout({
           >
             <line x1={LEFT} y1={TOP} x2={W} y2={TOP} stroke="hsl(var(--elev))" strokeWidth="1" />
             <line x1={LEFT} y1={BOTTOM} x2={W} y2={BOTTOM} stroke="hsl(var(--elev))" strokeWidth="1" />
-            <text x="0" y={TOP + 3} fontFamily="'JetBrains Mono',monospace" fontSize="8" fill="hsl(var(--text-4))">
+            <text x="0" y={TOP + 3} fontFamily="'JetBrains Mono',monospace" fontSize="9" fill="hsl(var(--text-4))">
               {Math.round(scale)}
             </text>
-            <text x="0" y={BOTTOM + 2.5} fontFamily="'JetBrains Mono',monospace" fontSize="8" fill="hsl(var(--text-4))">
+            <text x="0" y={BOTTOM + 2.5} fontFamily="'JetBrains Mono',monospace" fontSize="9" fill="hsl(var(--text-4))">
               0
             </text>
             {samples.length > 1 && (
@@ -157,10 +157,10 @@ export function SignalReadout({
               <path d={line} fill="none" stroke="hsl(var(--signal))" strokeWidth="1.5" />
             )}
             {last && <circle cx={last[0]} cy={last[1]} r="2.5" fill="hsl(var(--signal))" />}
-            <text x={LEFT} y={H - 1} fontFamily="'JetBrains Mono',monospace" fontSize="8" fill="hsl(var(--text-4))">
+            <text x={LEFT} y={H - 1} fontFamily="'JetBrains Mono',monospace" fontSize="9" fill="hsl(var(--text-4))">
               T-{windowSeconds}S
             </text>
-            <text x={W} y={H - 1} textAnchor="end" fontFamily="'JetBrains Mono',monospace" fontSize="8" fill="hsl(var(--text-4))">
+            <text x={W} y={H - 1} textAnchor="end" fontFamily="'JetBrains Mono',monospace" fontSize="9" fill="hsl(var(--text-4))">
               NOW
             </text>
           </svg>

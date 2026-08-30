@@ -49,7 +49,9 @@ const LEVELS: { id: LogLevel; label: string; hint: string }[] = [
 const LEVEL_STYLE: Record<LogLevel, string> = {
   debug: "text-text-4",
   verbose: "text-text-3",
-  info: "text-text-2",
+  // Was "text-text-2", a token that does not exist, so the class compiled to
+  // nothing and the color was whatever the container happened to inherit.
+  info: "text-foreground",
   warning: "text-signal",
 };
 
@@ -195,7 +197,7 @@ export function LogsView() {
         ref={bodyRef}
         onScroll={onScroll}
         // min-w-0 so one long line scrolls inside this box instead of stretching
-        // the page. See docs/webui-reskin-design.md section 5.
+        // the page. See docs/webui-factory-design.md section 5.
         className="min-w-0 flex-1 overflow-auto rounded-sm border bg-card p-2.5 font-mono text-data leading-[1.55]"
       >
         {entries.length === 0 ? (
