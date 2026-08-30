@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 /* Geist (sans) and JetBrains Mono, self-hosted, both OFL 1.1; the license texts
-   ship beside the .woff2 files in /fonts. Design system: docs/webui-reskin-design.md */
+   ship beside the .woff2 files in /fonts. Design system: docs/webui-factory-design.md */
 @font-face{font-family:"Geist";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/geist-400.woff2") format("woff2")}
 @font-face{font-family:"Geist";font-weight:500;font-style:normal;font-display:swap;src:url("/fonts/geist-500.woff2") format("woff2")}
 @font-face{font-family:"JetBrains Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/jetbrains-mono-400.woff2") format("woff2")}

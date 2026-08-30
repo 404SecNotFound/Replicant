@@ -76,7 +76,7 @@ export default function App() {
     return (
       <div className="flex h-screen items-center justify-center p-8 text-center">
         <div className="max-w-md space-y-2">
-          <h1 className="text-lg font-semibold text-destructive">Could not reach the API</h1>
+          <h1 className="text-lg text-destructive">Could not reach the API</h1>
           <p className="text-sm text-muted-foreground">{loadError}</p>
           <p className="text-sm text-muted-foreground">
             Open the URL printed by <code className="font-mono">replicant web</code>, which includes

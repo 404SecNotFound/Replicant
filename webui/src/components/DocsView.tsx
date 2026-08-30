@@ -138,7 +138,7 @@ export function DocsView() {
             aria-current={page.id === current ? "true" : undefined}
             className={cn(
               "whitespace-nowrap rounded-md px-2.5 py-2 text-left text-body transition-colors hover:bg-secondary disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              page.id === current && "bg-secondary font-medium",
+              page.id === current && "bg-secondary",
             )}
           >
             {page.title}

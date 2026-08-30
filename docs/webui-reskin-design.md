@@ -1,4 +1,10 @@
-# Replicant web UI reskin - design spec
+# Replicant web UI reskin - design spec (SUPERSEDED)
+
+> **Superseded by `docs/webui-factory-design.md` (v0.6.0).** The shipped UI now
+> follows the Factory system: Geist + JetBrains Mono, the #101010/#ee6018 palette,
+> dark-only. This document describes the earlier amber "signal-instrument" system
+> and is kept for history and for the measured lessons in sections 3 and 5, which
+> the new document references.
 
 Status: direction approved from the v2 mockup (`signal-instrument` aesthetic). Target: the existing
 `webui/` React + Vite + Tailwind + shadcn app. This is a **reskin plus missing states**: same

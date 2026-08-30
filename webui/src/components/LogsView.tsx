@@ -49,7 +49,9 @@ const LEVELS: { id: LogLevel; label: string; hint: string }[] = [
 const LEVEL_STYLE: Record<LogLevel, string> = {
   debug: "text-text-4",
   verbose: "text-text-3",
-  info: "text-text-2",
+  // Was "text-text-2", a token that does not exist, so the class compiled to
+  // nothing and the color was whatever the container happened to inherit.
+  info: "text-foreground",
   warning: "text-signal",
 };
 
@@ -147,9 +149,9 @@ export function LogsView() {
               title={option.hint}
               aria-pressed={level === option.id}
               className={cn(
-                "rounded-sm border px-2.5 py-1 text-body transition-colors",
+                "rounded-btn border px-2.5 py-1 font-mono text-label uppercase tracking-[-0.24px] transition-colors",
                 level === option.id
-                  ? "border-signal/60 bg-signal/10 text-foreground"
+                  ? "border-muted-foreground bg-background text-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -195,7 +197,7 @@ export function LogsView() {
         ref={bodyRef}
         onScroll={onScroll}
         // min-w-0 so one long line scrolls inside this box instead of stretching
-        // the page. See docs/webui-reskin-design.md section 5.
+        // the page. See docs/webui-factory-design.md section 5.
         className="min-w-0 flex-1 overflow-auto rounded-sm border bg-card p-2.5 font-mono text-data leading-[1.55]"
       >
         {entries.length === 0 ? (
@@ -207,7 +209,9 @@ export function LogsView() {
           entries.map((entry) => (
             <div key={entry.seq} className="flex gap-2 whitespace-pre-wrap break-words">
               <span className="flex-none text-text-4">{formatTime(entry.ts)}</span>
-              <span className={cn("w-[52px] flex-none uppercase", LEVEL_STYLE[entry.level])}>
+              {/* Wide enough for WARNING in JetBrains Mono at text-data; 52px
+                  fit the old face and wrapped this one mid-word. */}
+              <span className={cn("w-[68px] flex-none uppercase", LEVEL_STYLE[entry.level])}>
                 {entry.level}
               </span>
               <span className="flex-none text-text-4">{entry.logger.replace("replicant.", "")}</span>

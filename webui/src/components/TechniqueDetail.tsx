@@ -14,6 +14,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { CefLine } from "@/components/CefLine";
 import { TechniqueDiagram } from "@/components/TechniqueDiagram";
 import { getSample, vendorLabel, type Technique, type TechniqueSample } from "@/lib/api";
 
@@ -113,18 +114,7 @@ function SampleLines({ technique, vendor }: Props) {
       ) : sample.lines.length === 0 ? (
         <span className="text-text-3">no representative event for this preset</span>
       ) : (
-        sample.lines.map((line, i) => (
-          <div key={i} className="whitespace-pre">
-            {line.startsWith("CEF:") ? (
-              <>
-                <span className="text-signal">CEF:</span>
-                {line.slice(4)}
-              </>
-            ) : (
-              line
-            )}
-          </div>
-        ))
+        sample.lines.map((line, i) => <CefLine key={i} line={line} className="whitespace-pre" />)
       )}
     </div>
   );
