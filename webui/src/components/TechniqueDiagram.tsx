@@ -26,7 +26,7 @@ const T3 = "hsl(var(--text-3))";
 const T4 = "hsl(var(--text-4))";
 const RED = "hsl(var(--destructive))";
 const CARD = "hsl(var(--card))";
-const MONO = "'IBM Plex Mono', ui-monospace, monospace";
+const MONO = "'JetBrains Mono', ui-monospace, monospace";
 
 type Arch =
   | "periodic"
@@ -327,13 +327,13 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
       <title>{`${technique.name}: ${CAPTION[arch]}`}</title>
 
       {/* zone labels */}
-      <text x={24} y={26} fontFamily="'IBM Plex Sans',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
+      <text x={24} y={26} fontFamily="'Geist',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
         SOURCE
       </text>
-      <text x={320} y={26} textAnchor="middle" fontFamily="'IBM Plex Sans',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
+      <text x={320} y={26} textAnchor="middle" fontFamily="'Geist',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
         {CAPTION[arch].toUpperCase()}
       </text>
-      <text x={616} y={26} textAnchor="end" fontFamily="'IBM Plex Sans',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
+      <text x={616} y={26} textAnchor="end" fontFamily="'Geist',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
         DETECTION
       </text>
 
@@ -342,7 +342,7 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
 
       {/* source chip */}
       <rect x={22} y={YC - 18} width={104} height={36} rx={7} fill={CARD} stroke={HAIR} strokeWidth={1} />
-      <text x={74} y={YC - 2} textAnchor="middle" fontFamily="'IBM Plex Sans',sans-serif" fontSize={12.5} fontWeight={600} fill={FG}>
+      <text x={74} y={YC - 2} textAnchor="middle" fontFamily="'Geist',sans-serif" fontSize={12.5} fontWeight={600} fill={FG}>
         {source[0]}
       </text>
       {mono(74, YC + 12, source[1], T3, 9.5)}
@@ -357,7 +357,7 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
       {mono(565, YC + 12, technique.ndr_rule, T3, 10.5)}
 
       {/* varied fields = the emitted signal */}
-      <text x={128} y={206} fontFamily="'IBM Plex Sans',sans-serif" fontSize={11} letterSpacing="1.2" fill={T3}>
+      <text x={128} y={206} fontFamily="'Geist',sans-serif" fontSize={11} letterSpacing="1.2" fill={T3}>
         SIGNAL FIELDS
       </text>
       {mono(238, 206, technique.cef_fields_varied.join("  ·  ") || "—", SIG, 11, "start")}

@@ -4,92 +4,58 @@
 @tailwind components;
 @tailwind utilities;
 
-/* IBM Plex, self-hosted (OFL). Design system: docs/webui-reskin-design.md */
-@font-face{font-family:"IBM Plex Sans";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/plex-sans-400.woff2") format("woff2")}
-@font-face{font-family:"IBM Plex Sans";font-weight:500;font-style:normal;font-display:swap;src:url("/fonts/plex-sans-500.woff2") format("woff2")}
-@font-face{font-family:"IBM Plex Sans";font-weight:600;font-style:normal;font-display:swap;src:url("/fonts/plex-sans-600.woff2") format("woff2")}
-@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/plex-mono-400.woff2") format("woff2")}
-@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/fonts/plex-mono-500.woff2") format("woff2")}
+/* Geist (sans) and JetBrains Mono, self-hosted, both OFL 1.1; the license texts
+   ship beside the .woff2 files in /fonts. Design system: docs/webui-reskin-design.md */
+@font-face{font-family:"Geist";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/geist-400.woff2") format("woff2")}
+@font-face{font-family:"Geist";font-weight:500;font-style:normal;font-display:swap;src:url("/fonts/geist-500.woff2") format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/jetbrains-mono-400.woff2") format("woff2")}
 
 @layer base {
-  /* Light: the same instrument, lit differently. Warm paper rather than cold
-     white, for the same reason the dark theme is warm graphite rather than
-     blue-black. Every pair that carries meaning was measured, not eyeballed, and
-     the targets are the dark theme's own ratios so this reads as a translation
-     rather than a second design. The amber is darkened to #a04c03 so it still
-     clears 4.5:1 as small text (the "emitting" chip, Docs links); the bright
-     #f4b23e is 1.9:1 on paper and would have quietly broken the semantic rule
-     that amber is readable signal. See docs/webui-reskin-design.md section 3. */
-  :root {
-    color-scheme: light;
-    --background: 40 24% 96%;
-    --foreground: 30 10% 13%;
-    --card: 40 33% 98.5%;
-    --card-foreground: 30 10% 13%;
-    --primary: 30 10% 13%;
-    --primary-foreground: 40 33% 98.5%;
-    --secondary: 38 20% 92%;
-    --secondary-foreground: 32 7% 38%;
-    --muted: 38 20% 92%;
-    --muted-foreground: 32 7% 38%;
-    --accent: 38 22% 89%;
-    --accent-foreground: 30 10% 13%;
-    --destructive: 4 72% 42%;
-    --destructive-foreground: 40 33% 98.5%;
-    --border: 34 15% 80%;
-    --input: 34 15% 80%;
-    --ring: 32 8% 45%;
-    --radius: 0.625rem;
-    /* signal system (custom, not part of the shadcn set) */
-    --signal: 28 96% 32%;
-    --signal-foreground: 40 33% 98.5%;
-    --elev: 38 22% 89%;
-    --text-3: 32 7% 38%;
-    --text-4: 34 8% 52%;
-    /* The recessed telemetry well: the CEF tail, the sample line, the progress
-       track. Darker than the page in light, darker still than the page in dark.
-       These were `bg-black`, which is correct in exactly one theme. */
-    --well: 38 16% 89%;
-    --signal-dim: rgba(160, 76, 3, 0.1);
-    --signal-line: rgba(160, 76, 3, 0.38);
-    --grid-line: rgba(60, 45, 25, 0.045);
-  }
+  /* The Factory palette: terminal war room at midnight. Dark-only by design,
+     which is why there is exactly one block here and no theme class. Values are
+     bare HSL triplets so Tailwind can compose them with an alpha; each converts
+     back to the hex named beside it (theme.test.ts holds that to be true).
 
-  /* Dark: warm graphite instrument panel with a single amber signal accent. */
-  .dark {
+     Two chromatics only: signal orange for live emission and status, metric
+     green for positive live data. A connected data series counts as one
+     chromatic element, at most two per card, and neither color ever appears on
+     buttons, navigation, or headings. */
+  :root {
     color-scheme: dark;
-    --background: 240 10% 6%;
-    --foreground: 48 15% 94%;
-    --card: 240 6% 9%;
-    --card-foreground: 48 15% 94%;
-    --primary: 48 14% 91%;
-    --primary-foreground: 42 28% 7%;
-    --secondary: 240 8% 12%;
-    --secondary-foreground: 45 5% 62%;
-    --muted: 240 8% 12%;
-    --muted-foreground: 45 6% 54%;
-    --accent: 240 9% 15%;
-    --accent-foreground: 48 15% 94%;
-    --destructive: 4 74% 62%;
-    /* Was 48 15% 94% (near-white), which is 3.02:1 on the red fill and fails AA.
-       Latent rather than live: the only consumer is the `destructive` Button
-       variant, which nothing currently renders. Set to the same ink the amber
-       fill already uses, giving 5.40:1, so the trap is not waiting for whoever
-       reaches for that variant first. */
-    --destructive-foreground: 42 28% 7%;
-    --border: 240 6% 16%;
-    --input: 240 6% 16%;
-    --ring: 44 7% 62%;
+    --background: 0 0% 6.3%; /* #101010 canvas */
+    --foreground: 0 0% 93.3%; /* #eeeeee bone */
+    --card: 24 9.4% 10.4%; /* #1d1a18 raised surface */
+    --card-foreground: 0 0% 93.3%;
+    --primary: 0 0% 98%; /* #fafafa primary button fill */
+    --primary-foreground: 0 0% 6.3%;
+    --secondary: 24 9.4% 10.4%;
+    --secondary-foreground: 22.5 5.3% 70.6%; /* #b8b3b0 */
+    --muted: 24 9.4% 10.4%;
+    --muted-foreground: 18 4.1% 52.2%; /* #8a8380 */
+    --accent: 20 4.1% 29%; /* #4d4947 mid fill */
+    --accent-foreground: 0 0% 93.3%;
+    /* The palette has no red. An error is a status, and status here speaks in
+       the one signal color; the ink on it is the same canvas dark the primary
+       button uses. */
+    --destructive: 20.2 86.3% 51.4%; /* #ee6018 */
+    --destructive-foreground: 0 0% 6.3%;
+    --border: 15 3.4% 23.1%; /* #3d3a39 outline hairline */
+    --input: 15 3.4% 23.1%;
+    --ring: 18 4.1% 52.2%;
+    --radius: 10px; /* cards; buttons and nav take 3px (rounded-btn) */
     /* signal system (custom, not part of the shadcn set) */
-    --signal: 38 89% 60%;
-    --signal-foreground: 42 28% 7%;
-    --elev: 240 9% 15%;
-    --text-3: 45 6% 54%;
-    --text-4: 45 4% 36%;
-    --well: 240 12% 3%;
-    --signal-dim: rgba(244, 178, 62, 0.14);
-    --signal-line: rgba(244, 178, 62, 0.42);
-    --grid-line: rgba(255, 255, 255, 0.014);
+    --signal: 20.2 86.3% 51.4%; /* #ee6018 live data and status only */
+    --signal-foreground: 0 0% 6.3%;
+    --metric: 105 34.6% 68.2%; /* #a0ca92 positive live data only */
+    --elev: 24 9.4% 10.4%; /* #1d1a18 doubles as the inner hairline */
+    --frame: 0 0% 5.1%; /* #0d0d0d the war-room dashboard frame */
+    --text-3: 22.5 5.3% 70.6%; /* #b8b3b0 tertiary, eyebrows */
+    --text-4: 18 4.1% 52.2%; /* #8a8380 muted */
+    /* The recessed telemetry well (CEF tail, sample line, progress track) is
+       the canvas showing through the raised card, exactly as in the mocks. */
+    --well: 0 0% 6.3%;
+    --signal-dim: rgba(238, 96, 24, 0.12);
+    --signal-line: rgba(238, 96, 24, 0.45);
   }
 
   * {
@@ -99,30 +65,21 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-family: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
     font-feature-settings: "calt" 1;
-    letter-spacing: -0.006em;
   }
 }
 
-/* Instrument-panel texture: a faint grid plus a top vignette. */
-.app-surface {
-  background-image:
-    radial-gradient(1100px 380px at 68% -60px, hsl(var(--foreground) / 0.03), transparent 70%),
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 100% 100%, 34px 34px, 34px 34px;
-}
-
-/* Uppercase micro-label used across the instrument UI.
-   Was 10px, which was the single most common size on the rendered page. Uppercase
-   plus letter-spacing at that size is the hardest combination here to read, and
-   these are navigation labels an operator has to read to use the tool. */
+/* The machine voice: labels, eyebrows, tags, units. Mono, uppercase, weight 400
+   (the Factory system is weight 400 everywhere, 500 at most once per screen).
+   Machine values (IPs, ports, ids, log types, status tags) take this voice;
+   a human sentence in mono is a violation. */
 .u-label {
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.11em;
-  font-weight: 600;
+  letter-spacing: -0.24px;
+  font-weight: 400;
   color: hsl(var(--text-3));
 }
 
@@ -150,7 +107,7 @@
 .doc-prose h2,
 .doc-prose h3,
 .doc-prose h4 {
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.3;
   margin: 1.6em 0 0.6em;
 }
@@ -190,7 +147,7 @@
   text-underline-offset: 2px;
 }
 .doc-prose code {
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 0.88em;
   background: hsl(var(--secondary));
   border-radius: 3px;
@@ -233,7 +190,7 @@
 }
 .doc-prose th {
   background: hsl(var(--secondary));
-  font-weight: 600;
+  font-weight: 500;
 }
 .doc-prose hr {
   border: 0;

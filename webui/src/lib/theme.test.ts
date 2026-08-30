@@ -12,94 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// `?raw` gives the literal bytes of the shipped file, transformed by nothing. It
-// avoids pulling @types/node in just so a test can call readFileSync.
+// `?raw` gives the literal bytes of the shipped files, transformed by nothing.
+import indexCss from "../index.css?raw";
 import indexHtml from "../../index.html?raw";
 import { describe, expect, it } from "vitest";
-import {
-  THEME_STORAGE_KEY,
-  applyTheme,
-  hslTripletToHex,
-  readStoredTheme,
-  resolveTheme,
-  storeTheme,
-} from "./theme";
-
-describe("resolveTheme", () => {
-  it("uses an explicit stored choice over the operating system", () => {
-    expect(resolveTheme("light", true)).toBe("light");
-    expect(resolveTheme("dark", false)).toBe("dark");
-  });
-
-  it("follows the operating system when nothing is stored", () => {
-    expect(resolveTheme(null, true)).toBe("dark");
-    expect(resolveTheme(null, false)).toBe("light");
-  });
-
-  it("treats an unrecognised stored value as absent", () => {
-    // Whatever wrote "purple" was not this app. Falling through to the OS beats
-    // painting an undefined theme.
-    expect(resolveTheme("purple", true)).toBe("dark");
-    expect(resolveTheme("", false)).toBe("light");
-  });
-});
-
-describe("storage", () => {
-  it("round-trips a choice", () => {
-    storeTheme("light");
-    expect(readStoredTheme()).toBe("light");
-    storeTheme("dark");
-    expect(readStoredTheme()).toBe("dark");
-  });
-
-  it("survives storage being unavailable", () => {
-    // Safari private browsing and a hardened browser profile both throw on
-    // access rather than returning null. A theme preference is not worth
-    // taking the whole UI down for.
-    const original = Object.getOwnPropertyDescriptor(window, "localStorage");
-    Object.defineProperty(window, "localStorage", {
-      configurable: true,
-      get() {
-        throw new DOMException("denied");
-      },
-    });
-
-    expect(() => readStoredTheme()).not.toThrow();
-    expect(readStoredTheme()).toBeNull();
-    expect(() => storeTheme("dark")).not.toThrow();
-
-    if (original) Object.defineProperty(window, "localStorage", original);
-  });
-});
-
-describe("applyTheme", () => {
-  it("sets the class the CSS keys off and the colour-scheme native controls key off", () => {
-    const root = document.createElement("html");
-
-    applyTheme("dark", root);
-    expect(root.classList.contains("dark")).toBe(true);
-    expect(root.style.colorScheme).toBe("dark");
-
-    applyTheme("light", root);
-    expect(root.classList.contains("dark")).toBe(false);
-    expect(root.style.colorScheme).toBe("light");
-  });
-});
+import { hslTripletToHex } from "./theme";
 
 describe("hslTripletToHex", () => {
-  it("converts the palette tokens xterm cannot read as CSS variables", () => {
-    // Values taken from index.css. The dark card is what the terminal pane sits
-    // on, and the light signal is the darkened amber that holds AA on paper.
-    expect(hslTripletToHex("240 6% 9%")).toBe("#161618");
-    expect(hslTripletToHex("28 96% 32%")).toBe("#a04c03");
-    expect(hslTripletToHex("48 15% 94%")).toBe("#f2f1ed");
+  // The palette is written as HSL triplets so Tailwind can compose them with an
+  // alpha, but the design contract is stated in hex (#101010, #ee6018, ...).
+  // Each token in index.css names its intended hex in a trailing comment; this
+  // extracts every such pair and asserts the triplet really is that color, so a
+  // token cannot silently drift from the Factory palette it claims to encode.
+  const pairs = [...indexCss.matchAll(/(--[\w-]+):\s*([\d.]+ [\d.]+% [\d.]+%);\s*\/\*\s*(#[0-9a-f]{6})/g)].map(
+    (m) => [m[1], m[2], m[3]] as const,
+  );
+
+  it("finds the documented palette tokens in index.css", () => {
+    // If the comment convention changes, this fails loudly instead of the
+    // per-token assertions below quietly testing nothing.
+    expect(pairs.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it.each(pairs)("%s (%s) encodes exactly %s", (_name, triplet, hex) => {
+    expect(hslTripletToHex(triplet)).toBe(hex);
   });
 
   it("handles the achromatic and boundary cases", () => {
     expect(hslTripletToHex("0 0% 0%")).toBe("#000000");
     expect(hslTripletToHex("0 0% 100%")).toBe("#ffffff");
     expect(hslTripletToHex("360 100% 50%")).toBe("#ff0000");
-    // A fractional lightness is used by --card in the light theme.
     expect(hslTripletToHex("40 33% 98.5%")).toBe("#fcfcfa");
   });
 
@@ -108,55 +50,22 @@ describe("hslTripletToHex", () => {
     // the difference between black and a missing variable.
     expect(hslTripletToHex("")).toBeNull();
     expect(hslTripletToHex("rebeccapurple")).toBeNull();
-    expect(hslTripletToHex("#f4b23e")).toBeNull();
+    expect(hslTripletToHex("#ee6018")).toBeNull();
   });
 });
 
-// The pre-paint script in index.html cannot import this module: it has to run
-// before the bundle loads, or the page paints dark and then flips. So the rule
-// exists twice. This is the guard that they agree, because nothing else would
-// notice them drifting apart.
-describe("the pre-paint script in index.html", () => {
-  const source = indexHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1];
-
-  function runPrePaint(stored: string | null, prefersDark: boolean): string {
-    if (!source) throw new Error("no inline script found in index.html");
-    const root = document.createElement("html");
-    const fakeStorage = {
-      getItem: () => {
-        if (stored === undefined) throw new DOMException("denied");
-        return stored;
-      },
-    };
-    const runner = new Function("localStorage", "matchMedia", "document", source);
-    runner(
-      fakeStorage,
-      (query: string) => ({ matches: query.includes("dark") && prefersDark }),
-      { documentElement: root },
-    );
-    return root.classList.contains("dark") ? "dark" : "light";
-  }
-
-  it("exists, because without it the page flashes the wrong theme", () => {
-    expect(source).toBeTruthy();
+describe("dark-only", () => {
+  it("index.html carries no pre-paint theme script any more", () => {
+    // The Factory system is dark-only. The old light theme lived partly in an
+    // inline script that ran before first paint; if one reappears, either the
+    // light theme is coming back (bring back the parity guard with it) or
+    // something else has claimed the pre-bundle slot and deserves a look.
+    expect(indexHtml).not.toContain("prefers-color-scheme");
+    expect(indexHtml).not.toContain("replicant.theme");
   });
 
-  it("reads the same storage key the app writes", () => {
-    expect(source).toContain(THEME_STORAGE_KEY);
-  });
-
-  it.each([
-    ["light", true],
-    ["dark", false],
-    [null, true],
-    [null, false],
-    ["purple", true],
-    ["purple", false],
-  ] as const)("agrees with resolveTheme for stored=%s prefersDark=%s", (stored, prefersDark) => {
-    expect(runPrePaint(stored, prefersDark)).toBe(resolveTheme(stored, prefersDark));
-  });
-
-  it("also sets colour-scheme, so native scrollbars match from the first paint", () => {
-    expect(source).toContain("colorScheme");
+  it("the stylesheet defines exactly one theme", () => {
+    expect(indexCss).not.toContain(".dark {");
+    expect(indexCss).toContain("color-scheme: dark");
   });
 });

@@ -44,6 +44,10 @@ export default defineConfig({
     // load time to pick up the session token, so the environment has to provide a
     // real Location before the import runs.
     environment: "jsdom",
+    // Without this, vitest stubs every CSS import to an empty module, INCLUDING
+    // `index.css?raw`, and theme.test.ts would assert against "" and pass on
+    // nothing. Measured before adding: the raw import had length 0.
+    css: true,
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],

@@ -13,20 +13,12 @@
 // limitations under the License.
 
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ChevronDown, Moon, Sun } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { ConnectionCard } from "@/components/ConnectionCard";
 import { CatalogTable } from "@/components/CatalogTable";
 import { RunPanel } from "@/components/RunPanel";
 import { TechniqueDetail } from "@/components/TechniqueDetail";
 import { cn } from "@/lib/utils";
-import {
-  applyTheme,
-  darkModeMedia,
-  hasStoredTheme,
-  initialTheme,
-  storeTheme,
-  type Theme,
-} from "@/lib/theme";
 import {
   getCatalog,
   getConfig,
@@ -77,9 +69,6 @@ export default function App() {
   const [vendor, setVendor] = useState("fortigate");
   const [selected, setSelected] = useState<Technique | null>(null);
   const [tab, setTab] = useState<Tab>("emitter");
-  // Seeded from the same rule the pre-paint script in index.html already applied,
-  // so this agrees with what is on screen instead of overriding it.
-  const [theme, setTheme] = useState<Theme>(initialTheme);
   // Below the lg breakpoint the left rail is a disclosure rather than a column.
   // Closed by default there: the run stage is what the operator came for, and a
   // 24-entry technique list above it would push it off the first screen.
@@ -95,45 +84,6 @@ export default function App() {
       })
       .catch((err) => setLoadError((err as Error).message));
   }, []);
-
-  // Mount only. Every later change goes through changeTheme, which writes the
-  // class before React re-renders; see the comment there for why that matters.
-  useEffect(() => {
-    applyTheme(theme);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Write the class synchronously, then update state.
-  //
-  // TerminalView resolves its xterm palette by reading the CSS variables off the
-  // document, and React runs child effects BEFORE parent effects. Leaving the
-  // class change to an effect in App therefore had the terminal read the
-  // outgoing theme's colours: the whole app went light and the terminal pane
-  // stayed dark. Applying it here means the class is already correct by the time
-  // any child effect looks.
-  const changeTheme = (next: Theme) => {
-    applyTheme(next);
-    setTheme(next);
-  };
-
-  // Keep following the operating system until the operator actually chooses.
-  // Persisting the OS-derived default on load would look identical on the first
-  // visit and then silently stop tracking the system setting forever after.
-  useEffect(() => {
-    const media = darkModeMedia();
-    if (!media) return;
-    const onChange = (event: MediaQueryListEvent) => {
-      if (!hasStoredTheme()) changeTheme(event.matches ? "dark" : "light");
-    };
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
-
-  const toggleTheme = () => {
-    const next: Theme = theme === "dark" ? "light" : "dark";
-    storeTheme(next);
-    changeTheme(next);
-  };
 
   if (loadError) {
     return (
@@ -176,7 +126,7 @@ export default function App() {
     // Below lg this is an ordinary scrolling page. The fixed-viewport shell with
     // independently scrolling panes is a desktop affordance: on a short or narrow
     // screen it traps the run stage in a few hundred pixels with no way out.
-    <div className="app-surface flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
+    <div className="flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
       {/* top bar */}
       <header className="flex h-[54px] flex-none items-center justify-between gap-3 border-b px-3.5 sm:px-5">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -217,13 +167,6 @@ export default function App() {
               </>
             )}
           </span>
-          <button
-            onClick={toggleTheme}
-            className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-md border text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          >
-            {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-          </button>
         </div>
       </header>
 
@@ -318,7 +261,7 @@ export default function App() {
                 </div>
               }
             >
-              <TerminalView theme={theme} />
+              <TerminalView />
             </Suspense>
           </div>
         </div>

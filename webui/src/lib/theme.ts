@@ -12,94 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Theme resolution, kept out of App.tsx so the rule is unit-testable on its own.
+// Palette resolution for the one consumer that cannot read CSS variables:
+// xterm.js in TerminalView.
 //
-// The same rule is written a second time as an inline script in index.html,
-// because it has to run before the bundle loads or the page paints dark and then
-// flips to light in front of the operator. `theme.test.ts` extracts that script
-// and asserts it agrees with `resolveTheme` for every input, so the duplication
-// cannot drift silently.
-
-export type Theme = "light" | "dark";
-
-export const THEME_STORAGE_KEY = "replicant.theme";
-
-const DARK_QUERY = "(prefers-color-scheme: dark)";
-
-function isTheme(value: unknown): value is Theme {
-  return value === "light" || value === "dark";
-}
-
-/**
- * Decide which theme to paint. An explicit stored choice wins; with nothing
- * stored, follow the operating system. Anything unrecognised in storage is
- * treated as absent rather than trusted.
- */
-export function resolveTheme(stored: string | null, prefersDark: boolean): Theme {
-  if (isTheme(stored)) return stored;
-  return prefersDark ? "dark" : "light";
-}
-
-/**
- * The operator's stored choice, or null.
- *
- * Storage access throws rather than returning null in Safari private browsing
- * and in hardened browser profiles. A theme preference is not worth failing the
- * whole UI over, so the failure degrades to "no preference".
- */
-export function readStoredTheme(): string | null {
-  try {
-    return window.localStorage.getItem(THEME_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function storeTheme(theme: Theme): void {
-  try {
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch {
-    // Same reasoning as readStoredTheme: the choice just does not persist.
-  }
-}
-
-/**
- * Whether the operator has made an explicit choice.
- *
- * This is what separates "following the OS" from "frozen at whatever the OS said
- * the first time". Only a deliberate toggle is stored, so until one happens the
- * app keeps tracking the system setting.
- */
-export function hasStoredTheme(): boolean {
-  return isTheme(readStoredTheme());
-}
-
-/** The dark-mode media query, or null where matchMedia is unavailable. */
-export function darkModeMedia(): MediaQueryList | null {
-  return typeof window.matchMedia === "function" ? window.matchMedia(DARK_QUERY) : null;
-}
-
-export function systemPrefersDark(): boolean {
-  return darkModeMedia()?.matches ?? false;
-}
-
-/** The theme to paint on this load. */
-export function initialTheme(): Theme {
-  return resolveTheme(readStoredTheme(), systemPrefersDark());
-}
-
-/**
- * Put the theme on the document.
- *
- * Two separate things: the `dark` class is what the Tailwind/CSS variables key
- * off, and `color-scheme` is what the browser keys off for native scrollbars,
- * form controls and the canvas behind the page. Setting only the class leaves
- * scrollbars in the previous theme.
- */
-export function applyTheme(theme: Theme, root: HTMLElement = document.documentElement): void {
-  root.classList.toggle("dark", theme === "dark");
-  root.style.colorScheme = theme;
-}
+// The UI is dark-only by design (the Factory system has no light variant), so
+// the theme toggle, the stored preference, and the pre-paint script that this
+// module used to carry are gone. What remains is reading a token off the
+// stylesheet and converting it to a concrete color.
 
 /**
  * Convert an `H S% L%` custom-property value to `#rrggbb`.
@@ -141,7 +60,7 @@ export function hslTripletToHex(triplet: string): string | null {
   return `#${channel(r)}${channel(g)}${channel(b)}`;
 }
 
-/** A palette token resolved to a concrete colour for the current theme. */
+/** A palette token resolved to a concrete colour. */
 export function readThemeColor(
   name: string,
   root: HTMLElement = document.documentElement,
