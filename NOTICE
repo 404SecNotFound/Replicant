@@ -58,11 +58,15 @@ Bundled third-party components and assets
 -------------------------------------------------------------------------------
 The web UI ships the following third-party works.
 
-IBM Plex (Sans and Mono), self-hosted as .woff2 subsets under
-webui/public/fonts. Copyright 2017 IBM Corp. Licensed under the SIL Open Font
-License, Version 1.1.
-  https://github.com/IBM/plex
-  https://openfontlicense.org
+Geist (sans), self-hosted as .woff2 under webui/public/fonts. Copyright 2024
+The Geist Project Authors. Licensed under the SIL Open Font License,
+Version 1.1 (full text: webui/public/fonts/OFL-Geist.txt).
+  https://github.com/vercel/geist-font
+
+JetBrains Mono, self-hosted as .woff2 under webui/public/fonts. Copyright 2020
+The JetBrains Mono Project Authors. Licensed under the SIL Open Font License,
+Version 1.1 (full text: webui/public/fonts/OFL-JetBrainsMono.txt).
+  https://github.com/JetBrains/JetBrainsMono
 
 shadcn/ui component patterns, adapted into webui/src/components/ui/* and the
 `cn` helper in webui/src/lib/utils.ts. Copyright 2023 shadcn. MIT License.

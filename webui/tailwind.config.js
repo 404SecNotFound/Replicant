@@ -14,7 +14,6 @@
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: ["class"],
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
@@ -73,7 +72,12 @@ export default {
           DEFAULT: "hsl(var(--signal))",
           foreground: "hsl(var(--signal-foreground))",
         },
+        // Positive live data (the a0ca92 green). Same rule as signal: never on
+        // buttons, navigation, or headings.
+        metric: "hsl(var(--metric))",
         elev: "hsl(var(--elev))",
+        // The war-room dashboard frame on the run panel, darker than the canvas.
+        frame: "hsl(var(--frame))",
         // The recessed telemetry surface (CEF tail, sample line, progress track).
         // Previously `bg-black`, which only reads correctly in one theme.
         well: "hsl(var(--well))",
@@ -84,10 +88,12 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // Buttons and nav in the Factory system are 3px against 10px cards.
+        btn: "3px",
       },
       fontFamily: {
-        sans: ['"IBM Plex Sans"', "system-ui", "-apple-system", "sans-serif"],
-        mono: ['"IBM Plex Mono"', "ui-monospace", "Menlo", "monospace"],
+        sans: ["Geist", "system-ui", "-apple-system", "sans-serif"],
+        mono: ['"JetBrains Mono"', "ui-monospace", "Menlo", "monospace"],
       },
       keyframes: {
         rise: {
