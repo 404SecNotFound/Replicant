@@ -43,21 +43,15 @@ type Arch =
   | "deny"
   | "newdest"
   | "spike"
-  | "geo";
-
-const ARCH: Record<string, Arch> = {
-  "REP-001": "periodic",
-  "REP-002": "scan",
-  "REP-003": "sweep",
-  "REP-004": "tunnel",
-  "REP-005": "volume",
-  "REP-006": "fanout",
-  "REP-007": "auth",
-  "REP-008": "newdest",
-  "REP-009": "spike",
-  "REP-010": "deny",
-  "REP-011": "geo",
-};
+  | "geo"
+  | "fleet"
+  | "dga"
+  | "quiet"
+  | "chain"
+  | "spread"
+  | "inbound"
+  | "stages"
+  | "relay";
 
 const CAPTION: Record<Arch, string> = {
   periodic: "fixed interval ± jitter",
@@ -71,9 +65,60 @@ const CAPTION: Record<Arch, string> = {
   newdest: "first contact to a new dst",
   spike: "IPS events/sec spike",
   geo: "two logins, impossible travel",
+  fleet: "same Δt across the fleet",
+  dga: "NXDOMAIN cluster ≫ trickle",
+  quiet: "resolver goes quiet",
+  chain: "host → host login chain",
+  spread: "spreading src population",
+  inbound: "many external src · one dst",
+  stages: "alerts in kill-chain order",
+  relay: "in ≈ out through one host",
 };
 
-const USER_ARCH = new Set<Arch>(["auth", "geo"]);
+interface DiagramSpec {
+  glyph: Arch;
+  // Overrides the archetype's default caption when a technique reuses a glyph
+  // shape but tells a different story with it. REP-019 reuses the scan fan,
+  // but its signal is being SLOW, so the caption must not imply a burst.
+  caption?: string;
+  // Overrides the source chip. Defaults to a synthetic host; identity-driven
+  // techniques show a user, and the inbound scan's source is the external
+  // scanner pool, not an internal host.
+  source?: readonly [string, string];
+}
+
+// Every catalog id maps here explicitly. There is deliberately no fallback:
+// REP-012..024 used to inherit the periodic-beacon drawing, which presented a
+// DGA or an inbound scan as a fixed-interval beacon with full confidence.
+// TechniqueDiagram.test.tsx asserts this record covers the whole catalog, so
+// adding a technique without deciding its diagram fails a test instead of
+// silently drawing the wrong picture.
+export const DIAGRAM_SPECS: Record<string, DiagramSpec> = {
+  "REP-001": { glyph: "periodic" },
+  "REP-002": { glyph: "scan" },
+  "REP-003": { glyph: "sweep" },
+  "REP-004": { glyph: "tunnel" },
+  "REP-005": { glyph: "volume" },
+  "REP-006": { glyph: "fanout" },
+  "REP-007": { glyph: "auth", source: ["user", "jsmith"] },
+  "REP-008": { glyph: "newdest" },
+  "REP-009": { glyph: "spike" },
+  "REP-010": { glyph: "deny" },
+  "REP-011": { glyph: "geo", source: ["user", "jsmith"] },
+  "REP-012": { glyph: "fleet" },
+  "REP-013": { glyph: "spread" },
+  "REP-014": { glyph: "periodic", caption: "metronomic pool submits" },
+  "REP-015": { glyph: "tunnel", caption: "many unique qnames, normal rate" },
+  "REP-016": { glyph: "dga" },
+  "REP-017": { glyph: "quiet" },
+  "REP-018": { glyph: "chain", source: ["user", "jsmith"] },
+  "REP-019": { glyph: "scan", caption: "slow probes, long window" },
+  "REP-020": { glyph: "newdest", caption: "org-wide first contact, new domain" },
+  "REP-021": { glyph: "inbound", source: ["external", "192.0.2.x"] },
+  "REP-022": { glyph: "stages" },
+  "REP-023": { glyph: "periodic", caption: "regular flow timing, no payload" },
+  "REP-024": { glyph: "relay" },
+};
 const YC = 112; // vertical center line of the signal path
 
 function Cross({ x, y, s = 5, color = RED }: { x: number; y: number; s?: number; color?: string }) {
@@ -288,6 +333,212 @@ function Glyph({ arch }: { arch: Arch }) {
         </g>
       );
     }
+    case "fleet": {
+      // Three hosts on the same interval, each row jittered differently. The
+      // aggregate keeps the beat even where a single row would slip a rule.
+      const base = [200, 255, 310, 365, 420];
+      const rows: { y: number; jitter: number[] }[] = [
+        { y: YC - 28, jitter: [0, 6, -4, 8, 0] },
+        { y: YC, jitter: [12, -6, 4, -8, 6] },
+        { y: YC + 28, jitter: [-8, 4, 10, -4, -10] },
+      ];
+      return (
+        <g>
+          {rows.map((row, r) =>
+            base.map((x, i) => (
+              <line
+                key={`${r}-${i}`}
+                x1={x + row.jitter[i]}
+                y1={row.y - 9}
+                x2={x + row.jitter[i]}
+                y2={row.y + 9}
+                stroke={SIG}
+                strokeWidth={2}
+              />
+            )),
+          )}
+          {mono(310, YC + 56, "3 hosts, one Δt", T3, 10.5)}
+        </g>
+      );
+    }
+    case "dga": {
+      // A steady benign NXDOMAIN trickle on the left, then the algorithm: a
+      // dense cluster of lookups all failing at once.
+      const cluster = [356, 375, 394, 413, 432, 451, 470];
+      return (
+        <g>
+          {[180, 235, 290].map((x) => (
+            <line key={x} x1={x} y1={YC - 6} x2={x} y2={YC + 6} stroke={EDGE} strokeWidth={1.5} />
+          ))}
+          {cluster.map((x) => (
+            <g key={x}>
+              <line x1={x} y1={YC - 14} x2={x} y2={YC + 14} stroke={SIG} strokeWidth={2} />
+              <Cross x={x} y={YC - 22} s={3} color={T4} />
+            </g>
+          ))}
+          {mono(235, YC + 34, "typo trickle", T3, 10.5)}
+          {mono(413, YC + 34, "nxdomain ×N", T3, 10.5)}
+        </g>
+      );
+    }
+    case "quiet": {
+      // The signal is an absence: the resolver queries stop. The dashed box
+      // marks where the traffic should be and is not.
+      return (
+        <g>
+          {[176, 204, 232, 260, 288, 316].map((x) => (
+            <line key={x} x1={x} y1={YC - 10} x2={x} y2={YC + 10} stroke={EDGE} strokeWidth={1.5} />
+          ))}
+          <rect
+            x={348}
+            y={YC - 22}
+            width={130}
+            height={44}
+            rx={3}
+            fill="none"
+            stroke={SIG}
+            strokeWidth={1.2}
+            strokeDasharray="4 4"
+          />
+          {mono(413, YC + 4, "no dns:dns-query", SIG, 10)}
+          {mono(246, YC + 32, "was steady", T3, 10.5)}
+        </g>
+      );
+    }
+    case "chain": {
+      // One identity hopping host to host to host; the staggered path is what
+      // separates a chain from an admin star with the same login count.
+      const hops: [number, number][] = [
+        [185, YC - 24],
+        [280, YC + 16],
+        [375, YC - 16],
+        [470, YC + 24],
+      ];
+      return (
+        <g>
+          {hops.slice(1).map(([x, y], i) => (
+            <line
+              key={i}
+              x1={hops[i][0]}
+              y1={hops[i][1]}
+              x2={x}
+              y2={y}
+              stroke={SIG}
+              strokeWidth={1.4}
+            />
+          ))}
+          {hops.map(([x, y], i) => (
+            <circle
+              key={i}
+              cx={x}
+              cy={y}
+              r={4}
+              fill={CARD}
+              stroke={i === hops.length - 1 ? SIG : EDGE}
+              strokeWidth={1.3}
+            />
+          ))}
+          {mono(328, YC + 58, "same identity, new host each hop", T3, 10.5)}
+        </g>
+      );
+    }
+    case "spread": {
+      // Worm propagation: each infected host becomes a source, so the src
+      // population grows generation by generation.
+      const gen1: [number, number][] = [
+        [300, YC - 34],
+        [300, YC + 34],
+      ];
+      const gen2: [number, number][] = [
+        [430, YC - 56],
+        [430, YC - 14],
+        [430, YC + 14],
+        [430, YC + 56],
+      ];
+      return (
+        <g>
+          {gen1.map(([x, y], i) => (
+            <line key={`a${i}`} x1={190} y1={YC} x2={x} y2={y} stroke={SIG} strokeWidth={1.2} opacity={0.7} />
+          ))}
+          {gen2.map(([x, y], i) => (
+            <line
+              key={`b${i}`}
+              x1={gen1[i < 2 ? 0 : 1][0]}
+              y1={gen1[i < 2 ? 0 : 1][1]}
+              x2={x}
+              y2={y}
+              stroke={SIG}
+              strokeWidth={1.2}
+              opacity={0.7}
+            />
+          ))}
+          <circle cx={190} cy={YC} r={4} fill={SIG} />
+          {[...gen1, ...gen2].map(([x, y], i) => (
+            <circle key={`n${i}`} cx={x} cy={y} r={3.5} fill={CARD} stroke={EDGE} strokeWidth={1} />
+          ))}
+          {mono(310, YC + 76, "1 → 2 → 4 sources", T3, 10.5)}
+        </g>
+      );
+    }
+    case "inbound": {
+      // The mirror of a scan: many external sources converging on one
+      // perimeter address. Emitted as a false-positive source on purpose.
+      const ys = [54, 74, 94, 114, 134, 154, 174];
+      return (
+        <g>
+          {ys.map((y) => (
+            <g key={y}>
+              <line x1={190} y1={y} x2={452} y2={YC} stroke={SIG} strokeWidth={1} opacity={0.6} />
+              <circle cx={190} cy={y} r={3} fill={CARD} stroke={EDGE} strokeWidth={1} />
+            </g>
+          ))}
+          <circle cx={452} cy={YC} r={4} fill={CARD} stroke={EDGE} strokeWidth={1.2} />
+          {mono(452, YC + 22, "perimeter", T3, 10.5)}
+        </g>
+      );
+    }
+    case "stages": {
+      // Kill-chain order is the signal: the same three alerts shuffled would
+      // not fire the rule, so the arrows matter more than the counts.
+      const arrow = (x1: number, x2: number) => (
+        <g stroke={EDGE} strokeWidth={1.2} fill="none">
+          <line x1={x1} y1={YC} x2={x2} y2={YC} />
+          <path d={`M${x2 - 5} ${YC - 3} L${x2} ${YC} L${x2 - 5} ${YC + 3}`} />
+        </g>
+      );
+      return (
+        <g>
+          {[176, 190, 204].map((x) => (
+            <line key={x} x1={x} y1={YC - 6} x2={x} y2={YC + 6} stroke={SIG} strokeWidth={2} />
+          ))}
+          {arrow(220, 300)}
+          <line x1={316} y1={YC - 9} x2={316} y2={YC + 9} stroke={SIG} strokeWidth={2} />
+          {arrow(332, 412)}
+          <line x1={428} y1={YC - 12} x2={428} y2={YC + 12} stroke={SIG} strokeWidth={2} />
+          {mono(190, YC + 30, "recon", T3, 10.5)}
+          {mono(316, YC + 30, "exploit", T3, 10.5)}
+          {mono(428, YC + 30, "c2", T3, 10.5)}
+        </g>
+      );
+    }
+    case "relay": {
+      // Traffic in, the same traffic out, through one internal host that has
+      // no business being a proxy.
+      return (
+        <g>
+          <circle cx={180} cy={YC} r={3.5} fill={CARD} stroke={EDGE} strokeWidth={1} />
+          {mono(180, YC + 20, "src", T3, 10)}
+          <line x1={190} y1={YC} x2={276} y2={YC} stroke={SIG} strokeWidth={1.5} />
+          {mono(233, YC - 10, "in", T4, 10)}
+          <rect x={280} y={YC - 16} width={76} height={32} rx={3} fill="none" stroke={EDGE} strokeWidth={1.2} />
+          {mono(318, YC + 4, "relay", FG, 10.5)}
+          <line x1={360} y1={YC} x2={448} y2={YC} stroke={SIG} strokeWidth={1.5} />
+          {mono(404, YC - 10, "out", T4, 10)}
+          <circle cx={456} cy={YC} r={3.5} fill={CARD} stroke={EDGE} strokeWidth={1} />
+          {mono(456, YC + 20, "dst", T3, 10)}
+        </g>
+      );
+    }
   }
   return null;
 }
@@ -314,8 +565,23 @@ function Pin({ x, y, label, accent }: { x: number; y: number; label: string; acc
 }
 
 export function TechniqueDiagram({ technique }: { technique: Technique }) {
-  const arch = ARCH[technique.id] ?? "periodic";
-  const source = USER_ARCH.has(arch) ? ["user", "jsmith"] : ["host", "10.20.30.x"];
+  const spec = DIAGRAM_SPECS[technique.id];
+
+  // No fallback drawing. The old `?? "periodic"` rendered a DGA and an inbound
+  // scan as fixed-interval beacons for months; a wrong diagram presented
+  // confidently is worse than an honest gap. The coverage test keeps this
+  // branch unreachable for catalog entries.
+  if (!spec) {
+    return (
+      <svg viewBox="0 0 640 200" className="w-full" style={{ maxHeight: 240 }} role="img" aria-label={`${technique.name}: no diagram drawn yet`}>
+        <line x1={24} y1={YC} x2={616} y2={YC} stroke={HAIR} strokeWidth={1} strokeDasharray="2 4" />
+        {mono(320, YC - 12, "NO DIAGRAM DRAWN FOR THIS TECHNIQUE YET", T4, 11)}
+      </svg>
+    );
+  }
+
+  const caption = spec.caption ?? CAPTION[spec.glyph];
+  const source = spec.source ?? ["host", "10.20.30.x"];
 
   return (
     <svg
@@ -324,16 +590,16 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
       style={{ maxHeight: 240 }}
       preserveAspectRatio="xMidYMid meet"
       role="img"
-      aria-label={`${technique.name} — ${CAPTION[arch]}`}
+      aria-label={`${technique.name} · ${caption}`}
     >
-      <title>{`${technique.name}: ${CAPTION[arch]}`}</title>
+      <title>{`${technique.name}: ${caption}`}</title>
 
       {/* zone labels, in the machine voice */}
       <text x={24} y={26} fontFamily={MONO} fontSize={12} letterSpacing="-0.24" fill={T3}>
         SOURCE
       </text>
       <text x={320} y={26} textAnchor="middle" fontFamily={MONO} fontSize={12} letterSpacing="-0.24" fill={T3}>
-        {CAPTION[arch].toUpperCase()}
+        {caption.toUpperCase()}
       </text>
       <text x={616} y={26} textAnchor="end" fontFamily={MONO} fontSize={12} letterSpacing="-0.24" fill={T3}>
         DETECTION
@@ -348,7 +614,7 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
       {mono(74, YC + 12, source[1], T4, 10)}
 
       {/* behavior glyph */}
-      <Glyph arch={arch} />
+      <Glyph arch={spec.glyph} />
 
       {/* detection chip: the orange outline is the card's second chromatic
           element; no fill wash and no pulsing dot behind it */}
