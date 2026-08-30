@@ -11,10 +11,10 @@ reproducible as described and are marked accordingly.
 
 ## Status as of 2026-08-04
 
-Every finding except F-14 is now closed. F-08 was closed on 2026-08-30 by the
-operator choosing the documented-and-enforced single-process scope over a
-host-level lease; see its row below. F-14 is the one item still open, and it
-needs a supported-platform decision rather than an implementation.
+**Every finding is now closed.** F-08 and F-14 were both closed on 2026-08-30 by
+operator decision: the documented-and-enforced single-process scope over a
+host-level lease, and dropping EOL Node 18 to clear the remaining advisories.
+See their rows below.
 
 | finding | state |
 |---|---|
@@ -27,7 +27,7 @@ needs a supported-platform decision rather than an implementation.
 | F-12 | fixed (#53). Each SSE consumer gets its own queue, seeded with bounded history |
 | F-13 | fixed (#48) |
 | F-15 | fixed (#54). PEP 639 SPDX metadata, verified in a built wheel |
-| **F-14** | **partially.** The one non-breaking upgrade applied. The rest need vite 8 and vitest 4, which drop Node 18, which the installer declares as its floor. That is a supported-platform decision, not a bump |
+| **F-14** | **closed 2026-08-30.** Operator chose to drop EOL Node 18. vite 5 to 8 and vitest 2 to 4, `npm audit` now reports **0 vulnerabilities** where it reported 6 (1 critical, 2 high, 3 moderate). The installer floor is Node 20 and the CI matrix is 20 and 22. Node 18 left maintenance in April 2025, so the floor was already behind the platform it named |
 | **F-08** | **closed 2026-08-30.** Operator chose the documented and enforced single-process scope over a host-level lease. `replicant/core/sendlock.py` takes an advisory `flock` for the duration of any run that opens a socket to a collector, so a second sending run on the host is refused rather than allowed to deliver twice the cap, and the refusal names the holding pid. A lease keyed on collector destination was the alternative and was declined: expiry, clock drift and orphaned leases are worse failure modes than the one being fixed, and `flock` is released by the kernel on exit so there is nothing stale to clean up. Scope stated rather than implied: per host and per user, not across hosts. `--no-send` and `--to-file` never acquire it. Guarded by `tests/test_sendlock.py`, which spawns a real second process, because a same-process re-entry would pass against code that locked nothing |
 
 The original response follows.

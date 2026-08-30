@@ -29,3 +29,10 @@ manifests/
 AGENTS.md
 docs/end-to-end-debug-audit-*.md
 re-fresh-*.md
+
+# Local working copies and backups that live inside the checkout. These are
+# whole repositories (a mirror, a bundle, a second clone), and `git add -A`
+# swept them into a commit once: a mirror of this project's PRE-REWRITE history
+# committed into the public repo would undo the history scrub. Never tracked.
+replicant-backup-*/
+replicant-rewrite/

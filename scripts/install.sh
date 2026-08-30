@@ -42,7 +42,7 @@ readonly EX_VERIFY=6
 
 readonly MIN_PY_MAJOR=3
 readonly MIN_PY_MINOR=11
-readonly MIN_NODE_MAJOR=18
+readonly MIN_NODE_MAJOR=20
 
 # Fallback only. The real value is WEB_DEFAULT_PORT in replicant/config/settings.py
 # and is read from the installed package at report time, so this is used solely if

@@ -123,8 +123,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 18 is the floor the installer enforces; 20 is what most operators have.
-        node: ["18", "20"]
+        # 20 is the floor the installer enforces, and the lowest Node that vite 8
+        # and vitest 4 support. 22 is the current LTS.
+        node: ["20", "22"]
     steps:
       - uses: actions/checkout@v7
 

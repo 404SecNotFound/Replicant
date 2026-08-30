@@ -6,6 +6,28 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Changed: Node 20 is the floor, and the npm advisories are gone (F-14)
+
+`npm audit` reported six advisories, one critical, and the fixes needed vite 8
+and vitest 4, both of which drop Node 18. That made it a supported-platform
+decision rather than a version bump, and it is now taken: **Node 18 is dropped.**
+It left maintenance in April 2025, so the floor the installer declared was
+already behind the platform it named.
+
+vite 5 to 8, vitest 2 to 4, `@vitejs/plugin-react` 4 to 6, jsdom 25 to 30.
+`npm audit` now reports **0 vulnerabilities**. The installer's `MIN_NODE_MAJOR`
+is 20 and the CI frontend matrix is 20 and 22.
+
+One config change came with vite 8, which tightened dev-server filesystem
+access: `TechniqueDiagram.test.tsx` reads the real technique catalog with `?raw`
+so its coverage check sees the shipped 24 entries rather than a fixture that
+could drift, and the catalog sits one level up in the Python package. That path
+is now allowed explicitly, scoped to the repository root rather than by turning
+`fs.strict` off, because the dev server is still a server.
+
+170 frontend tests pass on the new majors, tsc clean, and the build still emits
+into `replicant/webui_dist` with its chunks split as before.
+
 ### Added: one sending run per host, enforced (security review F-08)
 
 The events-per-second cap is applied by a single process's emit loop, so two
