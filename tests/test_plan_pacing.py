@@ -199,11 +199,14 @@ def recording(monkeypatch: pytest.MonkeyPatch) -> type[RecordingEmitter]:
 # reproducing it faithfully takes 238 minutes; compressing it far enough to fit a
 # test collapses every gap to the same second and measures nothing.
 #
-# REP-002 low is the shape that fits: 200 events across 5 seconds, most of them
-# inside the same second and a handful a full second apart. That mixture exercises
-# both halves at once, the plan's own gaps and the rate cap holding the dense
-# stretches apart, in about five seconds of wall clock.
+# REP-002 is the shape that fits: 200 events spread across their window, most of
+# them inside the same second and a handful a full second apart. That mixture
+# exercises both halves at once, the plan's own gaps and the rate cap holding the
+# dense stretches apart. The shipped 120s window would take two minutes of wall
+# clock per run, so the window is overridden to 5 seconds -- the same shape at a
+# testable scale.
 DENSE = "REP-002"
+DENSE_OVERRIDES = {"window_s": 5}
 RATE = 200
 FLOOR_S = 1.0 / RATE
 
@@ -216,6 +219,7 @@ def _run(tmp_path: Path, technique: str = DENSE, **kwargs: object) -> None:
             intensity="low",
             collector=CollectorProfile(host="127.0.0.1", port=5514, transport="udp"),
             rate_override=RATE,
+            param_overrides=dict(DENSE_OVERRIDES),
             **kwargs,  # type: ignore[arg-type]
         )
     )
@@ -227,7 +231,9 @@ def _gaps(values: list[float]) -> list[float]:
 
 def _planned_gaps(tmp_path: Path, technique: str = DENSE) -> list[float]:
     orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
-    plan = orch.build_plan(RunRequest(technique_id=technique, intensity="low"))
+    plan = orch.build_plan(
+        RunRequest(technique_id=technique, intensity="low", param_overrides=dict(DENSE_OVERRIDES))
+    )
     return _gaps([float(event.eventtime) for event in plan.events])
 
 

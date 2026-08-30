@@ -186,6 +186,16 @@ def test_rep016_includes_benign_nxdomain_trickle() -> None:
     assert benign_nx, "missing benign NXDOMAIN control"
 
 
+def test_rep016_benign_trickle_stays_inside_the_plan_window() -> None:
+    """The trickle blends into the epochs; it must not outlive the plan window."""
+    preset = CATALOG.by_id("REP-016").params["low"]
+    epochs = int(preset["epochs"])
+    plan = _plan("REP-016", "low", 1337, duration_s=600)
+    window_s = epochs * (600 // epochs)
+    times = [e.eventtime for e in plan.events]
+    assert max(times) - min(times) <= window_s
+
+
 def test_rep016_renders_dns_response_on_all_three_vendors() -> None:
     """The path this technique needed. Verifies the response code reaches the log."""
     plan = _plan("REP-016", "low", 1337)
@@ -249,6 +259,33 @@ def test_rep013_stays_internal() -> None:
         assert ipaddress.ip_address(str(event.dst)).is_private
 
 
+@pytest.mark.parametrize("intensity", ["low", "medium", "high"])
+def test_rep013_benign_servers_never_overlap_infected_sources(intensity: str) -> None:
+    """A baseline server that is also a seed host would grow like the worm, and
+    the stable-population control would stop being one.
+
+    Seed 108 is not arbitrary. The benign baseline takes pool hosts 1..3, and the
+    seed draw collides with those in only 2% of seeds at the low and medium
+    presets (4% at high), so the obvious seed 1337 draws 10.20.30.139 and the
+    collision never happens: the guard passes against the unfixed code and proves
+    nothing. Seed 108 draws 10.20.30.2 at every preset, which IS a baseline
+    server, and fails without the fix. Only the initial seed draw can collide,
+    because hosts infected during the spread come from internal_targets
+    (10.20.40.0/24) and the baseline comes from internal_hosts (10.20.30.0/24).
+    """
+    plan = _plan("REP-013", intensity, 108)
+    # The benign server legs carry a fixed byte/duration signature; every
+    # infected host emits at least one blocked probe.
+    benign_sources = {
+        str(e.src)
+        for e in plan.events
+        if e.out_bytes == 2400 and e.in_bytes == 8800 and e.extra.get("duration") == "30"
+    }
+    infected_sources = {str(e.src) for e in plan.events if e.action == "deny"}
+    assert benign_sources, "missing benign server baseline"
+    assert not (benign_sources & infected_sources)
+
+
 # -- REP-014 cryptomining -----------------------------------------------------
 
 
@@ -281,6 +318,18 @@ def test_rep014_includes_bursty_benign_long_session() -> None:
     assert _cv([float(e.out_bytes or 0) for e in benign]) > _cv(
         [float(e.out_bytes or 0) for e in mining]
     ), "benign long session must be burstier than the miner"
+
+
+def test_rep014_benign_foil_matches_miner_session_duration_magnitude() -> None:
+    """A foil that dies in minutes while the miner holds for hours is separable
+    on duration alone, which is the shortcut the foil exists to deny."""
+    plan = _plan("REP-014", "high", 1337)
+    mining = [e for e in plan.events if _in(e.dst, _ADVERSARY)]
+    benign = [e for e in plan.events if _in(e.dst, _BENIGN)]
+    assert mining and benign
+    miner_max = max(int(e.extra["duration"]) for e in mining)
+    foil_max = max(int(e.extra["duration"]) for e in benign)
+    assert foil_max >= miner_max / 10, "foil duration must be the same order of magnitude"
 
 
 # -- REP-015 low-throughput DNS exfiltration ----------------------------------
@@ -627,3 +676,25 @@ def test_rep024_includes_sanctioned_proxy_lookalike() -> None:
     plan = _plan("REP-024", "low", 1337)
     relays = {str(e.dst) for e in plan.events if e.extra.get("src_intf") == "port1"}
     assert len(relays) >= 2, "a sanctioned proxy with the same shape must be present"
+
+
+@pytest.mark.parametrize("intensity", ["low", "medium", "high"])
+def test_rep024_lag_varies_across_legs(intensity: str) -> None:
+    """The anti-fixed-window-correlation property: the lag must not be constant
+    at any preset, including the sub-second ones."""
+    plan = _plan("REP-024", intensity, 1337)
+    sanctioned = str(ENTITIES.internal_hosts[-1])
+    inbound = sorted(
+        (e for e in plan.events if e.extra.get("src_intf") == "port1" and str(e.dst) != sanctioned),
+        key=lambda e: e.eventtime,
+    )
+    relay = {str(e.dst) for e in inbound}
+    assert len(relay) == 1
+    outbound = sorted(
+        (e for e in plan.events if e.extra.get("src_intf") != "port1" and str(e.src) in relay),
+        key=lambda e: e.eventtime,
+    )
+    assert len(inbound) == len(outbound)
+    lags = [out.eventtime - leg.eventtime for leg, out in zip(inbound, outbound, strict=True)]
+    assert all(lag >= 0 for lag in lags), "the outbound leg cannot precede its inbound leg"
+    assert len(set(lags)) > 1, "constant lag defeats the stated anti-correlation jitter"

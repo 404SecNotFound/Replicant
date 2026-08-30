@@ -56,9 +56,14 @@ def lognormal_bytes(rng: Any, low: int, high: int, sigma: float = 0.15) -> int:
 
 
 def jittered_interval(rng: Any, base_s: float, jitter_pct: float) -> float:
-    """``base_s`` scaled by a uniform +/- ``jitter_pct`` percent."""
+    """``base_s`` scaled by a uniform +/- ``jitter_pct`` percent.
 
-    factor = 1.0 + float(rng.uniform(-jitter_pct / 100.0, jitter_pct / 100.0))
+    ``jitter_pct`` is clamped to [0, 100]: an override above 100 would allow a
+    negative factor, and a negative interval walks the timeline backwards.
+    """
+
+    pct = min(max(float(jitter_pct), 0.0), 100.0)
+    factor = 1.0 + float(rng.uniform(-pct / 100.0, pct / 100.0))
     return base_s * factor
 
 
@@ -81,8 +86,16 @@ def high_entropy_labels(
     max_len: int,
     alphabet: str = BASE32_ALPHABET,
 ) -> list[str]:
-    """``count`` unique high-entropy DNS labels (base32 look, > 3.5 bits/char)."""
+    """``count`` unique high-entropy DNS labels (base32 look, > 3.5 bits/char).
 
+    Lengths are clamped to the RFC 1035 63-octet label limit, so a label_len
+    override above 63 cannot produce a label no resolver would ever emit. With
+    the short synthetic parents the engine joins these to, the resulting qname
+    stays well under the 253-octet wire limit too.
+    """
+
+    min_len = min(min_len, 63)
+    max_len = min(max_len, 63)
     if min_len < 1 or max_len < min_len:
         raise ValueError("require 1 <= min_len <= max_len")
     seen: set[str] = set()
@@ -108,12 +121,6 @@ def weighted_choice(rng: Any, options: Sequence[T], weights: Sequence[float]) ->
     probs = probs / probs.sum()
     index = int(rng.choice(len(options), p=probs))
     return options[index]
-
-
-def business_hours_weight(hour: int, work_start: int = 8, work_end: int = 18) -> float:
-    """Relative event likelihood by hour of day (UTC+04:00). 1.0 in hours, else 0.25."""
-
-    return 1.0 if work_start <= hour < work_end else 0.25
 
 
 def shannon_entropy(text: str) -> float:

@@ -106,6 +106,28 @@ def test_rep002_one_src_one_dst_many_unique_ports_mostly_deny() -> None:
     assert deny / len(plan.events) > 0.9  # mostly deny
 
 
+def test_rep002_probes_span_the_preset_window() -> None:
+    """window_s is the detection surface: the walk must fill it, not finish early."""
+    preset = CATALOG.by_id("REP-002").params["low"]
+    plan = _plan("REP-002", "low", 1337)
+    times = [e.eventtime for e in plan.events]
+    span = max(times) - min(times)
+    window_s = int(preset["window_s"])
+    assert span >= window_s * 0.9, "probes must be spread across the whole window"
+    assert span <= window_s + 1, "probes must not spill past the window"
+
+
+def test_rep002_duration_override_caps_probe_count() -> None:
+    """The preset density is kept and the probe count gives way, as in REP-019."""
+    full = _plan("REP-002", "low", 1337)
+    capped = _plan("REP-002", "low", 1337, duration_s=12)
+    assert 0 < len(capped.events) < len(full.events)
+    times = [e.eventtime for e in capped.events]
+    assert max(times) - min(times) <= 12
+    # The window-honouring invariants survive the cap.
+    assert len({e.dpt for e in capped.events}) == len(capped.events)
+
+
 def test_rep004_high_entropy_qnames_high_cardinality() -> None:
     plan = _plan("REP-004", "medium", 1337, duration_s=10)  # 60 qps * 10 s = 600 queries
     assert len(plan.events) == 600

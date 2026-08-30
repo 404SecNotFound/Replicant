@@ -5,14 +5,18 @@ It is **not** a live backlog, and it was misreading as one: most unticked boxes 
 left unticked when a session ended, while the work itself shipped later under a different
 heading. Reconciled against the tree on 2026-07-30, so a box now means what it says.
 
-**Actually open, as of 2026-07-30. Four items, none of them blocking:**
+**Actually open, as of 2026-08-30. Three items, none of them blocking:**
 
 - **Flip repository visibility to public. DJR only**, never autonomous. (Publish prep, item 9)
 - **Rename the `technique.fortigate` binding** to a neutral name. Optional cleanup, still
   present at `replicant/core/models.py:98`. The values are already vendor-neutral; only the
   field name is not. (Phase 3)
-- **Off-hours/business-hours weighting** beyond REP-005, which already emits off-hours.
-  Deferred, not scheduled. (Phase 2)
+- ~~**Off-hours/business-hours weighting** beyond REP-005, which already emits off-hours.
+  Deferred, not scheduled. (Phase 2)~~ **Closed 2026-08-30 as not-doing.** The
+  `business_hours_weight` helper this item pointed at was deleted in the catalog-review fixes:
+  it had never been called by a builder, and a helper kept alive only by a backlog line is dead
+  code with an alibi. Four lines, in git history, trivially re-added if the feature is ever
+  actually scheduled. `docs/blueprint.md` still mentions it as historical design.
 - **Plan-twice cost in `RunManager.start`.** `replicant/web/runner.py:113` builds the plan
   once to get an event total, and the run then builds it again. Minor, measurable only on
   large plans. (Safety hardening)
