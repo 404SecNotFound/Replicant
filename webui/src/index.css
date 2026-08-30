@@ -64,6 +64,17 @@
 
   body {
     background-color: hsl(var(--background));
+    /* The one sanctioned image in the system (operator request): a near-black
+       circuit/topology backdrop generated to this palette, behind everything.
+       The flat scrim on top keeps every canvas-level text pair at its measured
+       ratio; the image's own brightest points are a few small orange trace
+       endpoints. Cards are opaque and unaffected. */
+    background-image:
+      linear-gradient(hsl(var(--background) / 0.4), hsl(var(--background) / 0.4)),
+      url("/war-room-bg.webp");
+    background-size: cover;
+    background-position: center top;
+    background-attachment: fixed;
     color: hsl(var(--foreground));
     font-family: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
     font-feature-settings: "calt" 1;

@@ -54,6 +54,10 @@ Type scale: `title` 24 to 36 and `lede` 15 to 16 (the approved mock's values),
 plus a `stat` rung at 22px for metric-tile values. All four README screenshots
 regenerated; the light-theme shot is retired.
 
+A generated near-black circuit/topology backdrop (18 KB WebP, provenance in
+NOTICE) sits behind the canvas under a flat scrim; cards are opaque, so it
+reads as texture and no text pair loses its measured contrast.
+
 ## [0.5.2] - 2026-08-04
 
 A readability release. No behaviour changes, no new techniques, nothing in the
