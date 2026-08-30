@@ -90,11 +90,31 @@ Output convention: command results go to stdout, operator-facing errors go to st
 
 - v0.3.1 (packaging): the 0.3.0 wheel installed but could not run. Runtime files now live inside the package and `replicant/resources.py` is the only thing that knows where they are. Anything resolving a repository-relative path is a defect. Guarded by `tests/test_packaging.py` and a `wheel` CI job.
 
-- Light theme and responsive layout (complete): the UI follows `prefers-color-scheme` on first load and remembers an explicit toggle after that. The rule lives in `webui/src/lib/theme.ts`, and a pre-paint script in `webui/index.html` necessarily repeats it; `theme.test.ts` asserts the two agree. Below `lg` the fixed-viewport shell becomes a scrolling page and the rail becomes a disclosure. Palette and deviations: `docs/webui-reskin-design.md` sections 3 and 5.
+- Light theme and responsive layout (complete; the light theme was later REMOVED by the Factory redesign below). The responsive half survives: below `lg` the fixed-viewport shell becomes a scrolling page and the rail becomes a disclosure.
 
   Two conventions worth keeping:
   1. **Measure contrast on the rendered page, not on the token table.** The tokens were verified; their *usage* was not, and the audit found four defects in the shipped **dark** theme, including `--text-4` used as body text at 2.78:1 against its own documented rule.
   2. **A grid or flex item needs `min-w-0` before `overflow-x-auto` inside it can work.** Default `min-width: auto` refuses to shrink below the content, so one long CEF line scrolled the whole page to 3452px at 375px wide.
+
+- Factory redesign (complete, v0.6.0): the web UI's visual system is the archived dark-era
+  Factory design ("terminal war room at midnight"), dark-only. The design contract is
+  `docs/webui-factory-design.md`; `docs/webui-reskin-design.md` is superseded and kept for its
+  measured lessons. Fonts are Geist 400/500 and JetBrains Mono 400, both OFL 1.1, self-hosted
+  with license texts beside the woff2 (they ship in the wheel). **Switzer was rejected on
+  licensing**: the ITF Free Font License v2.0 prohibits distribution through a repository or
+  publicly accessible server, and this is a public repo that publishes wheels.
+
+  Rules that bind future UI changes (full list in the design doc):
+  1. **Machine values take the mono voice; human sentences take Geist.** A human sentence in
+     mono is a violation in either direction. Weight 400 everywhere, 500 at most once per screen.
+  2. **A connected data series counts as ONE chromatic element, cap ~2 per card, and chromatic
+     color (signal orange, metric green) never appears on buttons, nav, headings, or control
+     states.** An active filter recesses to the canvas instead.
+  3. **No readout renders that the stream cannot measure.** The approved mock's bytes tile does
+     not ship because no byte counter exists; labels say emitted, never sent or delivered.
+  4. **`cn()` must know every type-scale rung.** Stock tailwind-merge classifies unknown
+     `text-*` classes as colors and silently deletes the size when a color follows in the same
+     call; `utils.test.ts` pins every rung `tailwind.config.js` declares. Add a rung, register it.
 
 - Plan-timed pacing (complete): the emit loop honours the plan's own per-event times.
   `--pace {burst,plan}` and `--speed N`, defaulting to plan when sending to a collector

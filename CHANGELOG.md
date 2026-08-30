@@ -6,6 +6,54 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Changed: the web UI is the Factory system, and dark-only
+
+A visual identity change, not a patch. The web UI now follows the archived
+dark-era Factory design ("terminal war room at midnight"), approved from three
+standalone mocks that went through a builder/three-critic loop. The design
+contract is `docs/webui-factory-design.md`; the amber "signal-instrument"
+system it replaces is stamped superseded in `docs/webui-reskin-design.md`.
+
+- **Fonts:** Geist 400/500 (sans) and JetBrains Mono 400, both OFL 1.1,
+  self-hosted with their license texts beside the woff2 files so the license
+  ships in the wheel. The approved mocks used Switzer, but the ITF Free Font
+  License v2.0 that ships with the Fontshare download prohibits distributing
+  the font through a repository or publicly accessible server, which is exactly
+  what this repo and its releases are. IBM Plex is retired from NOTICE.
+- **Palette:** #101010 canvas, #1d1a18 surfaces, #3d3a39 hairlines, bone text,
+  and exactly two chromatic colors reserved for live data: signal orange
+  #ee6018 and metric green #a0ca92. Weight 400 everywhere. No gradients,
+  shadows, or glows. `theme.test.ts` asserts every documented token triplet in
+  `index.css` encodes exactly the hex named beside it.
+- **Light mode removed** (decision recorded in the design doc): the toggle,
+  stored preference, pre-paint script, OS tracking, and the parity guard go
+  with it. The screenshot capture script now checks the page painted the
+  Factory canvas instead of asserting a theme class.
+- **The run panel is a war-room frame:** metric tiles derived from the run's
+  own counters, an instrumented sparkline (labeled scale, dotted mean, time
+  axis), and a progress track. The mock's bytes tile does not ship because no
+  byte counter exists behind it; labels say emitted, never sent or delivered,
+  where only rendering is measured.
+- **Honesty carried into color:** "sent, unconfirmed" renders neutral rather
+  than signal-colored, the armed-collector dot is bone, active filter chips
+  recess to the canvas instead of taking the signal color, and log-line
+  emphasis is brightness only.
+
+Two defects found by measuring the rendered page, both now guarded:
+
+1. Stock tailwind-merge classifies the custom type-scale rungs as text COLOR
+   classes, so `cn("text-label", "text-signal")` silently deleted the size and
+   the element inherited its parent's. The vendor segmented control rendered
+   16px against a class list saying 12px. `cn()` now registers the rungs and
+   `utils.test.ts` pins every rung the config declares.
+2. LogsView's info level styled itself with `text-text-2`, a token that does
+   not exist, so the class compiled to nothing and the color was inherited by
+   accident.
+
+Type scale: `title` 24 to 36 and `lede` 15 to 16 (the approved mock's values),
+plus a `stat` rung at 22px for metric-tile values. All four README screenshots
+regenerated; the light-theme shot is retired.
+
 ## [0.5.2] - 2026-08-04
 
 A readability release. No behaviour changes, no new techniques, nothing in the
