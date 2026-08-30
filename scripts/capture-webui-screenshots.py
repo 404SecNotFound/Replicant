@@ -23,17 +23,15 @@ because two of the three shots need interaction: one needs the Docs tab open, on
 needs a run actually emitting. Captures at 1440x900 at scale 1, matching the
 images already committed.
 
-**The theme is pinned, not inherited.** The UI follows ``prefers-color-scheme`` on
-first load, and headless Chrome reports *light*. Left alone, this script would have
-quietly re-themed every committed screenshot the first time it ran after the light
-theme shipped. ``--theme`` emulates the media feature and then asserts the page
-actually landed on it, so a shot can never be mislabelled.
+The UI is dark-only (the Factory system), so there is no theme to pin any more;
+the script still refuses to capture until the page has painted the Factory canvas,
+so a shot of a half-loaded or unstyled page cannot land in the repo unnoticed.
 
 Usage:
 
     replicant web --no-browser                       # in another shell
     python scripts/capture-webui-screenshots.py "http://127.0.0.1:9787/?token=..."
-    python scripts/capture-webui-screenshots.py URL --theme light --views emitter
+    python scripts/capture-webui-screenshots.py URL --views emitter
 
 The run shot starts a real run with no collector and no output file, so it emits
 to the browser stream and writes nothing anywhere.
@@ -137,31 +135,17 @@ class Chrome:
         path.write_bytes(base64.b64decode(result["data"]))
         print(f"  wrote {path.relative_to(OUT_DIR.parents[1])}")
 
-    async def pin_theme(self, theme: str) -> None:
-        """Emulate a colour-scheme preference, for use before navigating."""
-        await self.send(
-            "Emulation.setEmulatedMedia",
-            features=[{"name": "prefers-color-scheme", "value": theme}],
-        )
+    async def assert_factory_canvas(self) -> None:
+        """Fail rather than capture an unstyled or half-loaded page.
 
-    async def assert_theme(self, theme: str) -> None:
-        """Fail rather than write a shot labelled with a theme it is not in.
-
-        The app stores an explicit toggle in localStorage and that beats the OS
-        preference. This script never toggles, so a fresh profile follows the
-        emulated media; but the Chrome profile is reused between runs, and a
-        stored value would silently win. Cheaper to assert than to notice later
-        in a committed PNG.
+        The UI is dark-only, so the check is no longer which theme won but
+        whether the stylesheet painted at all: the body must be the Factory
+        canvas (#101010). A CSS load failure otherwise produces a white shot
+        that quietly replaces a committed dark one.
         """
-        actual = await self.evaluate(
-            "document.documentElement.classList.contains('dark') ? 'dark' : 'light'"
-        )
-        if actual != theme:
-            stored = await self.evaluate("localStorage.getItem('replicant.theme')")
-            raise RuntimeError(
-                f"asked for the {theme} theme but the page rendered {actual}"
-                f" (localStorage replicant.theme = {stored!r})"
-            )
+        actual = await self.evaluate("getComputedStyle(document.body).backgroundColor")
+        if actual != "rgb(16, 16, 16)":
+            raise RuntimeError(f"expected the Factory canvas rgb(16, 16, 16), got {actual!r}")
 
 
 def button_by_text(text: str) -> str:
@@ -186,18 +170,11 @@ def button_starting_with(prefix: str) -> str:
     )
 
 
-def shot_name(view: str, theme: str) -> str:
-    """`webui-emitter.png` for dark, `webui-emitter-light.png` for light.
-
-    Dark keeps the bare name because it is what the committed images and every
-    README reference already use, and renaming them to `-dark` would break those
-    for no gain.
-    """
-    suffix = "" if theme == "dark" else f"-{theme}"
-    return f"webui-{view}{suffix}.png"
+def shot_name(view: str) -> str:
+    return f"webui-{view}.png"
 
 
-async def capture_all(url: str, theme: str, views: set[str]) -> None:
+async def capture_all(url: str, views: set[str]) -> None:
     chrome = subprocess.Popen(  # noqa: S603 - fixed path, no shell
         [
             CHROME,
@@ -208,9 +185,7 @@ async def capture_all(url: str, theme: str, views: set[str]) -> None:
             "--hide-scrollbars",
             "--disable-gpu",
             "--no-first-run",
-            # Per theme, so a stored preference from a previous run of the other
-            # theme cannot leak across and override the emulated media.
-            f"--user-data-dir=/tmp/replicant-shots-{theme}",
+            "--user-data-dir=/tmp/replicant-shots",
             "about:blank",
         ],
         stdout=subprocess.DEVNULL,
@@ -242,18 +217,17 @@ async def capture_all(url: str, theme: str, views: set[str]) -> None:
                 deviceScaleFactor=1,
                 mobile=False,
             )
-            await page.pin_theme(theme)
             await page.send("Page.navigate", url=url)
             await page.wait_for(
                 "!!document.querySelector('input[aria-label=\"Filter techniques\"]')",
                 what="the catalog rail",
             )
-            await page.assert_theme(theme)
+            await page.assert_factory_canvas()
             # The signal diagram animates in; let it settle before capturing.
             await asyncio.sleep(1.5)
             if "emitter" in views:
                 print("emitter view")
-                await page.capture(shot_name("emitter", theme))
+                await page.capture(shot_name("emitter"))
 
             if "docs" in views:
                 print("docs tab")
@@ -262,7 +236,7 @@ async def capture_all(url: str, theme: str, views: set[str]) -> None:
                     "!!document.querySelector('.doc-prose h1')", what="a rendered doc"
                 )
                 await asyncio.sleep(0.5)
-                await page.capture(shot_name("docs", theme))
+                await page.capture(shot_name("docs"))
 
             if "run" in views:
                 print("live run")
@@ -301,22 +275,23 @@ async def capture_all(url: str, theme: str, views: set[str]) -> None:
                 # No collector and no output file: the run emits to the browser
                 # stream and writes nothing to disk.
                 await page.click(button_starting_with("Run "))
-                # Capture just after the plan drains. REP-004's default is 108000
-                # events and the useful window is narrow: at 2.2s the readout still
-                # showed single digits, and a looser "wait until the rate is high"
-                # predicate matched the intensity-preset numbers elsewhere on the
-                # page and fired before the run even started. The settled frame
-                # carries more anyway -- the full waveform, the delivered rate
-                # against the cap, and the manifest panel -- so it is the one the
-                # README uses.
-                await asyncio.sleep(4.0)
+                # Capture the settled frame: the full waveform, the final counts,
+                # and the manifest panel. A fixed sleep raced the server here --
+                # REP-004's 108000-event plan can still be building seconds after
+                # the click, and one capture shipped showing 0 events emitted
+                # beside EMITTING. The manifest line only exists once the run is
+                # actually done, so waiting for it cannot capture early.
+                await page.wait_for(
+                    "document.body.textContent.includes('manifest written')",
+                    what="the run to finish and write its manifest",
+                    timeout=180.0,
+                )
                 await page.evaluate(
                     "document.querySelector('main').scrollTop = "
                     "document.querySelector('main').scrollHeight * 0.55"
                 )
                 await asyncio.sleep(0.4)
-                await page.capture(shot_name("run", theme))
-                await page.click(button_by_text("Stop"))
+                await page.capture(shot_name("run"))
 
             if "terminal" in views:
                 print("terminal tab")
@@ -331,7 +306,7 @@ async def capture_all(url: str, theme: str, views: set[str]) -> None:
                 await page.evaluate("document.querySelector('.xterm-helper-textarea').focus()")
                 await page.type_line("n")
                 await asyncio.sleep(2.5)
-                await page.capture(shot_name("terminal", theme))
+                await page.capture(shot_name("terminal"))
     finally:
         chrome.terminate()
         chrome.wait(timeout=10)
@@ -340,12 +315,6 @@ async def capture_all(url: str, theme: str, views: set[str]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__ or "")
     parser.add_argument("url", help="the web UI URL, including ?token=")
-    parser.add_argument(
-        "--theme",
-        choices=("dark", "light"),
-        default="dark",
-        help="colour scheme to emulate and assert (default: dark)",
-    )
     parser.add_argument(
         "--views",
         default=",".join(VIEWS),
@@ -361,7 +330,7 @@ def main() -> int:
     if not Path(CHROME).exists():
         parser.error(f"Google Chrome not found at {CHROME}")
 
-    asyncio.run(capture_all(args.url, args.theme, views))
+    asyncio.run(capture_all(args.url, views))
     return 0
 
 
