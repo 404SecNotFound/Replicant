@@ -1,8 +1,10 @@
-# LinkedIn post draft, v0.7.0
+# LinkedIn post, v0.7.0
 
-Replaces the approved v0.5.2 draft, which is now three releases stale (v0.6.0
-Factory UI, v0.6.1 diagrams, v0.7.0 catalog fixes). Nothing here is published
-until DJR says so.
+**Approved text, chosen by DJR 2026-08-30.** Replaces the v0.5.2 draft, which
+was three releases stale (v0.6.0 Factory UI, v0.6.1 diagrams, v0.7.0 catalog
+fixes). A shorter alternative was drafted and not chosen; it is not kept here,
+because a file holding two versions of an approved post is a file where the
+wrong one eventually gets posted.
 
 The angle is deliberately not "we shipped features". The most interesting thing
 that happened to this project this month is a defect class, and detection
@@ -10,7 +12,7 @@ engineers are the audience most likely to recognise it in their own tooling.
 
 ---
 
-## Draft A: the defect class (recommended)
+## The post
 
 I build a tool that generates synthetic firewall telemetry so detection
 engineers can test rules without waiting for a real attack. Its entire value
@@ -55,41 +57,17 @@ grounded, 24 techniques across FortiGate, Palo Alto and Check Point.
 
 ---
 
-## Draft B: shorter, for lower effort
-
-952 passing tests did not catch three defects in my synthetic telemetry
-generator. Here's why.
-
-The tool emits fake firewall logs so detection engineers can exercise rules
-without waiting for a real attack. Its whole claim is that the telemetry matches
-what the catalog describes.
-
-One technique exists specifically to defeat naive fixed-window timing
-correlation. An integer divide floored its jitter to zero and a clamp made it a
-constant one second, so it emitted exactly the fixed window it was built to
-defeat. Another declared a 120 second window and finished in six. A third
-shipped a benign look-alike that any duration threshold could separate at a
-glance, which makes it decoration rather than a control.
-
-Nothing caught it because no test compared the code to the catalog text. The
-tests checked the code against itself.
-
-A detection validated against the wrong signal doesn't fail. It passes.
-
-v0.7.0 fixes all three and adds the tests that were missing.
-
-[link]
-
----
-
-## Notes before posting
+## Before posting
 
 - **Do not claim the lab test.** Every timing and delivery claim in this project
-  is still loopback only. Neither draft asserts otherwise, and the temptation to
-  add "validated against a live SIEM" should be resisted until it is true.
-- Draft A is roughly 320 words, which is past the LinkedIn fold. The first two
-  lines carry it.
-- No em-dashes anywhere in this file, per house style. Both headings originally
-  used one; caught on a check rather than by eye, which is the only way this
-  rule ever gets enforced.
-- The honest framing is that the review was external. Both drafts say so.
+  is still loopback only. The text above does not assert otherwise, and the
+  temptation to add "validated against a live SIEM" should be resisted until it
+  is true.
+- Roughly 320 words, which is past the LinkedIn fold. The first two lines carry
+  it.
+- No em-dashes anywhere in this file, per house style. Both draft headings
+  originally used one; caught on a check rather than by eye, which is the only
+  way this rule ever gets enforced.
+- The framing is that the review was external, and the post says so.
+- Replace `[link]` with the release URL:
+  https://github.com/404SecNotFound/Replicant/releases/tag/v0.7.0
