@@ -195,12 +195,12 @@ The catalog is the single source of truth for the menu, the CLI, and the engine.
 | REP-004 | DNS tunneling / DNS exfil | dns:dns-query | UC-003 | T1071.004, T1048.003 | Implemented |
 | REP-005 | Outbound exfil volume anomaly | traffic:forward | UC-004 | T1041, T1048 | Implemented |
 | REP-006 | Destination fan-out burst | traffic:forward | UC-005 | T1018, T1046 | Implemented |
-| REP-007 | Brute force and password spray | event:vpn | UC-006 | T1110 | Implemented |
+| REP-007 | Brute force and password spray | event:vpn | UC-006 | T1110, T1110.001, T1110.003 | Implemented |
 | REP-008 | Newly observed external destination | traffic:forward | UC-007 | T1071, T1583 | Implemented |
 | REP-009 | IDS/IPS event-rate spike | utm:ips | UC-008 | T1595, T1190 | Implemented |
 | REP-010 | Denied outbound connection burst | traffic:forward | UC-009 | T1071, T1090 | Implemented |
 | REP-011 | VPN geovelocity anomaly | event:vpn | UC-010 | T1078, T1133 | Implemented |
-| REP-012 | Jittered and fleet-aggregate C2 callback | traffic:forward accept | UC-011 | T1071, T1029 | Implemented |
+| REP-012 | Jittered and fleet-aggregate C2 callback | traffic:forward accept | UC-011 | T1071 | Implemented |
 | REP-013 | Self-propagating malware spread | traffic:forward | UC-012 | T1210, T1021.002, T1046 | Implemented |
 | REP-014 | Cryptomining pool session | traffic:forward accept | UC-013 | T1496 | Implemented |
 | REP-015 | Low-throughput DNS exfiltration | dns:dns-query | UC-014 | T1048.003, T1071.004 | Implemented |
@@ -405,7 +405,7 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 
 - **Phase 1 (complete):** end-to-end pipeline plus three techniques (REP-001, REP-002, REP-004), FortiGate profile, UDP and TCP syslog, headless CLI, and the Rich menu.
 - **Phase 1.5 (complete):** web UI and an embedded terminal over the same Orchestrator.
-- **Phase 2 (complete):** all eleven techniques implemented (REP-001 through REP-011), the off-hours weighting used by REP-005, TLS syslog transport, and a warm-up baseline for REP-008 whose boundary is recorded in the run manifest.
+- **Phase 2 (complete):** all eleven techniques implemented (REP-001 through REP-011), the off-hours (00:00-06:00) start pinning used by REP-005, TLS syslog transport, and a warm-up baseline for REP-008 whose boundary is recorded in the run manifest.
 - **Phase 3 (complete):** multi-vendor. Palo Alto (PAN-OS) and Check Point (Log Exporter) profiles join FortiGate, each with an `[Unverified]` reference doc and byte-for-byte golden lines. Select the vendor with `--vendor {fortigate,paloalto,checkpoint}`, in the Rich menu (`[v]`), or in the web UI; one technique catalog and one scenario engine drive every vendor, only the serialization differs.
 - **Phase 4 (complete):** ATT&CK scenario composition. Curated scenarios compose the existing techniques into one deterministic, multi-stage CEF timeline with a shared synthetic through-line, plus an advisory coverage document that maps the chain to ATT&CK tactics and flags gaps. Any AI assistance stays advisory while a human authors the detection design. Driven from `replicant scenario` (list/show/run) and the Rich menu `[a]`.
 - **Catalog expansion (complete):** the catalog grew from 11 techniques to 24 (REP-012 through REP-024), each anchored to a peer-reviewed detection paper with measured results rather than to a plausible guess. Added the `dns:dns-response` render path on all three vendors, which also makes fast-flux and DNS TTL techniques possible later, and a dedicated inbound-scanner entity pool. Several new entries are the graded, harder counterpart of an existing one, and techniques whose detection depends on separating a signal from a look-alike now emit the look-alike as well.
