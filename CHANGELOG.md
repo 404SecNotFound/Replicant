@@ -6,6 +6,19 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Fixed: every technique now draws its own signal-path diagram
+
+The web UI's diagram mapped only REP-001..011 to drawings and silently fell
+back to the periodic-beacon glyph for everything newer, so a DGA cluster or an
+inbound perimeter scan rendered as a fixed-interval beacon with full
+confidence. All 24 techniques now have an explicit mapping: eight new glyphs
+(fleet beacon, DGA NXDOMAIN cluster, resolver-goes-quiet absence, login chain,
+worm spread, inbound fan, kill-chain stages, proxy relay) and six honest
+reuses whose captions state their own story (REP-019 reuses the scan fan under
+"slow probes, long window", not the burst it is not). The fallback is gone: an
+unmapped id renders a labelled gap, and a test that reads the real catalog
+fails on any technique added without deciding its diagram.
+
 ## [0.6.0] - 2026-08-30
 
 ### Changed: the web UI is the Factory system, and dark-only
