@@ -6,6 +6,8 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-30
+
 ### Changed: the web UI is the Factory system, and dark-only
 
 A visual identity change, not a patch. The web UI now follows the archived
@@ -1038,6 +1040,9 @@ This project uses MITRE ATT&CK. Copyright 2026 The MITRE Corporation. Reproduced
 
 Licensed under the Apache License 2.0. Third-party notices are in [`NOTICE`](NOTICE).
 
+[0.6.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.6.0
+[0.5.2]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.5.2
+[0.5.1]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.5.1
 [0.5.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.5.0
 [0.4.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.4.0
 [0.3.1]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.3.1
