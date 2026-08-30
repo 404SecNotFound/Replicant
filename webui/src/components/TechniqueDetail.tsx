@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import { useEffect, useState, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import { TechniqueDiagram } from "@/components/TechniqueDiagram";
 import { getSample, vendorLabel, type Technique, type TechniqueSample } from "@/lib/api";
 
@@ -30,14 +31,16 @@ const fmt = (v: unknown): string =>
         ? JSON.stringify(v)
         : String(v);
 
-function Chip({ label, signal }: { label: string; signal?: boolean }) {
+// Varied fields read in the text color, held fields recede to muted; neither
+// takes the signal color. In this system a chip is a fact, not live data, and
+// the critic loop pinned the varied/held distinction to brightness alone.
+function Chip({ label, tone = "default" }: { label: string; tone?: "varied" | "held" | "default" }) {
   return (
     <span
-      className={
-        signal
-          ? "rounded border border-signal/40 px-1.5 py-0.5 font-mono text-label text-signal"
-          : "rounded border px-1.5 py-0.5 font-mono text-label text-text-3"
-      }
+      className={cn(
+        "rounded-btn border px-2 py-1 font-mono text-label uppercase tracking-[-0.24px]",
+        tone === "varied" ? "text-foreground" : tone === "held" ? "text-text-4" : "text-text-3",
+      )}
     >
       {label}
     </span>
@@ -49,20 +52,38 @@ function Chip({ label, signal }: { label: string; signal?: boolean }) {
 // width. A single 3376px CEF sample line inside an `overflow-x-auto` therefore
 // stretched the whole column track and the page scrolled sideways to 3452px on a
 // 375px viewport, instead of the sample scrolling inside its own box.
-function Card({ title, children }: { title: string; children: ReactNode }) {
+function Card({
+  title,
+  className,
+  children,
+}: {
+  title: string;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <section className="min-w-0 rounded-lg border bg-card p-4">
-      <div className="u-label mb-3">{title}</div>
+    <section className={cn("min-w-0 rounded-lg bg-card p-6", className)}>
+      <div className="u-label mb-4">{title}</div>
       {children}
     </section>
   );
 }
 
-function Field({ k, v }: { k: string; v: string }) {
+// A metric tile from the mock: mono label, 22px weight-400 value in the text
+// face, optional mono context line. Dividers are the canvas color showing
+// between cells, not drawn borders in the outline gray.
+function Tile({ k, v, context }: { k: string; v: string; context?: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-1.5 last:border-0">
-      <span className="text-label text-muted-foreground">{k}</span>
-      <span className="text-right font-mono text-micro text-foreground">{v}</span>
+    <div className="min-w-0 border-b border-background p-4 odd:border-r [&:nth-last-child(-n+2)]:border-b-0">
+      <span className="mb-2 block font-mono text-label uppercase tracking-[-0.24px] text-text-4">
+        {k}
+      </span>
+      <span className="block break-words text-stat tracking-[-0.025em] text-foreground">{v}</span>
+      {context && (
+        <span className="mt-1 block font-mono text-micro uppercase tracking-[-0.24px] text-text-4">
+          {context}
+        </span>
+      )}
     </div>
   );
 }
@@ -84,7 +105,7 @@ function SampleLines({ technique, vendor }: Props) {
   }, [technique.id, vendor]);
 
   return (
-    <div className="scroll-thin overflow-x-auto rounded-lg border bg-well p-3 font-mono text-micro leading-[1.9] text-text-3">
+    <div className="scroll-thin overflow-x-auto rounded-btn bg-well p-3 font-mono text-micro leading-[1.9] text-text-3">
       {err ? (
         <span className="text-destructive">sample unavailable: {err}</span>
       ) : !sample ? (
@@ -119,10 +140,11 @@ export function TechniqueDetail({ technique, vendor }: Props) {
   return (
     <div className="mx-auto max-w-[900px] pb-2">
       {/* identity */}
-      <div className="font-mono text-micro font-medium tracking-wide text-muted-foreground">
+      <div className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
         {technique.id} · {technique.ndr_uc}
       </div>
-      <h1 className="mt-1 text-title font-semibold tracking-[-0.028em]">{technique.name}</h1>
+      {/* Weight 400 at 36px: the hero line is size, not boldness. */}
+      <h1 className="mt-3 text-title tracking-[-1px]">{technique.name}</h1>
 
       {/* The objective, first and in the reading colour.
           This slot used to hold "Emits synthetic <log type> telemetry that
@@ -133,52 +155,65 @@ export function TechniqueDetail({ technique, vendor }: Props) {
       {technique.objective && (
         <p
           data-testid="technique-objective"
-          className="mt-2 max-w-[640px] text-lede leading-relaxed text-foreground"
+          className="mt-4 max-w-[640px] text-lede tracking-[-0.025em] text-foreground"
         >
           {technique.objective}
         </p>
       )}
-      <p className="mt-1.5 max-w-[600px] text-body leading-relaxed text-muted-foreground">
-        Emits synthetic <span className="text-foreground">{technique.log_type}:{technique.subtype}</span>{" "}
-        telemetry that exercises <span className="text-foreground">{technique.ndr_rule}</span>.
+      <p className="mt-2 max-w-[600px] text-body leading-relaxed text-text-4">
+        Emits synthetic <span className="font-mono text-data text-foreground">{technique.log_type}:{technique.subtype}</span>{" "}
+        telemetry that exercises <span className="font-mono text-data text-foreground">{technique.ndr_rule}</span>.
       </p>
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         {technique.tactics.map((t) => (
-          <span key={t} className="rounded bg-secondary px-1.5 py-0.5 text-label text-secondary-foreground">
-            {t}
-          </span>
+          <Chip key={t} label={t} />
         ))}
         {technique.attack.map((a) => (
           <Chip key={a} label={a} />
         ))}
       </div>
 
-      {/* signal-path diagram */}
-      <div className="mt-5 rounded-lg border bg-card px-4 pb-3 pt-3.5">
-        <div className="u-label mb-1">Signal path</div>
+      {/* signal-path diagram: the one outlined card, canvas-colored so the
+          drawing sits on the page rather than on a raised surface */}
+      <div className="mt-8 rounded-lg border bg-background p-6">
+        <div className="u-label mb-2">Signal path</div>
         <TechniqueDiagram technique={technique} />
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-elev pt-4">
+          <span className="font-mono text-label uppercase tracking-[-0.24px] text-text-3">
+            Signal fields
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {technique.cef_fields_varied.map((f) => (
+              <Chip key={f} label={f} tone="varied" />
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* detail cards */}
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <div className="mt-6 grid gap-6 md:grid-cols-2">
         <Card title="What the detection looks for">
-          <p className="mb-3 text-body leading-relaxed text-muted-foreground">
+          <p className="mb-4 text-body leading-relaxed text-foreground">
             The rule keys on the fields that move against a steady baseline.
           </p>
-          <div className="mb-1 text-label font-semibold uppercase tracking-wide text-signal/90">Signal (varied)</div>
-          <div className="mb-3 flex flex-wrap gap-1.5">
+          <div className="mb-2 font-mono text-label uppercase tracking-[-0.24px] text-text-3">
+            Signal (varied)
+          </div>
+          <div className="mb-4 flex flex-wrap gap-2">
             {technique.cef_fields_varied.map((f) => (
-              <Chip key={f} label={f} signal />
+              <Chip key={f} label={f} tone="varied" />
             ))}
           </div>
-          <div className="mb-1 text-label font-semibold uppercase tracking-wide text-text-3">Held constant</div>
-          <div className="mb-3 flex flex-wrap gap-1.5">
+          <div className="mb-2 font-mono text-label uppercase tracking-[-0.24px] text-text-3">
+            Held constant
+          </div>
+          <div className="mb-4 flex flex-wrap gap-2">
             {technique.cef_fields_held.map((f) => (
-              <Chip key={f} label={f} />
+              <Chip key={f} label={f} tone="held" />
             ))}
           </div>
           {technique.benign_baseline && (
-            <p className="border-t border-border/60 pt-2.5 text-body leading-relaxed text-muted-foreground">
+            <p className="border-t pt-4 text-body leading-relaxed text-text-4">
               <span className="text-text-3">Baseline · </span>
               {technique.benign_baseline}
             </p>
@@ -186,51 +221,61 @@ export function TechniqueDetail({ technique, vendor }: Props) {
         </Card>
 
         <Card title="Rule specifics">
-          <Field k="NDR rule" v={technique.ndr_rule} />
-          <Field k="Use case" v={technique.ndr_uc} />
-          <Field k="Log type" v={`${technique.log_type}:${technique.subtype}`} />
-          <Field k="Signature ID" v={technique.signature_id} />
-          <Field k="Action" v={technique.action ?? "—"} />
-          <Field k="Intensities" v={intens.join(" · ")} />
-          {paramKeys.length > 0 && (
-            <div className="mt-3">
-              <div className="mb-1.5 text-label font-semibold uppercase tracking-wide text-text-3">
-                Intensity presets
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse font-mono text-micro">
-                  <thead>
-                    <tr className="text-text-3">
-                      <th className="py-1 text-left font-medium"> </th>
-                      {intens.map((i) => (
-                        <th key={i} className="px-2 py-1 text-right font-medium">
-                          {i}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paramKeys.map((k) => (
-                      <tr key={k} className="border-t border-border/50">
-                        <td className="py-1 pr-2 text-text-3">{k}</td>
-                        {intens.map((i) => (
-                          <td key={i} className="px-2 py-1 text-right text-foreground">
-                            {fmt(technique.params[i]?.[k])}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          <div className="grid grid-cols-2">
+            <Tile k="NDR rule" v={technique.ndr_rule} />
+            <Tile k="Use case" v={technique.ndr_uc} />
+            <Tile k="Log type" v={`${technique.log_type}:${technique.subtype}`} />
+            <Tile k="Signature ID" v={technique.signature_id} />
+            <Tile k="Action" v={technique.action ?? "—"} />
+            <Tile k="Intensities" v={intens.join(" · ")} />
+          </div>
         </Card>
 
-        <section className="min-w-0 rounded-lg border bg-card p-4 md:col-span-2">
-          <div className="mb-3 flex items-center justify-between">
+        {paramKeys.length > 0 && (
+          <Card title="Intensity presets" className="md:col-span-2">
+            <div className="min-w-0 overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th className="border-b border-background px-3 py-2 text-left font-mono text-label font-normal uppercase tracking-[-0.24px] text-text-4">
+                      Param
+                    </th>
+                    {intens.map((i) => (
+                      <th
+                        key={i}
+                        className="border-b border-background px-3 py-2 text-left font-mono text-label font-normal uppercase tracking-[-0.24px] text-text-4"
+                      >
+                        {i}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paramKeys.map((k) => (
+                    <tr key={k}>
+                      <td className="border-b border-background px-3 py-2.5 font-mono text-data text-text-3">
+                        {k}
+                      </td>
+                      {intens.map((i) => (
+                        <td
+                          key={i}
+                          className="border-b border-background px-3 py-2.5 font-mono text-data text-foreground"
+                        >
+                          {fmt(technique.params[i]?.[k])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        <section className="min-w-0 rounded-lg bg-card p-6 md:col-span-2">
+          <div className="mb-4 flex items-center justify-between gap-3">
             <div className="u-label">What the logs will show · {vendorLabel(vendor)}</div>
-            <span className="font-mono text-label text-text-3">
+            <span className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
               {technique.log_type}:{technique.subtype} · sig {technique.signature_id}
             </span>
           </div>
@@ -252,13 +297,13 @@ export function TechniqueDetail({ technique, vendor }: Props) {
         <div className="mt-4 flex flex-wrap items-start gap-x-8 gap-y-2 px-1 text-label text-text-3">
           {technique.references.length > 0 && (
             <div>
-              <span className="font-semibold uppercase tracking-wide text-text-3">Refs · </span>
+              <span className="font-mono uppercase tracking-[-0.24px] text-text-3">Refs · </span>
               {technique.references.join("  ·  ")}
             </div>
           )}
           {technique.safety_notes && (
             <div className="max-w-[520px]">
-              <span className="font-semibold uppercase tracking-wide text-text-3">Safety · </span>
+              <span className="font-mono uppercase tracking-[-0.24px] text-text-3">Safety · </span>
               {technique.safety_notes}
             </div>
           )}
