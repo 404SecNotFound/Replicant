@@ -6,6 +6,47 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Added: one sending run per host, enforced (security review F-08)
+
+The events-per-second cap is applied by a single process's emit loop, so two
+Replicant processes sending at once delivered twice the cap to the operator's
+collector and neither was doing anything wrong. Safety rule 4 exists to protect
+that collector, and a cap any second invocation silently doubles is not
+protecting it.
+
+Two remedies were open. A host-level lease keyed on collector destination would
+let runs aimed at different collectors proceed together, and is a
+distributed-systems problem in a lab tool: leases expire, clocks drift, a killed
+process orphans one. The operator chose the other: state the scope and enforce
+it. One sending run per host is the supported configuration, and a second is now
+refused rather than allowed to double the rate, with the holding pid named in
+the refusal because "another process" is not actionable.
+
+`--no-send` and `--to-file` never acquire the slot, because they cannot reach a
+collector and so cannot exceed anything. The lock is advisory and released by the
+kernel when the holder exits, kill -9 included, so there is nothing stale to
+clean up. What it does not cover is stated rather than implied: two hosts pointed
+at one collector are two caps, and nothing on this machine can see that.
+
+Guarded by `tests/test_sendlock.py`, which spawns a **real second process**: the
+finding is precisely that the guard was scoped to one process, so a test that
+re-entered the context manager in-process would pass against code that locked
+nothing. Positive control run, and the refusal test observed to fail with the
+lock neutered.
+
+### Fixed: the test suite no longer reads and writes the operator's real config
+
+`config_dir()` honours `REPLICANT_CONFIG_DIR`, and the suite had no `conftest.py`
+telling it to, so running the tests touched the real `~/.config/replicant`: the
+saved collector profile, the persistent web token, and now the send lock. Each
+test gets its own directory.
+
+This surfaced as five failures rather than as a tidy-up. The send lock is
+host-global by design, so a web test that started a run and never stopped it held
+a slot the next test's sending run was then correctly refused. Every one of those
+failures was a true report about shared global state, which is why the fix is
+isolation rather than a weaker lock.
+
 ### Changed: REP-018 carries Defense Evasion alongside Lateral Movement
 
 `v0.7.0` removed TA0006 Credential Access from REP-018, because none of its

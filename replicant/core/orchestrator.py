@@ -27,6 +27,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -64,6 +65,7 @@ from replicant.core.pacing import (
     resolve_pace,
     send_offsets,
 )
+from replicant.core.sendlock import sending_lock
 from replicant.entities.model import EntityModel
 from replicant.obs.log import RateCounter, get_logger
 from replicant.profiles.base import VendorProfile
@@ -377,17 +379,26 @@ class Orchestrator:
         stopped = False
         failure: BaseException | None = None
         try:
-            count, stopped = self._emit(
-                plan.events,
-                send=send,
-                collector=request.collector,
-                to_file=file_path,
-                eps_cap=eps_cap,
-                pace=pace,
-                speed=request.speed,
-                on_event=on_event,
-                on_progress=on_progress,
-            )
+            # F-08. The eps cap is enforced by this loop, so it is per process:
+            # two sending processes deliver twice the cap and neither is doing
+            # anything wrong. The supported scope is one sending run per host,
+            # and this is where that is enforced rather than merely stated. Held
+            # across the whole emit, and only when a collector is actually in
+            # play: --no-send and --to-file cannot exceed anything.
+            with ExitStack() as guard:
+                if send:
+                    guard.enter_context(sending_lock())
+                count, stopped = self._emit(
+                    plan.events,
+                    send=send,
+                    collector=request.collector,
+                    to_file=file_path,
+                    eps_cap=eps_cap,
+                    pace=pace,
+                    speed=request.speed,
+                    on_event=on_event,
+                    on_progress=on_progress,
+                )
         except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
             failure = exc
         ended_at = now_dubai_iso()
