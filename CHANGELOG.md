@@ -6,6 +6,16 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Changed: REP-018 carries Defense Evasion alongside Lateral Movement
+
+`v0.7.0` removed TA0006 Credential Access from REP-018, because none of its
+three techniques carry it. That was correct and it left TA0008 alone, which was
+defensible but lost something: `T1078` Valid Accounts and `T1550` Use Alternate
+Authentication Material are both Defense Evasion as well, and using valid
+accounts and alternate authentication material to move laterally IS the evasion.
+The entry is now TA0008 plus TA0005. Operator decision, recorded because the
+v0.7.0 note states the narrower list.
+
 ## [0.7.0] - 2026-08-30
 
 A defect release, from an external review of the technique catalog. A minor bump
