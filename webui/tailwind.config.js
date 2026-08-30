@@ -35,8 +35,9 @@ export default {
         label: ["12px", { lineHeight: "1.5" }],    // was 10 / 10.5, section + nav labels
         data: ["12.5px", { lineHeight: "1.55" }],  // scanned values, tags, chips
         body: ["14px", { lineHeight: "1.6" }],     // was 13, prose you actually read
-        lede: ["15px", { lineHeight: "1.6" }],     // the technique objective
-        title: ["24px", { lineHeight: "1.25" }],
+        lede: ["16px", { lineHeight: "1.5" }],     // the technique objective
+        stat: ["22px", { lineHeight: "1.3" }],     // metric-tile values
+        title: ["36px", { lineHeight: "1.15" }],   // the screen's one hero line
       },
       colors: {
         border: "hsl(var(--border))",

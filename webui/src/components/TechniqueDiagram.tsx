@@ -15,8 +15,10 @@
 import type { Technique } from "@/lib/api";
 
 // A data-driven schematic: synthetic SOURCE -> the technique's behavior pattern
-// -> NDR rule match. Amber is the emitted signal / the anomaly the detection keys
-// on (semantic, matching the signal-instrument system). One archetype per technique.
+// -> NDR rule match. Signal orange is the emitted signal / the anomaly the
+// detection keys on; everything else stays in the neutral ramp. The glyph plus
+// the detection outline are the card's two chromatic elements, so nothing else
+// in the drawing may take the orange. One archetype per technique.
 
 const SIG = "hsl(var(--signal))";
 const HAIR = "hsl(var(--border))";
@@ -24,7 +26,9 @@ const EDGE = "hsl(var(--text-4))";
 const FG = "hsl(var(--foreground))";
 const T3 = "hsl(var(--text-3))";
 const T4 = "hsl(var(--text-4))";
-const RED = "hsl(var(--destructive))";
+// The palette has no red. A refusal mark is part of the neutral story the
+// glyph tells; the chromatic element is the pattern, not each cross.
+const RED = "hsl(var(--text-4))";
 const CARD = "hsl(var(--card))";
 const MONO = "'JetBrains Mono', ui-monospace, monospace";
 
@@ -116,13 +120,16 @@ function Glyph({ arch }: { arch: Arch }) {
       return (
         <g>
           {xs.map((x, i) => (
-            <g key={i}>
-              <line x1={x} y1={YC - 11} x2={x} y2={YC + 11} stroke={SIG} strokeWidth={2} strokeLinecap="round" />
-              <circle cx={x} cy={YC - 16} r={2.2} fill={SIG} />
-            </g>
+            <line key={i} x1={x} y1={YC - 14} x2={x} y2={YC + 14} stroke={SIG} strokeWidth={2} />
           ))}
-          <line x1={178} y1={YC + 24} x2={226} y2={YC + 24} stroke={T4} strokeWidth={1} />
-          {mono(202, YC + 21, "Δt", T3, 10.5)}
+          {/* Δt bracket under the first gap, as in the approved mock. */}
+          <path
+            d={`M178 ${YC + 22} L178 ${YC + 28} L226 ${YC + 28} L226 ${YC + 22}`}
+            fill="none"
+            stroke={HAIR}
+            strokeWidth={1}
+          />
+          {mono(202, YC + 42, "Δt", T4, 11)}
         </g>
       );
     }
@@ -182,7 +189,7 @@ function Glyph({ arch }: { arch: Arch }) {
       return (
         <g>
           <line x1={168} y1={YC} x2={214} y2={YC} stroke={EDGE} strokeWidth={1.2} />
-          <rect x={214} y={YC - 13} width={214} height={26} rx={5} fill={CARD} stroke={SIG} strokeWidth={1.3} />
+          <rect x={214} y={YC - 13} width={214} height={26} rx={3} fill="none" stroke={SIG} strokeWidth={1.3} />
           {mono(321, YC + 4, "kf7x…q4z.sync.example.net", SIG, 10)}
           <line x1={428} y1={YC} x2={474} y2={YC} stroke={EDGE} strokeWidth={1.2} />
           <circle cx={480} cy={YC} r={4} fill={CARD} stroke={EDGE} strokeWidth={1} />
@@ -192,16 +199,12 @@ function Glyph({ arch }: { arch: Arch }) {
     }
     case "volume": {
       return (
+        // Flat fill: the system allows no gradients, and the widening shape
+        // already says "growing volume" on its own.
         <g>
-          <defs>
-            <linearGradient id="volArrow" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0" stopColor={SIG} stopOpacity={0.25} />
-              <stop offset="1" stopColor={SIG} stopOpacity={0.9} />
-            </linearGradient>
-          </defs>
-          <path d={`M176 ${YC - 4} L430 ${YC - 16} L430 ${YC - 22} L470 ${YC} L430 ${YC + 22} L430 ${YC + 16} L176 ${YC + 4} Z`} fill="url(#volArrow)" />
-          <rect x={200} y={YC + 30} width={240} height={9} rx={4.5} fill={CARD} stroke={HAIR} strokeWidth={1} />
-          <rect x={202} y={YC + 32} width={206} height={5} rx={2.5} fill={SIG} />
+          <path d={`M176 ${YC - 4} L430 ${YC - 16} L430 ${YC - 22} L470 ${YC} L430 ${YC + 22} L430 ${YC + 16} L176 ${YC + 4} Z`} fill={SIG} opacity={0.8} />
+          <rect x={200} y={YC + 30} width={240} height={9} rx={3} fill="none" stroke={HAIR} strokeWidth={1} />
+          <rect x={202} y={YC + 32} width={206} height={5} rx={2} fill={SIG} />
           {mono(320, YC + 56, "out ≫ in, sustained", T3, 10.5)}
         </g>
       );
@@ -316,51 +319,42 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
 
   return (
     <svg
-      viewBox="0 0 640 220"
+      viewBox="0 0 640 200"
       className="w-full"
-      style={{ maxHeight: 260 }}
+      style={{ maxHeight: 240 }}
       preserveAspectRatio="xMidYMid meet"
       role="img"
       aria-label={`${technique.name} — ${CAPTION[arch]}`}
     >
-      <style>{`@keyframes rsig{0%,100%{opacity:.45}50%{opacity:1}}`}</style>
       <title>{`${technique.name}: ${CAPTION[arch]}`}</title>
 
-      {/* zone labels */}
-      <text x={24} y={26} fontFamily="'Geist',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
+      {/* zone labels, in the machine voice */}
+      <text x={24} y={26} fontFamily={MONO} fontSize={12} letterSpacing="-0.24" fill={T3}>
         SOURCE
       </text>
-      <text x={320} y={26} textAnchor="middle" fontFamily="'Geist',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
+      <text x={320} y={26} textAnchor="middle" fontFamily={MONO} fontSize={12} letterSpacing="-0.24" fill={T3}>
         {CAPTION[arch].toUpperCase()}
       </text>
-      <text x={616} y={26} textAnchor="end" fontFamily="'Geist',sans-serif" fontSize={11} letterSpacing="1.4" fill={T3}>
+      <text x={616} y={26} textAnchor="end" fontFamily={MONO} fontSize={12} letterSpacing="-0.24" fill={T3}>
         DETECTION
       </text>
 
       {/* guide line */}
-      <line x1={128} y1={YC} x2={506} y2={YC} stroke={EDGE} strokeWidth={1} strokeDasharray="1 4" opacity={0.7} />
+      <line x1={128} y1={YC} x2={506} y2={YC} stroke={HAIR} strokeWidth={1} strokeDasharray="2 4" />
 
-      {/* source chip */}
-      <rect x={22} y={YC - 18} width={104} height={36} rx={7} fill={CARD} stroke={HAIR} strokeWidth={1} />
-      <text x={74} y={YC - 2} textAnchor="middle" fontFamily="'Geist',sans-serif" fontSize={12.5} fontWeight={600} fill={FG}>
-        {source[0]}
-      </text>
-      {mono(74, YC + 12, source[1], T3, 9.5)}
+      {/* source chip: an outline, not a fill, like every node in the mock */}
+      <rect x={22} y={YC - 18} width={104} height={36} rx={3} fill="none" stroke={HAIR} strokeWidth={1} />
+      {mono(74, YC - 2, source[0].toUpperCase(), FG, 11.5)}
+      {mono(74, YC + 12, source[1], T4, 10)}
 
       {/* behavior glyph */}
       <Glyph arch={arch} />
 
-      {/* detection chip */}
-      <rect x={512} y={YC - 20} width={106} height={40} rx={7} fill="hsl(var(--signal) / 0.06)" stroke={SIG} strokeWidth={1.2} />
-      <circle cx={526} cy={YC - 8} r={2.8} fill={SIG} style={{ animation: "rsig 1.8s ease-in-out infinite" }} />
-      {mono(569, YC - 4, technique.ndr_uc, FG, 11)}
+      {/* detection chip: the orange outline is the card's second chromatic
+          element; no fill wash and no pulsing dot behind it */}
+      <rect x={512} y={YC - 20} width={106} height={40} rx={3} fill="none" stroke={SIG} strokeWidth={1.2} />
+      {mono(565, YC - 4, technique.ndr_uc, FG, 11)}
       {mono(565, YC + 12, technique.ndr_rule, T3, 10.5)}
-
-      {/* varied fields = the emitted signal */}
-      <text x={128} y={206} fontFamily="'Geist',sans-serif" fontSize={11} letterSpacing="1.2" fill={T3}>
-        SIGNAL FIELDS
-      </text>
-      {mono(238, 206, technique.cef_fields_varied.join("  ·  ") || "—", SIG, 11, "start")}
     </svg>
   );
 }
