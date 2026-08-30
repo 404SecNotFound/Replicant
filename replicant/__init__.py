@@ -17,4 +17,4 @@ Renders FortiGate, Palo Alto PAN-OS and Check Point. The single-vendor wording t
 docstring used to carry predated Phase 3 by three vendors.
 """
 
-__version__ = "0.6.1"
+__version__ = "0.7.0"

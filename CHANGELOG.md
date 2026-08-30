@@ -6,6 +6,109 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-30
+
+A defect release, from an external review of the technique catalog. A minor bump
+rather than a patch one because the shape of the emitted telemetry changed: plans
+for REP-002, REP-013, REP-014, REP-016 and REP-024 differ from every prior release
+at the same seed. Determinism is intact; the output is not the same output. No
+golden CEF line changed.
+
+### Fixed: three techniques emitted telemetry their own catalog text denies
+
+These matter more than ordinary bugs. The tool's entire claim is that the
+telemetry is what the catalog says it is, so a detection validated against the
+wrong signal is a false validation, and it validates as a pass.
+
+- **REP-024's relay lag was a constant one second at every preset.**
+  `int(ms) // 1000` floor-divided the shipped millisecond ranges to zero and the
+  clamp made them one, so the technique whose stated purpose is defeating naive
+  fixed-window timing correlation emitted precisely the fixed window it exists to
+  defeat, and its foil used a fixed `+1s` on top. The lag is now drawn in float
+  seconds with the sub-second remainder dithered to a whole second, so the drawn
+  variance survives onto an integer-second timeline with its expected value
+  intact. Measured after the fix: inter-leg gaps of 1, 2 and 3 seconds appear at
+  every preset where only 1 existed before. The foil draws from the same
+  distribution.
+- **REP-002 ignored its own `window_s` preset and `--duration` entirely.** The
+  builder read `unique_ports` and `gap_ms` and nothing else, so the low preset
+  finished in about six seconds against a declared 120-second window, roughly
+  twenty times more aggressive than documented, and a one-hour duration override
+  returned a byte-identical plan. Probes now spread across the window with
+  `gap_ms` surviving as jitter on the spread. Measured after the fix: 119s, 59s
+  and 29s spans against declared windows of 120, 60 and 30. A duration override
+  keeps preset density and lets the probe count give way, as REP-019 does:
+  `--duration 12s` on the low preset yields 20 probes across 11 seconds.
+- **REP-014's benign foil was trivially separable on the technique's own primary
+  feature.** The catalog makes long duration the property the miner and the foil
+  *share*, and byte burstiness the thing that separates them. The foil topped out
+  at eleven steps of four share intervals, so a duration threshold alone scored
+  perfectly, which is the shortcut the foil exists to deny. Foil spacing now
+  tracks the session length. Measured: the foil spans 0.92 of one pool session at
+  every preset, against 0.37, 0.046 and 0.010 before.
+
+### Fixed: two ATT&CK mappings that would mislead a detection engineer
+
+- **REP-007 mapped `T1110.004` Credential Stuffing**, which MITRE defines as
+  replaying breached credential pairs. Nothing in the builder models that; one
+  user against many attempts is `T1110.001` Password Guessing. Now
+  `T1110, T1110.001, T1110.003`.
+- **REP-012 mapped `T1029` Scheduled Transfer**, an Exfiltration technique, on a
+  C2 beacon entry that lists neither TA0010 nor any transfer behaviour. Wrong
+  technique and wrong tactic. Dropped; `T1071` already carries the periodicity.
+- Three tactic lists claimed a tactic none of their own techniques carry. REP-009
+  listed TA0043 while carrying `T1190`, now TA0043 and TA0001. REP-017 listed
+  TA0005 with only C2 techniques, now TA0011. REP-018 listed TA0006 while
+  carrying `T1021`, `T1078` and `T1550`, none of which MITRE assigns to Credential
+  Access, now TA0008.
+
+### Fixed: smaller defects of the same family
+
+REP-016's benign NXDOMAIN trickle ran past the plan window it is meant to blend
+into. REP-013's baseline servers could be drawn from the worm's own seed set, so a
+control could grow like the worm. `jittered_interval` was unbounded, so a jitter
+override above 100 percent produced negative intervals and backward timestamps.
+DNS labels were not clamped to the RFC 1035 63-octet limit. The engine docstring
+still claimed REP-016 had no builder. Catalog text had drifted from code in six
+places, including dead `hours` preset keys and a schema comment describing
+`signature_id` as a CEF header input when all three profiles derive the header sig
+id from their own logid constants.
+
+`business_hours_weight` is deleted. No builder had ever called it, and the backlog
+line keeping it alive is struck in the same change: a helper preserved only by a
+to-do entry is dead code with an alibi.
+
+### The finding behind the findings
+
+None of this was caught by 952 passing tests, because **no test asserted that the
+code does what the catalog text promises**. Every defect above sat in the gap
+between a documented distribution and the one actually emitted. Fourteen tests now
+close it, including `tests/test_readme_catalog_sync.py`, which asserts README and
+catalog agree on id, name, log type, UC id and ATT&CK ids for all 24 entries.
+
+Two conventions, both earned here:
+
+1. **A guard has to be run against the unfixed code and observed to fail, and the
+   seed is part of the guard.** The review's own REP-013 test passed against the
+   code containing the bug: seed 1337 draws `10.20.30.139`, which is not a
+   baseline server, so the collision it asserts against never occurred. The seed
+   draw collides in 2 percent of seeds at the low and medium presets and 4 percent
+   at high. Re-pinned to seed 108, which draws `10.20.30.2` at every preset, and
+   parametrized across all three. A guard whose seed avoids the defect is a guard
+   that has never failed.
+2. **A benign foil is a correctness requirement of the technique, not a
+   decoration.** Two of the three behavioral defects were foils that a detection
+   could separate for free, on the very feature the foil exists to make
+   indistinguishable. A foil that is trivially separable is worse than no foil,
+   because it reports as coverage.
+
+### Known behaviour change
+
+`replicant run REP-002 --intensity low` now occupies its full 120 seconds instead
+of finishing in about six. That is what the preset always declared, and it is why
+`tests/test_plan_pacing.py` overrides `window_s` down to five seconds to remain a
+fast test rather than a two-minute one.
+
 ## [0.6.1] - 2026-08-30
 
 ### Fixed: every technique now draws its own signal-path diagram
@@ -1055,6 +1158,7 @@ This project uses MITRE ATT&CK. Copyright 2026 The MITRE Corporation. Reproduced
 
 Licensed under the Apache License 2.0. Third-party notices are in [`NOTICE`](NOTICE).
 
+[0.7.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.7.0
 [0.6.1]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.6.1
 [0.6.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.6.0
 [0.5.2]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.5.2
