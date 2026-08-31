@@ -152,6 +152,108 @@ def test_tls_loopback_line_arrives_intact(tmp_path: Path) -> None:
     assert line.endswith("\n")  # TLS shares TCP newline framing
 
 
+def _tls_server(cert: Path, key: Path) -> tuple[int, socket.socket, threading.Thread]:
+    """A one-shot TLS echo server presenting `cert`. Returns (port, sock, thread)."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    server.settimeout(5.0)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(certfile=str(cert), keyfile=str(key))
+
+    def serve() -> None:
+        try:
+            conn, _ = server.accept()
+        except OSError:
+            return
+        try:
+            with ctx.wrap_socket(conn, server_side=True) as tls_conn:
+                tls_conn.recv(65535)
+        except (OSError, ssl.SSLError):
+            # A client that rejects our cert aborts the handshake; that is the
+            # point of the verify-on test, not a server error.
+            pass
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return server.getsockname()[1], server, thread
+
+
+def test_tls_verify_on_rejects_an_untrusted_certificate(tmp_path: Path) -> None:
+    """The security-critical default (tls_verify=True, no CA file) must REFUSE a
+    self-signed cert it cannot chain to a trusted root. Every other TLS test sets
+    tls_verify=False, so this is the only guard on the verify-ON verdict: without
+    it, flipping the default to CERT_NONE would ship green and Replicant would send
+    CEF to any listener presenting any certificate, defeating collector auth."""
+    cert, key = _selfsigned_cert(tmp_path)
+    port, server, thread = _tls_server(cert, key)
+    try:
+        # tls_verify defaults to True, tls_cafile defaults to None -> system roots.
+        profile = CollectorProfile(name="strict", host="127.0.0.1", port=port, transport="tls")
+        with pytest.raises(ssl.SSLCertVerificationError):
+            with SyslogEmitter(profile):
+                pass
+    finally:
+        server.close()
+        thread.join(timeout=5.0)
+
+
+def _selfsigned_cert_ip(tmp_path: Path) -> tuple[Path, Path]:
+    """A self-signed cert valid for the IP 127.0.0.1, so hostname verification
+    passes when connecting by address (localhost can resolve to ::1, which the
+    IPv4 loopback server does not answer)."""
+    openssl = shutil.which("openssl")
+    if openssl is None:  # pragma: no cover - environment dependent
+        pytest.skip("openssl not available to generate a test certificate")
+    cert = tmp_path / "cert-ip.pem"
+    key = tmp_path / "key-ip.pem"
+    subprocess.run(
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=127.0.0.1",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return cert, key
+
+
+def test_tls_verify_on_accepts_the_cert_when_pinned_as_ca(tmp_path: Path) -> None:
+    """The positive control on the test above: verification is real, not always-reject.
+    The same self-signed cert, passed as tls_cafile with verify ON, must succeed."""
+    cert, key = _selfsigned_cert_ip(tmp_path)
+    port, server, thread = _tls_server(cert, key)
+    try:
+        profile = CollectorProfile(
+            name="pinned",
+            host="127.0.0.1",
+            port=port,
+            transport="tls",
+            tls_verify=True,
+            tls_cafile=str(cert),
+        )
+        with SyslogEmitter(profile) as emitter:
+            assert emitter.send_test(PAYLOAD) is True
+        thread.join(timeout=5.0)
+    finally:
+        server.close()
+
+
 def test_tls_connection_refused_is_fail_closed() -> None:
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     probe.bind(("127.0.0.1", 0))

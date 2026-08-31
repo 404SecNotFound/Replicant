@@ -174,6 +174,43 @@ def test_vpn_success_has_tunnel_and_no_cp_severity() -> None:
     assert "cp_severity" not in ext
 
 
+def test_vpn_emits_source_region_when_srccountry_present() -> None:
+    """REP-011 geovelocity emits srccountry; without a Check Point branch its
+    whole signal was dropped on this one vendor, so a country-keyed rule never
+    fired against Check Point logs. FortiGate and PAN-OS both render it."""
+    event = _vpn(
+        "tunnel-up",
+        {
+            "tunneltype": "ssl-tunnel",
+            "tunnelid": "1846277",
+            "group": "vpn-users",
+            "reason": "login-success",
+            "msg": "SSL tunnel established",
+            "srccountry": "Wadiya",
+        },
+    )
+    _, ext = CheckPointProfile().render(event)
+    assert ext["cs4Label"] == "Source Region"
+    assert ext["cs4"] == "Wadiya"
+
+
+def test_vpn_omits_source_region_when_srccountry_absent() -> None:
+    # The eight golden lines carry no srccountry, so it must stay optional and
+    # never shift their order.
+    event = _vpn(
+        "tunnel-up",
+        {
+            "tunneltype": "ssl-tunnel",
+            "tunnelid": "1846277",
+            "group": "vpn-users",
+            "reason": "login-success",
+            "msg": "SSL tunnel established",
+        },
+    )
+    _, ext = CheckPointProfile().render(event)
+    assert "cs4" not in ext
+
+
 def test_vpn_fail_has_cp_severity_and_no_tunnel() -> None:
     event = _vpn(
         "ssl-login-fail",
