@@ -210,6 +210,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--to-file", metavar="PATH", help="mirror CEF payloads to a file")
     run.add_argument("--no-send", action="store_true", help="do not send to a collector")
+    run.add_argument(
+        "--mark-synthetic",
+        action="store_true",
+        help="stamp a ReplicantSynthetic marker (with the run id) on every line, "
+        "so lab data is separable from production in a shared collector",
+    )
     run.add_argument("--rate", type=int, help="events-per-second cap override")
     run.add_argument(
         "--pace",
@@ -399,6 +405,11 @@ def cmd_run(
     except ValidationError as exc:
         _fail(f"[red]run refused[/red]: {_first_error(exc)}")
         return 1
+
+    if getattr(args, "mark_synthetic", False):
+        # Per-run override of the standing benign_marker switch. model_copy so the
+        # loaded settings object is not mutated for anything else in the process.
+        settings = settings.model_copy(update={"benign_marker": True})
 
     orchestrator = Orchestrator(catalog, settings)
     # Said before the run, not after it. Plan pacing turns a three second run into
