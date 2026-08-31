@@ -383,12 +383,16 @@ has no obvious benign counterpart that is not just "a user who does not travel".
 split first, close the gap technique by technique, and let the contract for an entry
 without a foil say `negative: {present: false, reason: ...}` honestly in the meantime.
 
-**Boundary tests: add them only where a threshold is a parameter Replicant controls.**
-The brief's example (9 connections vs 10 vs 20) is honest for REP-010 (denied burst),
-REP-003 (horizontal sweep), REP-002 (vertical scan), REP-007 (spray) and REP-021
-(inbound scan), where a count or a rate is literally a preset key. It is **not** honest
-for REP-011 (geovelocity) or REP-020 (newly registered domain), where the threshold lives
-in the detection's own logic and Replicant cannot know it. A `boundary` block on a
+**Boundary tests: add them only where the axis the detection thresholds on is a
+Replicant preset.** Not merely "the technique has a numeric preset"; most do. The brief's
+example (9 connections vs 10 vs 20) is honest for REP-010 (denied burst), REP-003
+(horizontal sweep), REP-002 (vertical scan), REP-007 (spray) and REP-021 (inbound scan),
+where a scan or burst rule thresholds on exactly the count the preset sets. It is **not**
+honest for REP-020, where the rule thresholds on domain age and Replicant does not model
+age at all, or REP-008, where novelty is a function of the SIEM's own observation history
+rather than of anything in the plan: `novel_domains: 3` looks like a threshold and is not
+the rule's threshold. REP-011 and REP-016 are arguable, and the rule for arguable is no
+block. A `boundary` block on a
 technique that cannot express one is decoration, and this project has a rule about
 controls whose output cannot change: the v0.3.0 vendor filter was dropped for exactly
 that. **Boundary is opt-in per technique, and a technique without one says so.**
@@ -893,6 +897,11 @@ against BAS platforms, which emulate on one endpoint agent and have no vendor ax
 ---
 
 ## 15. P0 / P1 / P2 roadmap
+
+> Executed in `tasks/detection-validation-roadmap.md`, which turns this section into
+> milestones with exit criteria, positive controls and a risk register. That file is the
+> one to work from; this one is the reasoning behind it.
+
 
 **P0, foundation. Everything offline, no SIEM, no licence, no lab.** [Inference] 7 to 9
 person-weeks.
