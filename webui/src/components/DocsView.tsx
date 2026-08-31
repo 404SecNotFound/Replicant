@@ -58,7 +58,12 @@ const docsMarked = new Marked({
     // a working `href`. Neutralising raw HTML alone would have left that open.
     link(token: { href?: string; title?: string | null; text?: string }) {
       const href = String(token.href ?? "");
-      const safe = /^(https?:|mailto:|#|\/|\.)/i.test(href.trim());
+      // A single leading slash is an in-repo relative path and is allowed; a
+      // double one (`//host`, or `/\host`) is a protocol-relative URL that
+      // navigates off-site, so the `\/` alternative must not match it. Without
+      // the negative lookahead, `[x](//evil.example)` rendered a working
+      // off-origin link from the Replicant page.
+      const safe = /^(https?:|mailto:|#|\/(?![/\\])|\.)/i.test(href.trim());
       const text = escapeHtml(String(token.text ?? ""));
       if (!safe) return text;
       const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
