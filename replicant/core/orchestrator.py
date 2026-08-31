@@ -36,6 +36,7 @@ from typing import Any
 from replicant import __version__
 from replicant.audit.manifest import (
     human_summary,
+    new_run_id,
     now_dubai_iso,
     write_advisory,
     write_manifest,
@@ -91,6 +92,10 @@ class RunResult:
     event_count: int
     plan: ScenarioPlan
     stopped: bool
+
+    @property
+    def run_id(self) -> str:
+        return self.manifest.run_id
 
     def summary(self) -> str:
         return human_summary(self.manifest, self.manifest_path)
@@ -349,7 +354,14 @@ class Orchestrator:
         request: RunRequest,
         on_progress: ProgressCallback | None = None,
         on_event: EventCallback | None = None,
+        run_id: str | None = None,
     ) -> RunResult:
+        # Generated once here so every surface shares one id: the CLI prints it,
+        # the manifest records it, the web runner passes its handle id in so the
+        # id an operator sees in a 409 resolves to a manifest on disk. Created
+        # before anything can raise, so even a run that dies on connect writes a
+        # manifest carrying the id it was known by.
+        run_id = run_id or new_run_id()
         technique = self.catalog.by_id(request.technique_id)
 
         want_send = not request.no_send
@@ -410,6 +422,7 @@ class Orchestrator:
 
         manifest = RunManifest(
             replicant_version=__version__,
+            run_id=run_id,
             technique_id=technique.id,
             technique_name=technique.name,
             ndr_uc=technique.ndr_uc,

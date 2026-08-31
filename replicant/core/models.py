@@ -205,6 +205,11 @@ class RunManifest(BaseModel):
     """Audit record written for every run (safety rule 5, blueprint s4)."""
 
     replicant_version: str
+    #: Stable per-run identifier, e.g. ``RUN-20260831T142212Z-a3f9c1``. The only
+    #: thing that ties a manifest, its telemetry and (when --mark-run is on) the
+    #: emitted CEF lines back to one another. Defaulted so manifests written before
+    #: this field existed still load; every run made since produces a real one.
+    run_id: str = ""
     technique_id: str
     technique_name: str
     ndr_uc: str
