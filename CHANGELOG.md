@@ -6,6 +6,27 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-31
+
+### Fixed: the eighth golden line of every vendor was never compared
+
+All three vendor golden tests assert that the reference document contains eight
+golden lines, assert that the event fixtures match that count, and then
+byte-compare `range(7)`. The eighth line of FortiGate, PAN-OS and Check Point had
+never been compared to anything.
+
+Changing all three to `range(8)` leaves 30 of 30 passing, so the lines were
+correct and simply unchecked: a coverage hole rather than a live defect, and
+still the most important thing found this cycle. This project's correctness story
+is the golden oracle, and the oracle was proving seven eighths of what its own
+test names claimed. Same class as the REP-013 guard whose seed avoided the
+collision it asserted against.
+
+Found by an external roadmap proposal whose triage is recorded in
+`docs/10x-roadmap-triage.md`. Roughly 13 person-weeks of 58 to 62 were adopted;
+the rejections and their reasons are in that file so they can be argued with
+rather than rediscovered.
+
 ### Changed: Node 20 is the floor, and the npm advisories are gone (F-14)
 
 `npm audit` reported six advisories, one critical, and the fixes needed vite 8
@@ -1241,6 +1262,7 @@ This project uses MITRE ATT&CK. Copyright 2026 The MITRE Corporation. Reproduced
 
 Licensed under the Apache License 2.0. Third-party notices are in [`NOTICE`](NOTICE).
 
+[0.8.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.8.0
 [0.7.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.7.0
 [0.6.1]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.6.1
 [0.6.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.6.0
