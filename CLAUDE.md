@@ -1,4 +1,4 @@
-# CLAUDE.md — Replicant
+# CLAUDE.md: Replicant
 
 Persistent context for Claude Code working in this repository. Read this first, every session.
 
