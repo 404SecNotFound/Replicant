@@ -109,6 +109,45 @@ class TestFanOut:
             seen.append(fast.get_nowait())
         assert any(i.get("data") == "important" for i in seen)
 
+    def test_subscribing_during_a_publish_storm_loses_no_item(self) -> None:
+        """The fan-out race: a tab subscribing at the instant of a publish could
+        snapshot history before an item was appended and join the subscriber list
+        after it was fanned out, missing exactly that item, including the terminal
+        done event. The lock makes replay-plus-append atomic, so every subscriber
+        that exists at the end has the full stream regardless of when it joined.
+
+        This is a concurrency load test, not a forced-red control: the race window
+        cannot be widened from Python without a seam in the code. It passes
+        reliably with the lock and can catch a regression that drops it. The
+        deterministic guarantee is the mutual exclusion in RunHandle itself."""
+        import threading
+
+        handle = _handle()
+        total = 500  # < MAX_HISTORY_ITEMS and < QUEUE_MAXSIZE, so nothing is dropped
+        subscribers: list[queue.Queue[dict]] = []
+        stop = threading.Event()
+
+        def joiner() -> None:
+            # Keep subscribing throughout the storm, so some joins land mid-publish.
+            while not stop.is_set():
+                subscribers.append(handle.subscribe())
+
+        t = threading.Thread(target=joiner, daemon=True)
+        t.start()
+        for i in range(total):
+            handle.publish({"type": "line", "seq": i})
+        stop.set()
+        t.join(timeout=5.0)
+        subscribers.append(handle.subscribe())  # one that joins strictly after
+
+        for sub in subscribers:
+            seqs = []
+            while not sub.empty():
+                item = sub.get_nowait()
+                if item.get("type") == "line":
+                    seqs.append(item["seq"])
+            assert seqs == list(range(total)), "a subscriber missed or reordered an item"
+
 
 class TestFailedRunRecord:
     def test_a_record_survives_on_the_exception(self) -> None:

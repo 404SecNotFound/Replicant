@@ -271,6 +271,28 @@ def test_an_unauthenticated_request_sets_no_cookie(tmp_path: Path) -> None:
     assert SESSION_COOKIE not in resp.headers.get("set-cookie", "")
 
 
+def test_a_header_token_request_mints_no_session_cookie(tmp_path: Path) -> None:
+    """A monitoring poller authenticates by header and keeps no cookie jar. Each
+    such request used to mint a fresh SessionStore id retained for the full TTL,
+    so a 1/s poller grew ~43k dead sessions in 12h. Only the browser's URL-token
+    navigation is promoted to a cookie; the header API contract mints nothing."""
+    client = make_client(tmp_path)
+
+    resp = client.get("/api/catalog", headers={"x-replicant-token": TOKEN})
+
+    assert resp.status_code == 200  # authenticated fine, just no cookie
+    assert SESSION_COOKIE not in resp.headers.get("set-cookie", "")
+
+
+def test_a_bearer_token_request_mints_no_session_cookie(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    resp = client.get("/api/catalog", headers={"Authorization": f"Bearer {TOKEN}"})
+
+    assert resp.status_code == 200
+    assert SESSION_COOKIE not in resp.headers.get("set-cookie", "")
+
+
 # --- A5: cookie auth is the only path that needs an Origin -----------------
 
 

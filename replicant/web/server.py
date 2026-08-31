@@ -580,7 +580,7 @@ def create_app(
 
     @app.middleware("http")
     async def _session_cookie(request: Request, call_next: Any) -> Any:
-        """Promote an explicit token to a session cookie once it has worked.
+        """Promote a URL-token navigation to a session cookie once it has worked.
 
         This lives in middleware rather than a route because ``StaticFiles`` is
         mounted at ``/``: the page the operator actually opens is served by the
@@ -588,7 +588,15 @@ def create_app(
         """
         source = _authenticated_source(request)
         response = await call_next(request)
-        if source is not None and source != "cookie" and response.status_code < 400:
+        # Only the query-token source is promoted to a cookie. That is the browser
+        # navigation path: the operator opens the printed `/?token=...` URL, the
+        # SPA reads the token, strips it (F-04), and relies on the cookie from
+        # then on. The header source is the programmatic API contract, where the
+        # client manages its own credential and does not use the cookie, so
+        # minting one per request just grew SessionStore for the full TTL with
+        # sessions no client would ever present. A header-token monitoring poll
+        # now mints nothing.
+        if source == "query" and response.status_code < 400:
             response.set_cookie(
                 SESSION_COOKIE,
                 # A fresh short-lived id, not the launch token. See SessionStore.

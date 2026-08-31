@@ -93,6 +93,12 @@ class RunHandle:
     #: finished still receives it. Bounded by MAX_STREAM_LINES + a little for the
     #: progress and terminal items.
     history: list[dict[str, Any]] = field(default_factory=list)
+    #: Serialises subscribe/unsubscribe/publish. The worker thread publishes while
+    #: request threads subscribe, and without this a tab connecting at the instant
+    #: of a publish could snapshot history BEFORE an item was appended and join the
+    #: subscriber list AFTER that item was fanned out, missing it, including the
+    #: terminal done/error event that tells the UI the run finished.
+    _fanout_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         # The handle's own queue is the first subscriber, so existing callers
@@ -113,32 +119,38 @@ class RunHandle:
         """
 
         subscriber: Queue[dict[str, Any]] = Queue(maxsize=QUEUE_MAXSIZE)
-        for item in list(self.history):
-            try:
-                subscriber.put_nowait(item)
-            except Full:  # pragma: no cover - history is bounded below QUEUE_MAXSIZE
-                break
-        self.subscribers.append(subscriber)
+        # Held across BOTH the history replay and the append: a publish cannot
+        # then slip an item between the snapshot and the join, so every item is
+        # delivered exactly once, either as replayed history or as a live push.
+        with self._fanout_lock:
+            for item in list(self.history):
+                try:
+                    subscriber.put_nowait(item)
+                except Full:  # pragma: no cover - history is bounded below QUEUE_MAXSIZE
+                    break
+            self.subscribers.append(subscriber)
         return subscriber
 
     def unsubscribe(self, subscriber: Queue[dict[str, Any]]) -> None:
         # Never drop the handle's own queue: it is what a caller with no
         # subscription still reads, and the worker would otherwise publish into
         # nothing.
-        if subscriber is not self.queue and subscriber in self.subscribers:
-            self.subscribers.remove(subscriber)
+        with self._fanout_lock:
+            if subscriber is not self.queue and subscriber in self.subscribers:
+                self.subscribers.remove(subscriber)
 
     def publish(self, item: dict[str, Any]) -> None:
         """Offer to every subscriber. A full queue drops for that reader only."""
 
-        self.history.append(item)
-        if len(self.history) > MAX_HISTORY_ITEMS:
-            del self.history[: len(self.history) - MAX_HISTORY_ITEMS]
-        for subscriber in list(self.subscribers):
-            try:
-                subscriber.put_nowait(item)
-            except Full:
-                self.dropped += 1
+        with self._fanout_lock:
+            self.history.append(item)
+            if len(self.history) > MAX_HISTORY_ITEMS:
+                del self.history[: len(self.history) - MAX_HISTORY_ITEMS]
+            for subscriber in list(self.subscribers):
+                try:
+                    subscriber.put_nowait(item)
+                except Full:
+                    self.dropped += 1
 
 
 class RunManager:

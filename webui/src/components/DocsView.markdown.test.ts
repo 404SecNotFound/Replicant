@@ -73,4 +73,19 @@ describe("renderMarkdown", () => {
 
     expect(html).not.toMatch(/href="javascript:/i);
   });
+
+  it("rejects a protocol-relative link that would navigate off-site", () => {
+    const html = renderMarkdown("[x](//evil.example/path)");
+
+    // The href must not survive at all: // and /\ are off-origin, unlike a
+    // single-slash in-repo path.
+    expect(html).not.toMatch(/href="\/\//);
+    expect(html).not.toMatch(/href="\/\\/);
+  });
+
+  it("still allows a single-slash in-repo relative path", () => {
+    const html = renderMarkdown("[x](/blueprint.md)");
+
+    expect(html).toMatch(/href="\/blueprint\.md"/);
+  });
 });
