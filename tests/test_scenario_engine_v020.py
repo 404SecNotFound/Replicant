@@ -209,6 +209,25 @@ def test_rep016_renders_dns_response_on_all_three_vendors() -> None:
         assert ext[key] == "NXDOMAIN"
 
 
+def test_rep016_renders_the_resolved_address_on_all_three_vendors() -> None:
+    """The other verdict of the same field. Only NXDOMAIN was covered, so a rename
+    or an inverted `if e.get('ipaddr')` guard would silently drop or misname the
+    resolved-IP field a DGA/beacon detection reads, and ship green. The resolved
+    answer (NOERROR with an address) must reach the log on every vendor."""
+    plan = _plan("REP-016", "low", 1337)
+    event = next(
+        e for e in plan.events if e.extra.get("rcode") == "NOERROR" and e.extra.get("ipaddr")
+    )
+    expected = str(event.extra["ipaddr"])
+    for profile, key in (
+        (FortiGateProfile(), "FTNTFGTipaddr"),
+        (PaloAltoProfile(), "PanOSDNSResolvedAddress"),
+        (CheckPointProfile(), "dns_resolved_addr"),
+    ):
+        _, ext = profile.render(event)
+        assert ext[key] == expected
+
+
 # -- REP-012 jittered and fleet-aggregate callback ----------------------------
 
 

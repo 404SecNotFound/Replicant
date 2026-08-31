@@ -289,6 +289,15 @@ class CheckPointProfile(VendorProfile):
         ext["duser"] = require(event.duser, "duser")
         ext["suser"] = require(event.duser, "duser")
         ext["auth_status"] = "Failed Login" if is_fail else "Successful Login"
+        # Synthetic GeoIP tag, present only for geovelocity scenarios (REP-011).
+        # FortiGate and PAN-OS both render it; without this branch REP-011's whole
+        # signal, the changing source country, was dropped on Check Point alone,
+        # so a country-keyed correlation rule never fired against these logs. The
+        # reference doc specifies it follows auth_status. [Unverified] field name:
+        # the real Log Exporter key is unconfirmed against a live appliance.
+        if "srccountry" in e:
+            ext["cs4Label"] = "Source Region"
+            ext["cs4"] = e["srccountry"]
         if is_fail:
             ext["cp_severity"] = str(sev)
         if not is_fail:

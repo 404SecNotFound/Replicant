@@ -126,3 +126,46 @@ def test_builder_never_exceeds_max_events(technique_id: str) -> None:
         f"{technique_id} produced {len(plan.events)} events, "
         f"over max_events={engine.max_events}"
     )
+
+
+# Safety rule 2: every entity pool must be synthetic. `_assert_synthetic` is the
+# one guard between an operator config and a log line carrying a real routable
+# address. The default-build test below is a positive control; without the
+# rejection test beside it, a refactor that dropped or inverted the containment
+# check would ship green, since the defaults are all in range.
+
+
+def test_build_places_every_default_pool_inside_the_synthetic_ranges() -> None:
+    """Positive control: the shipped defaults resolve, so the rejection test
+    below cannot pass merely because the guard rejects everything."""
+    import ipaddress
+
+    from replicant.entities.model import _ALLOWED_RANGES
+
+    model = EntityModel.build()
+    pools = (
+        model.internal_hosts
+        + model.internal_targets
+        + model.adversary_external
+        + model.benign_external
+        + [model.resolver]
+    )
+    for addr in pools:
+        ip = ipaddress.ip_address(addr)
+        assert any(ip in net for net in _ALLOWED_RANGES), f"{addr} is outside the synthetic ranges"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("adversary_subnet", "8.8.8.0/24"),  # a real, routable, famous address
+        ("internal_subnet", "1.1.1.0/24"),
+        ("target_subnet", "203.0.113.0/24 "),  # trailing space -> ValueError from ip parse
+    ],
+)
+def test_build_refuses_a_non_synthetic_subnet(field: str, value: str) -> None:
+    """The guard must reject a public range, not just document that it should."""
+    from replicant.entities.model import EntityConfig
+
+    with pytest.raises(ValueError):
+        EntityModel.build(EntityConfig(**{field: value}))
