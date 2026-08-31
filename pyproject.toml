@@ -41,6 +41,10 @@ dev = [
     "httpx>=0.27",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
+    # Test-only. tests/test_webui_backdrop.py decodes the one sanctioned image
+    # to prove it leaves the reading columns at flat canvas; nothing at runtime
+    # reads it, the browser does. numpy is already a runtime dependency.
+    "pillow>=10",
 ]
 
 [project.scripts]

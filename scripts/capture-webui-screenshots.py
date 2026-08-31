@@ -46,13 +46,20 @@ import argparse
 import asyncio
 import base64
 import json
+import os
 import subprocess
 import urllib.request
 from pathlib import Path
 
 import websockets
 
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# macOS default, since that is where these are usually regenerated. Overridable
+# because the shots have to be retakeable wherever the UI is being changed: the
+# backdrop swap was made on Linux, and a script that cannot run there is a script
+# that leaves the committed screenshots showing a UI that has moved on.
+CHROME = os.environ.get(
+    "REPLICANT_CHROME", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+)
 DEBUG_PORT = 9222
 WIDTH, HEIGHT = 1440, 900
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "images"
@@ -186,6 +193,11 @@ async def capture_all(url: str, views: set[str]) -> None:
             "--disable-gpu",
             "--no-first-run",
             "--user-data-dir=/tmp/replicant-shots",
+            # Chrome's sandbox refuses to start as root, which is every container
+            # this might be regenerated in. Added only for that case: a developer
+            # running as themselves keeps the sandbox, which is where the browser
+            # is pointed at a URL and it matters.
+            *(["--no-sandbox"] if hasattr(os, "geteuid") and os.geteuid() == 0 else []),
             "about:blank",
         ],
         stdout=subprocess.DEVNULL,

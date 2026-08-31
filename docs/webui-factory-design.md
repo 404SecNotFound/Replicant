@@ -78,6 +78,37 @@ no red; errors and warnings are status and speak in the signal orange
   under a flat `--background`/0.4 scrim. Cards are opaque, so it reads as
   texture on the canvas only. Any future imagery goes through the same test:
   darker than every text pair's measured floor, or it does not ship.
+
+  That test was stated here from v0.6.0 and nothing ran it, so the image that
+  shipped until v0.8.0 did not pass it. Measured on the rendered page across five
+  scroll positions, its brightest trace put the run panel's pacing hint at
+  **1.77:1**, and two technique-list subtitles at **2.34:1** and **2.59:1**. The
+  replacement is a blend of that plate with a denser routing plate, and it holds
+  every canvas-level text node at or above 4.5:1 at 1280, 1440, 1920 and 2560.
+
+  **The defect was positional, not one of overall brightness**, and that is the
+  rule to carry forward. `background-attachment` is `fixed`, so the backdrop
+  stands still while the columns scroll text across it: brightness averaged over
+  the plate says nothing, because one bright trace crossing one 12px subtitle is
+  the whole failure. Structure has to vacate any region a column can cover, which
+  in this layout means everything left of the right gutter. It is enforced by a
+  horizontal ramp in the asset itself (flat canvas until 70% of the image width),
+  not by CSS, so the constraint survives any later change to `background-size` or
+  `background-position` that keeps the image inside the frame.
+
+  Provenance, so a later change knows what it is editing: the shipped asset is a
+  lighten blend of the original v0.6.0 plate with a circuit-routing plate
+  generated for this palette (Higgsfield, Nano Banana Pro, 21:9 at 4K), then
+  ramped and reduced to 1920x815 WebP. The ramp and the orange-area reduction are
+  deterministic post-processing, not part of the generation.
+
+  `tests/test_webui_backdrop.py` is the guard. It is arithmetic on the asset
+  rather than a render, because the mapping (`cover`, `center top`) is arithmetic;
+  it is deliberately stricter than the rendered page (it treats the full left
+  1150px as reading columns at every viewport, where the real text wraps
+  narrower), so it fails a little early rather than a little late. Positive
+  control: against the previous asset it reports 1.69:1 and four of its five
+  assertions fail.
 - Segmented controls: content-sized segments, `white-space: nowrap`, 10-12px
   horizontal padding. "Check Point" has wrapped or clipped three separate times in
   equal-width segments; do not reintroduce `flex-1` there.

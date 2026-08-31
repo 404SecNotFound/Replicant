@@ -6,6 +6,50 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Fixed: the backdrop put its brightest structure on the text it sits behind
+
+`docs/webui-factory-design.md` section 4 has required since v0.6.0 that any
+imagery be "darker than every text pair's measured floor". Nothing ran that test,
+and the image that shipped from v0.6.0 to v0.8.0 did not pass it. Measured on the
+rendered page across five scroll positions, the shipped backdrop put the run
+panel's `Sends 243 events as fast as the rate cap allows` at **1.77:1** and two
+technique-list subtitles at **2.34:1** and **2.59:1**, all far under AA. The
+wireframe globe sat behind the hero title and an orange trace crossed the rail.
+
+The replacement is a **blend** of that plate with a denser circuit-routing plate
+generated for this palette, with a horizontal ramp holding the left 70% of the
+asset at flat `#101010`. It holds every canvas-level text node at or above
+**4.5:1** at 1280, 1440, 1920 and 2560, at five scroll positions each. Signal
+orange stays a few small trace endpoints: 0.011% of pixels, against 0.023% in the
+image it replaces, so chromatic weight went down rather than up.
+
+**The defect was positional, not one of overall brightness**, which is why the
+plate-level luminance checks that were run at the time reported it as fine.
+`background-attachment` is `fixed`: the backdrop stands still while the columns
+scroll text across it, so an average over the plate says nothing and one bright
+trace crossing one 12px subtitle is the entire failure. Structure has to vacate
+any region a column can cover.
+
+Three things this established:
+
+1. **A measurement at one scroll position proves one scroll position.** The
+   static shot found 2.34:1; scrolling the same page found 1.77:1 on a node the
+   first pass never had under the image at all. Anything behind a fixed backdrop
+   has to be measured through its scroll range.
+2. **The guard is stricter than the page on purpose.** It treats the full left
+   1150px as reading columns at every viewport, where the real text wraps
+   narrower. It failed the first candidate at 1280 (4.19:1) when the rendered
+   page said every real node cleared 4.5; the candidate was moved rather than the
+   guard, because a guard tuned until it passes has stopped being one.
+3. **A brightness cap would not have caught this and does not replace it.** The
+   old and new plates have almost the same peak and the same orange area. What
+   changed is where the bright pixels are.
+
+Guarded by `tests/test_webui_backdrop.py`, whose positive control is recorded:
+against the previous asset it reports 1.69:1 and four of its five assertions
+fail. `pillow` joins the `dev` extra for it; nothing at runtime decodes the
+image, the browser does.
+
 ## [0.8.0] - 2026-08-31
 
 ### Fixed: the eighth golden line of every vendor was never compared

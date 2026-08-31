@@ -258,6 +258,28 @@ Output convention: command results go to stdout, operator-facing errors go to st
   surfaced as five failures, every one a true report about shared global state rather than a
   defect in the thing under test, which is why the fix was isolation and not a weaker lock.
 
+- Backdrop contrast (complete): the one sanctioned image had never been run against the
+  test the design doc states for it. Measured on the rendered page through five scroll
+  positions, it put the run panel's pacing hint at 1.77:1 and two rail subtitles at
+  2.34:1 and 2.59:1. Replaced by a blend of that plate with a denser routing plate,
+  ramped to flat canvas across the left 70% of the asset; every canvas-level node now
+  clears 4.5:1 at 1280/1440/1920/2560. Guard: `tests/test_webui_backdrop.py`.
+
+  Three conventions this established:
+  1. **A measurement at one scroll position proves one scroll position.** `body` uses
+     `background-attachment: fixed`, so the backdrop stands still while the columns
+     scroll text across it. The static shot found 2.34:1; scrolling the same page found
+     1.77:1 on a node the first pass never had under the image at all.
+  2. **The defect was positional, not one of overall brightness.** Old and new plates
+     have nearly the same peak luminance and the same orange area; what changed is where
+     the bright pixels sit. A brightness cap would have passed both, which is why the
+     rule is that structure vacates any region a column can cover.
+  3. **When the guard and the page disagree, move the artwork, not the guard.** The
+     guard is deliberately stricter than the layout (it treats the full left 1150px as
+     reading columns at every viewport). It failed a candidate at 1280 that the rendered
+     page said was fine; the candidate was changed. A guard tuned until it passes has
+     stopped being one.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 **The LogRhythm lab test has still never run**, so every timing and delivery claim in this
