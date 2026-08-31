@@ -55,6 +55,25 @@ def test_high_entropy_labels_respect_the_63_octet_limit() -> None:
     assert all(len(label) <= 63 for label in labels)
 
 
+def test_high_entropy_labels_refuses_more_than_the_alphabet_can_form() -> None:
+    """The rejection loop spun forever when asked for more distinct labels than
+    exist. 100 unique labels of length 1 over a 32-symbol alphabet is impossible;
+    it must raise, not hang. If this regresses the test hangs rather than fails,
+    so it is bounded by pytest's own timeout in CI, but the raise is the point."""
+    rng = make_rng(1337)
+    with pytest.raises(ValueError, match="unique labels"):
+        high_entropy_labels(rng, 100, 1, 1)
+
+
+def test_high_entropy_labels_fills_exactly_the_reachable_space() -> None:
+    """The boundary is inclusive: asking for the whole space must succeed, not
+    be rejected by an off-by-one in the bound check. 32 distinct 1-char labels
+    is exactly the base32 alphabet."""
+    rng = make_rng(1337)
+    labels = high_entropy_labels(rng, 32, 1, 1)
+    assert len(set(labels)) == 32
+
+
 def test_label_len_override_above_63_is_clamped_in_the_engine() -> None:
     """REP-004 joins labels under a parent; the label cap keeps qnames legal."""
     engine = ScenarioEngine()

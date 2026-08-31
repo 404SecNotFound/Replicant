@@ -173,6 +173,26 @@ class Entity(BaseModel):
     country: str | None = None
 
 
+def _validate_duration(value: str | None) -> str | None:
+    """Reject a malformed ``--duration`` at the model boundary.
+
+    ``parse_duration`` lives in ``config.settings``, which imports this module,
+    so it is imported lazily here to avoid the cycle. Validating on the request
+    model rather than in each caller means the CLI, the Rich menu and the web
+    form all reject ``30min`` or ``banana`` the same way: pydantic turns the
+    ``ValueError`` into a ``ValidationError`` the entry points already render as
+    a clean operator error, instead of the raw traceback that used to reach
+    stderr and, in the menu, tear down the whole interactive session.
+    """
+
+    if value is None:
+        return value
+    from replicant.config.settings import parse_duration
+
+    parse_duration(value)  # raises ValueError on anything unparseable
+    return value
+
+
 class RunRequest(BaseModel):
     technique_id: str
     intensity: Intensity = "medium"
@@ -193,6 +213,8 @@ class RunRequest(BaseModel):
     pace: Pace | None = None
     # Compresses the plan's timeline, event times included. 1.0 is untouched.
     speed: float = Field(default=1.0, gt=0, le=MAX_SPEED)
+
+    _check_duration = field_validator("duration")(_validate_duration)
 
     @model_validator(mode="after")
     def _speed_needs_a_timeline(self) -> RunRequest:
@@ -348,6 +370,8 @@ class ScenarioRunRequest(BaseModel):
     # more there, not less.
     pace: Pace | None = None
     speed: float = Field(default=1.0, gt=0, le=MAX_SPEED)
+
+    _check_duration = field_validator("duration")(_validate_duration)
 
     @model_validator(mode="after")
     def _speed_needs_a_timeline(self) -> ScenarioRunRequest:

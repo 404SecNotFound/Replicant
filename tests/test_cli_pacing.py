@@ -147,6 +147,27 @@ def test_the_pace_is_left_unset_when_not_asked_for(
     assert _Recorder.seen[-1].pace is None
 
 
+def test_malformed_duration_is_refused_cleanly_not_with_a_traceback(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """`--duration 30min` used to raise a raw ValueError traceback out of the
+    orchestrator, and in the Rich menu it tore down the whole session. Validating
+    on the request model turns it into the same clean refusal every other bad
+    flag gets. Nothing is written to stdout, so a redirected run does not swallow
+    the reason."""
+
+    rc = main(
+        ["run", "REP-001", "--no-send", "--to-file", str(tmp_path / "o.log"), "--duration", "30min"]
+    )
+
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "cannot parse duration" in captured.err.lower()
+    assert "traceback" not in captured.err.lower()
+    assert captured.out.strip() == ""
+    assert not (tmp_path / "o.log").exists()
+
+
 def test_speed_beside_burst_is_refused_rather_than_ignored(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
