@@ -261,24 +261,33 @@ Output convention: command results go to stdout, operator-facing errors go to st
 - Backdrop contrast (complete): the one sanctioned image had never been run against the
   test the design doc states for it. Measured on the rendered page through five scroll
   positions, it put the run panel's pacing hint at 1.77:1 and two rail subtitles at
-  2.34:1 and 2.59:1. Replaced by a blend of that plate with a denser routing plate,
-  ramped to flat canvas across the left 70% of the asset; every canvas-level node now
-  clears 4.5:1 at 1280/1440/1920/2560. Guard: `tests/test_webui_backdrop.py`.
+  2.34:1 and 2.59:1. Replaced by a blend of that plate with a dense circuit-routing
+  plate, tone-mapped so no pixel exceeds the contrast ceiling; every canvas-level node
+  now measures at or above 4.67:1 at 1280/1440/1920/2560. The plate is achromatic: the
+  decorative orange endpoints are gone, so signal orange on screen means live data.
+  Guard: `tests/test_webui_backdrop.py`.
 
-  Three conventions this established:
+  Four conventions this established:
   1. **A measurement at one scroll position proves one scroll position.** `body` uses
      `background-attachment: fixed`, so the backdrop stands still while the columns
-     scroll text across it. The static shot found 2.34:1; scrolling the same page found
-     1.77:1 on a node the first pass never had under the image at all.
-  2. **The defect was positional, not one of overall brightness.** Old and new plates
-     have nearly the same peak luminance and the same orange area; what changed is where
-     the bright pixels sit. A brightness cap would have passed both, which is why the
-     rule is that structure vacates any region a column can cover.
-  3. **When the guard and the page disagree, move the artwork, not the guard.** The
-     guard is deliberately stricter than the layout (it treats the full left 1150px as
-     reading columns at every viewport). It failed a candidate at 1280 that the rendered
-     page said was fine; the candidate was changed. A guard tuned until it passes has
-     stopped being one.
+     scroll text across it. The static shot found 2.34:1; scrolling found 1.77:1 on a
+     node the first pass never had under the image at all. A measured occupancy map (8
+     viewports x 4 tabs x 6 scroll positions) put text over 61% of the plate, the rest
+     slivers between lines. **There is no safe region, so the rule is total, not
+     positional.**
+  2. **Bounding the plate beats clearing a zone, and it is the reason it could get
+     denser instead of emptier.** The first fix confined the artwork to a corner and
+     made the backdrop nearly invisible. The ceiling is arithmetic - composited
+     luminance under `(L_text + 0.05) / 4.5 - 0.05` - so structure may cover the whole
+     frame as long as it is tone-mapped beneath it.
+  3. **Solve the amplitude against the encoded file, not the float composition.** A
+     lossy WebP encode overshoots on sharp line art: quality 80-95 raised the peak from
+     36 to 45 and dropped the floor from 4.63:1 to 4.32:1, under the bar. Solving on
+     the float data would have shipped a file that fails its own guard.
+  4. **When the guard and the rendered page disagree, move the artwork, not the
+     guard.** An earlier candidate failed the guard at 1280 while the page said it was
+     fine; the candidate was changed. A guard tuned until it passes has stopped being
+     one.
 
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 

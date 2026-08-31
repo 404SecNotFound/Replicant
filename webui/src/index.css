@@ -65,10 +65,13 @@
   body {
     background-color: hsl(var(--background));
     /* The one sanctioned image in the system (operator request): a near-black
-       circuit/topology backdrop generated to this palette, behind everything.
-       The flat scrim on top keeps every canvas-level text pair at its measured
-       ratio; the image's own brightest points are a few small orange trace
-       endpoints. Cards are opaque and unaffected. */
+       circuit backdrop generated to this palette, behind everything. It is
+       tone-mapped so that NO pixel, under this scrim, drops the dimmest canvas
+       token (#8a8380) below 4.5:1 - the plate is bounded rather than merely
+       dark, because background-attachment is fixed and the columns scroll text
+       across all of it. The plate is achromatic: signal orange on screen means
+       live data, so the backdrop does not spend it. Cards are opaque and
+       unaffected. Enforced by tests/test_webui_backdrop.py. */
     background-image:
       linear-gradient(hsl(var(--background) / 0.4), hsl(var(--background) / 0.4)),
       url("/war-room-bg.webp");

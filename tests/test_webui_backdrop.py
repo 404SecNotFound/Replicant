@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The one sanctioned image may not put structure behind the reading columns.
+"""No pixel of the one sanctioned image may drop canvas text under AA.
 
 ``docs/webui-factory-design.md`` section 4 sanctions exactly one image, on
 ``body``, under a flat ``--background``/0.4 scrim, and requires any future
@@ -21,15 +21,21 @@ rendered page across five scroll positions, its brightest trace put the run
 panel's pacing hint at 1.77:1 and two technique-list subtitles at 2.34:1 and
 2.59:1, all far under AA.
 
-The defect is positional, not one of overall brightness. ``background-attachment``
-is ``fixed``, so the backdrop stands still while the columns scroll text across
-it: any region the rail or the main column can ever cover has to stay at flat
-canvas, and only the right gutter is free. This asserts exactly that, in the
-units section 4 uses, and it is deterministic because the mapping from image to
-viewport (``cover``, ``center top``) is arithmetic rather than a render.
+The rule asserted here is total rather than positional, and that is deliberate.
+``background-attachment`` is ``fixed``, so the backdrop stands still while the
+columns scroll text across it, and a measured occupancy map (8 viewports, 4 tabs,
+6 scroll positions each) put canvas-level text over 61% of the plate, with the
+remainder only slivers between lines. No region is reliably free, so no region is
+allowed to exceed the ceiling, and the guard then does not have to model the
+layout at all: every pixel is bounded, at every viewport, at every scroll
+position, and it stays true as the layout keeps changing.
+
+The bound is arithmetic rather than a preference. For the dimmest token that
+renders on the canvas to hold AA against the backdrop, the composited background
+luminance may not exceed ``(L_text + 0.05) / 4.5 - 0.05``.
 
 Positive control, run before this test was kept: against the previous
-``war-room-bg.webp`` the floor below measures 1.69:1 and the assertion fails.
+``war-room-bg.webp`` it reports 1.69:1 and fails.
 """
 
 from __future__ import annotations
@@ -52,12 +58,6 @@ pytestmark = pytest.mark.skipif(
 CANVAS = (0x10, 0x10, 0x10)  # --background
 SCRIM = 0.4
 
-# The reference viewport the design doc measures at, and the width the rail plus
-# the main column's text occupy in it. Right of this is gutter the layout never
-# fills with canvas-level text.
-VIEWPORT = (1440, 900)
-READING_COLUMNS_PX = 1150
-
 # --text-4 / --muted-foreground #8a8380, the dimmest token that renders directly
 # on the canvas. It sets the floor: anything brighter clears it automatically.
 DIMMEST_CANVAS_TEXT = (0x8A, 0x83, 0x80)
@@ -77,73 +77,63 @@ def _contrast(a: float, b: float) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
-def _composited_viewport(viewport: tuple[int, int] = VIEWPORT) -> np.ndarray:
-    """The backdrop as body actually paints it: cover, center top, under the scrim."""
+def _composited() -> np.ndarray:
+    """The plate as body paints it: the asset under the flat scrim.
 
-    image = Image.open(BACKDROP).convert("RGB")
-    width, height = viewport
-    scale = max(width / image.width, height / image.height)
-    image = image.resize(
-        (round(image.width * scale), round(image.height * scale)), Image.Resampling.LANCZOS
-    )
-    left = (image.width - width) // 2  # background-position: center top
-    image = image.crop((left, 0, left + width, height))
-    pixels = np.asarray(image).astype(np.float64)
-    return pixels * (1 - SCRIM) + np.array(CANVAS, dtype=np.float64) * SCRIM
-
-
-def _reading_column_floor(viewport: tuple[int, int]) -> float:
-    """Worst contrast the dimmest canvas token can meet anywhere the columns cover.
-
-    Against the brightest pixel in the band rather than its mean: a single bright
-    trace crossing one 12px subtitle is the defect this replaces, and an average
-    would have reported the old image as fine.
-    """
-
-    band = _relative_luminance(_composited_viewport(viewport)[:, :READING_COLUMNS_PX])
-    text = float(_relative_luminance(np.array(DIMMEST_CANVAS_TEXT, dtype=np.float64)))
-    return _contrast(text, float(band.max()))
-
-
-def test_backdrop_leaves_the_reading_columns_at_flat_canvas() -> None:
-    """No pixel the columns can cover may drop the dimmest canvas token under AA."""
-
-    floor = _reading_column_floor(VIEWPORT)
-
-    assert floor >= AA_BODY, (
-        f"backdrop puts {floor:.2f}:1 under #8a8380 somewhere in the left "
-        f"{READING_COLUMNS_PX}px of a {VIEWPORT[0]}x{VIEWPORT[1]} viewport; "
-        f"section 4 requires imagery darker than every text pair's floor"
-    )
-
-
-def test_backdrop_chromatic_weight_stays_at_a_few_endpoints() -> None:
-    """Signal orange in the image stays a few small endpoints, not a feature.
-
-    Section 3 reserves the chromatics for live data. The image is allowed its
-    orange trace endpoints because they are small; the guard is on area, which is
-    what reads, not on peak brightness, which one anti-aliased pixel can carry.
+    Read at the asset's own resolution rather than once per viewport.
+    ``background-size: cover`` only ever scales and crops, and neither can create
+    a pixel brighter than the brightest source pixel, so bounding the asset
+    bounds every viewport at once.
     """
 
     pixels = np.asarray(Image.open(BACKDROP).convert("RGB")).astype(np.float64)
-    red, green, blue = pixels[..., 0], pixels[..., 1], pixels[..., 2]
-    orange = (red > 90) & (red > green * 1.5) & (green > blue)
-    share = float(orange.mean())
+    return pixels * (1 - SCRIM) + np.array(CANVAS, dtype=np.float64) * SCRIM
 
-    assert share <= 0.0005, (
-        f"signal orange covers {share * 100:.3f}% of the backdrop; the sanctioned "
-        f"treatment is a few small trace endpoints (0.05% ceiling)"
+
+def test_no_pixel_of_the_backdrop_drops_canvas_text_under_aa() -> None:
+    """The whole plate stays under the ceiling, so every viewport does.
+
+    Measured against the brightest pixel rather than the mean: one bright trace
+    crossing one 12px subtitle is the defect this replaces, and an average
+    reported the old image as fine.
+    """
+
+    text = float(_relative_luminance(np.array(DIMMEST_CANVAS_TEXT, dtype=np.float64)))
+    floor = _contrast(text, float(_relative_luminance(_composited()).max()))
+
+    assert floor >= AA_BODY, (
+        f"the backdrop's brightest pixel puts #8a8380 at {floor:.2f}:1; section 4 "
+        f"requires imagery darker than every text pair's measured floor"
     )
 
 
-@pytest.mark.parametrize("viewport", [(1280, 800), (1920, 1080), (2560, 1440)])
-def test_backdrop_holds_at_other_viewports(viewport: tuple[int, int]) -> None:
-    """`cover` re-crops per viewport, so one measurement proves one viewport.
+def test_backdrop_carries_no_chromatic_accent() -> None:
+    """Signal orange on screen means live data, so the backdrop may not spend it.
 
-    The reading columns are a fixed pixel width (the rail does not grow), so a
-    wider viewport shows more of the image behind the same columns.
+    The image this replaces had orange trace endpoints. They were decorative, and
+    a warm dot on the canvas is the verified-badge lie in another costume: it
+    reads as status, beside an interface whose only other orange IS status. The
+    plate is warm graphite now. The ceiling would have muted such accents to
+    bronze in any case, so nothing was given up by saying it plainly.
     """
 
-    floor = _reading_column_floor(viewport)
+    pixels = np.asarray(Image.open(BACKDROP).convert("RGB")).astype(np.float64)
+    spread = pixels.max(axis=2) - pixels.min(axis=2)
 
-    assert floor >= AA_BODY, f"{viewport[0]}x{viewport[1]}: floor is {floor:.2f}:1"
+    assert float(spread.max()) <= 12.0, (
+        f"the backdrop has a pixel with {spread.max():.0f}/255 channel spread; the "
+        f"plate is warm graphite, and chromatic color is reserved for live data"
+    )
+
+
+def test_backdrop_stays_small_enough_to_ship() -> None:
+    """It loads on every page view and rides in the wheel.
+
+    Recorded because the size is a consequence of a correctness decision rather
+    than a free choice: the plate must be encoded so that compression cannot
+    raise its peak past the ceiling, which rules out the smallest settings.
+    """
+
+    kib = BACKDROP.stat().st_size / 1024
+
+    assert kib <= 64.0, f"the backdrop is {kib:.0f} KiB; keep the plate under 64 KiB"

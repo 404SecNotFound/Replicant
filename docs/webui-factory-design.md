@@ -74,41 +74,59 @@ no red; errors and warnings are status and speak in the signal orange
 - Buttons, nav, inputs, chips: 3px radius (`rounded-btn`).
 - 8px spacing scale. No box-shadow, no gradient, no glow, anywhere.
 - **One sanctioned image** (operator request, added after the mocks): a
-  near-black circuit/topology backdrop on `body`, generated to this palette,
-  under a flat `--background`/0.4 scrim. Cards are opaque, so it reads as
-  texture on the canvas only. Any future imagery goes through the same test:
-  darker than every text pair's measured floor, or it does not ship.
+  near-black circuit backdrop on `body`, generated to this palette, under a flat
+  `--background`/0.4 scrim. Cards are opaque, so it reads as texture on the
+  canvas only. Any imagery goes through the same test: darker than every text
+  pair's measured floor, or it does not ship.
 
   That test was stated here from v0.6.0 and nothing ran it, so the image that
   shipped until v0.8.0 did not pass it. Measured on the rendered page across five
   scroll positions, its brightest trace put the run panel's pacing hint at
-  **1.77:1**, and two technique-list subtitles at **2.34:1** and **2.59:1**. The
-  replacement is a blend of that plate with a denser routing plate, and it holds
-  every canvas-level text node at or above 4.5:1 at 1280, 1440, 1920 and 2560.
+  **1.77:1**, and two technique-list subtitles at **2.34:1** and **2.59:1**.
 
-  **The defect was positional, not one of overall brightness**, and that is the
-  rule to carry forward. `background-attachment` is `fixed`, so the backdrop
-  stands still while the columns scroll text across it: brightness averaged over
-  the plate says nothing, because one bright trace crossing one 12px subtitle is
-  the whole failure. Structure has to vacate any region a column can cover, which
-  in this layout means everything left of the right gutter. It is enforced by a
-  horizontal ramp in the asset itself (flat canvas until 70% of the image width),
-  not by CSS, so the constraint survives any later change to `background-size` or
-  `background-position` that keeps the image inside the frame.
+  **The rule is now total rather than positional, and the plate is bounded rather
+  than merely dark.** `background-attachment` is `fixed`: the backdrop stands
+  still while the columns scroll text across it. A measured occupancy map (8
+  viewports x 4 tabs x 6 scroll positions) put canvas-level text over **61% of
+  the plate**, and the remainder is slivers between lines, not a gutter. Since no
+  region is reliably free, no region is allowed to exceed the ceiling.
 
-  Provenance, so a later change knows what it is editing: the shipped asset is a
-  lighten blend of the original v0.6.0 plate with a circuit-routing plate
-  generated for this palette (Higgsfield, Nano Banana Pro, 21:9 at 4K), then
-  ramped and reduced to 1920x815 WebP. The ramp and the orange-area reduction are
-  deterministic post-processing, not part of the generation.
+  The ceiling is arithmetic. For the dimmest token that renders on the canvas
+  (`--text-4` #8a8380) to hold AA, the composited background luminance may not
+  exceed `(L_text + 0.05) / 4.5 - 0.05`. Everything else is a consequence: the
+  plate's structure is tone-mapped into that band (peak RGB 35, about `#232323`),
+  which is why it can be dense edge to edge instead of confined to a corner. On
+  the rendered page every canvas-level node now measures at or above **4.67:1**
+  at 1280, 1440, 1920 and 2560, at five scroll positions each.
 
-  `tests/test_webui_backdrop.py` is the guard. It is arithmetic on the asset
-  rather than a render, because the mapping (`cover`, `center top`) is arithmetic;
-  it is deliberately stricter than the rendered page (it treats the full left
-  1150px as reading columns at every viewport, where the real text wraps
-  narrower), so it fails a little early rather than a little late. Positive
-  control: against the previous asset it reports 1.69:1 and four of its five
-  assertions fail.
+  **The plate is achromatic.** The image it replaces had orange trace endpoints;
+  they were decorative, and a warm dot on the canvas is the verified-badge lie in
+  another costume, reading as status beside an interface whose only other orange
+  IS status. Nothing was given up to say so, because the ceiling would have muted
+  them to bronze anyway.
+
+  Two things about producing one, both of which cost a cycle here:
+
+  1. **Solve the amplitude against the encoded file, not the float composition.**
+     A lossy WebP encode overshoots on sharp line art: at quality 80-95 it raised
+     the peak from 36 to 45 and dropped the floor from 4.63:1 to 4.32:1, under
+     the bar. The shipped amplitude is found by binary search on the compressed
+     artifact.
+  2. **Dense high-frequency detail reads as material; low-frequency shapes read
+     as artifacts.** At this amplitude a plate of large concentric hubs looked
+     like smudges on the screen, while fine routing at the same peak luminance
+     looked like an intentional surface. Pick structure accordingly.
+
+  Provenance: the shipped asset is a lighten blend of the original v0.6.0 plate
+  with a dense circuit-routing plate generated for this palette (Higgsfield, Nano
+  Banana Pro, 21:9 at 4K), tone-mapped and reduced to 1920x815 WebP. The blend
+  and the mapping are deterministic post-processing, not part of the generation.
+
+  `tests/test_webui_backdrop.py` is the guard: it bounds every pixel of the asset
+  under the scrim, which bounds every viewport at once, since `cover` only scales
+  and crops and neither creates a pixel brighter than the source. Positive
+  control: against the previous asset it reports 1.69:1 and fails.
+
 - Segmented controls: content-sized segments, `white-space: nowrap`, 10-12px
   horizontal padding. "Check Point" has wrapped or clipped three separate times in
   equal-width segments; do not reintroduce `flex-1` there.
