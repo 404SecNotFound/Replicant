@@ -98,9 +98,26 @@ def high_entropy_labels(
     max_len = min(max_len, 63)
     if min_len < 1 or max_len < min_len:
         raise ValueError("require 1 <= min_len <= max_len")
+    alpha_size = len(alphabet)
+    # The rejection loop below never terminates if more distinct labels are
+    # asked for than the alphabet can form at these lengths: it keeps redrawing
+    # collisions forever, pegging a CPU with no error. `unique_ints` already
+    # refuses the integer version of this; do the same. The reachable count is
+    # sum(alpha_size ** L for L in min_len..max_len), but we only need to know
+    # whether it reaches `count`, so we stop summing the moment it does and
+    # never compute the astronomically large powers when `count` is small.
+    reachable = 0
+    for length in range(min_len, max_len + 1):
+        reachable += alpha_size**length
+        if reachable >= count:
+            break
+    else:
+        raise ValueError(
+            f"cannot draw {count} unique labels from lengths [{min_len},{max_len}] "
+            f"over a {alpha_size}-symbol alphabet"
+        )
     seen: set[str] = set()
     labels: list[str] = []
-    alpha_size = len(alphabet)
     while len(labels) < count:
         length = int(rng.integers(min_len, max_len + 1))
         indices = rng.integers(0, alpha_size, size=length)

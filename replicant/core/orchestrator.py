@@ -828,17 +828,26 @@ class Orchestrator:
         stopped = False
         failure: BaseException | None = None
         try:
-            count, stopped = self._emit(
-                composed.events,
-                send=send,
-                collector=request.collector,
-                to_file=request.to_file,
-                eps_cap=eps_cap,
-                pace=pace,
-                speed=request.speed,
-                on_event=on_event,
-                on_progress=on_progress,
-            )
+            # F-08, same as run(): a scenario that reaches a collector holds the
+            # host's single sending slot for the whole emit. Without this a
+            # `scenario run` sent unlocked, so a concurrent `replicant run` found
+            # the slot free and both streamed up to eps_cap at once, which is the
+            # 2x the cap the lock exists to prevent. --no-send/--to-file never
+            # acquire it.
+            with ExitStack() as guard:
+                if send:
+                    guard.enter_context(sending_lock())
+                count, stopped = self._emit(
+                    composed.events,
+                    send=send,
+                    collector=request.collector,
+                    to_file=request.to_file,
+                    eps_cap=eps_cap,
+                    pace=pace,
+                    speed=request.speed,
+                    on_event=on_event,
+                    on_progress=on_progress,
+                )
         except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
             failure = exc
         ended_at = now_dubai_iso()

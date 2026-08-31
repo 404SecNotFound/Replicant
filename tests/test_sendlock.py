@@ -105,3 +105,79 @@ def test_nothing_is_locked_when_no_one_is_sending(config_home: Path) -> None:
         pass
     with sending_lock():
         pass
+
+
+def test_a_scenario_send_is_refused_while_a_holder_holds_the_lock(config_home: Path) -> None:
+    """F-08 covers scenarios too, and run_scenario has its own emit path.
+
+    run() and run_scenario() are separate methods, and only run() took the lock
+    when the guard first shipped, so a `scenario run` sent unlocked and a
+    concurrent `replicant run` doubled the cap. This asserts the scenario path is
+    now under the same lock, through the real Orchestrator rather than the bare
+    context manager. The collector is a documentation-range address that is never
+    contacted: the lock is acquired before any socket work, so the refusal fires
+    first.
+    """
+
+    from replicant.config.settings import Settings
+    from replicant.core.models import (
+        CollectorProfile,
+        ScenarioRunRequest,
+        load_catalog,
+        load_scenario_catalog,
+    )
+    from replicant.core.orchestrator import Orchestrator
+    from replicant.resources import SCENARIO_CATALOG, TECHNIQUE_CATALOG
+
+    catalog = load_catalog(TECHNIQUE_CATALOG)
+    scenarios = load_scenario_catalog(SCENARIO_CATALOG, catalog)
+    orch = Orchestrator(catalog, Settings(manifest_dir=str(config_home / "manifests")))
+
+    proc = _spawn_holder(config_home, 30)
+    try:
+        with pytest.raises(SendInProgressError):
+            orch.run_scenario(
+                ScenarioRunRequest(
+                    scenario_id="SCEN-001",
+                    duration="10m",
+                    pace="burst",
+                    collector=CollectorProfile(host="192.0.2.10", port=514, transport="udp"),
+                ),
+                scenarios,
+            )
+    finally:
+        proc.kill()
+        proc.wait(timeout=10)
+
+
+def test_a_scenario_dry_run_does_not_take_the_lock(config_home: Path) -> None:
+    """The control on the test above: --no-send/--to-file must not be blocked,
+    because they cannot reach a collector and so cannot exceed the cap."""
+
+    from replicant.config.settings import Settings
+    from replicant.core.models import ScenarioRunRequest, load_catalog, load_scenario_catalog
+    from replicant.core.orchestrator import Orchestrator
+    from replicant.resources import SCENARIO_CATALOG, TECHNIQUE_CATALOG
+
+    catalog = load_catalog(TECHNIQUE_CATALOG)
+    scenarios = load_scenario_catalog(SCENARIO_CATALOG, catalog)
+    orch = Orchestrator(catalog, Settings(manifest_dir=str(config_home / "manifests")))
+
+    proc = _spawn_holder(config_home, 30)
+    try:
+        # A holder is sending, but a file-only scenario run is not, so it must
+        # proceed rather than be refused.
+        result = orch.run_scenario(
+            ScenarioRunRequest(
+                scenario_id="SCEN-001",
+                duration="10m",
+                pace="burst",
+                no_send=True,
+                to_file=str(config_home / "scenario.log"),
+            ),
+            scenarios,
+        )
+        assert result.event_count > 0
+    finally:
+        proc.kill()
+        proc.wait(timeout=10)
