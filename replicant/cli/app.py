@@ -211,6 +211,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--to-file", metavar="PATH", help="mirror CEF payloads to a file")
     run.add_argument("--no-send", action="store_true", help="do not send to a collector")
     run.add_argument(
+        "--controls",
+        choices=["both", "positive", "negative"],
+        default="both",
+        help="which streams to emit: both (attack + benign foil, the default), "
+        "positive (attack alone), or negative (the benign foil alone, for measuring "
+        "false positives). Only techniques with emits_foil have a negative stream.",
+    )
+    run.add_argument(
         "--mark-synthetic",
         action="store_true",
         help="stamp a ReplicantSynthetic marker (with the run id) on every line, "
@@ -388,6 +396,12 @@ def cmd_run(
     if warning:
         console.print(f"[yellow]note[/yellow]: {warning}")
 
+    if args.controls == "negative" and not catalog.by_id(args.id).emits_foil:
+        console.print(
+            f"[yellow]note[/yellow]: {args.id} has no benign foil (emits_foil is false), "
+            "so --controls negative will emit nothing."
+        )
+
     try:
         request = RunRequest(
             technique_id=args.id,
@@ -396,6 +410,7 @@ def cmd_run(
             duration=args.duration,
             to_file=args.to_file,
             no_send=args.no_send,
+            controls=args.controls,
             rate_override=args.rate,
             collector=collector,
             anchor_epoch=anchor,

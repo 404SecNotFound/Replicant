@@ -392,6 +392,7 @@ techniques:
       out_bytes: "log-normal, low variance, same profile as REP-001"
       dpt_choices: [443, 8443]
     benign_baseline: "a benign periodic destination (software update check) is emitted alongside, because both source papers name legitimate periodic software as the dominant false positive"
+    emits_foil: true
     references: ["BAYWATCH DSN 2016", "Zhang et al. ACSAC 2023 aggregation-based beaconing detection"]
     safety_notes: "one synthetic external destination from 203.0.113.0/24"
 
@@ -420,6 +421,7 @@ techniques:
       action_mix: "majority deny (target absent or not vulnerable), minority accept (successful spread)"
       port_choices: [445, 3389, 22, 23]
     benign_baseline: "east-west SMB is normal, but from a small stable set of server sources; the signal is a growing source population, not the traffic itself"
+    emits_foil: true
     references: ["PORTFILER IEEE CNS 2021"]
     safety_notes: "nothing propagates. The generation count is arithmetic in a loop and every address is synthetic internal space. No code executes"
 
@@ -448,6 +450,7 @@ techniques:
       byte_ratio: "in:out close to 1:1, both small and steady. No large transfer at any point, which is what separates it from exfiltration"
       dpt_choices: [3333, 4444, 5555, 7777, 14444, 443]
     benign_baseline: "a long-lived business session is emitted alongside, bursty in bytes rather than metronomic. MineShark had to auto-filter over 99.3% of false alarms, which is why this baseline is required"
+    emits_foil: true
     references: ["MineShark NDSS 2025", "MineHunter ACSAC 2021", "CJ-Sniffer RAID 2022"]
     safety_notes: "pool destinations are synthetic documentation-range IPs. Never substitute a real mining pool hostname or address, even as a label"
 
@@ -477,6 +480,7 @@ techniques:
       qtype: "weighted to A and AAAA rather than TXT, because the query itself is the channel"
       parent_domain: "one synthetic parent, stable for the whole run"
     benign_baseline: "a benign parent with a comparable total query count but low unique-label cardinality, so query rate alone cannot separate them"
+    emits_foil: true
     references: ["Nadler, Aminov, Shabtai, Computers & Security 80 (2019) 36-53"]
     safety_notes: "parents stay non-resolvable synthetic. Runs are long (up to 72h of simulated time); the duration is stated in the run summary"
 
@@ -505,6 +509,7 @@ techniques:
       rcode: "NXDOMAIN for nx_ratio of responses; NOERROR for the small remainder, representing the one registered rendezvous domain the operator actually stood up"
       epochs: "the domain set regenerates each epoch, mirroring a time-seeded generator"
     benign_baseline: "normal hosts produce a low steady NXDOMAIN rate from typos and stale records. A benign NXDOMAIN trickle is emitted so the detection cannot simply threshold on any NXDOMAIN at all"
+    emits_foil: true
     references: ["Pleiades USENIX Security 2012", "Woodbridge et al. 2016 arXiv:1611.00791"]
     safety_notes: "every generated label sits under the reserved .invalid TLD, so no generated name can resolve even by accident. This must not be relaxed to a realistic-looking TLD: the technique generates thousands of unseen domain strings and non-resolvability is what makes that safe"
 
@@ -568,6 +573,7 @@ techniques:
       user_switch: "duser changes at switch_at_hop, modelling credential theft partway along the path (the causal-user change Hopper keys on)"
       timing: "hops separated by minutes within window_min"
     benign_baseline: "an admin star pattern is emitted alongside: one workstation logging into several hosts. The star emits path_len-1 logins against the chain's path_len total records (a tunnel-up plus one login per subsequent hop); the shapes, not the counts, are what separate them. Separating star from chain is the detection"
+    emits_foil: true
     references: ["Hopper, USENIX Security 2021", "LMDetect 2024", "Euler NDSS 2022"]
     safety_notes: "usernames from the synthetic directory pool, same as REP-007. No authentication is attempted against anything"
 
@@ -596,6 +602,7 @@ techniques:
       src_rotation: "probes spread across src_pool to keep per-source counts under per-source thresholds"
       order: "randomized destination and port order, defeating sequential-sweep signatures"
     benign_baseline: "sparse policy denies look nearly identical. Separating them needs long-window aggregation across the whole source pool, which is exactly what TRW-style detectors do not do by default"
+    emits_foil: true
     references: ["Jung et al., Fast Portscan Detection Using Sequential Hypothesis Testing, IEEE S&P 2004"]
     safety_notes: "synthetic targets only. Long by design; the span is stated in the run summary"
 
@@ -680,6 +687,7 @@ techniques:
       severity: "ascending across stages, so a severity-weighted rule sees escalation"
       noise_alerts: "unrelated single alerts on other entity pairs, interleaved through the whole window"
     benign_baseline: "noise_alerts IS the baseline. A rule that fires on any N alerts in a window fires on the noise too. AACT reported 61% of real SOC alerts were closable, so a clean chain would badly overstate a rule's quality"
+    emits_foil: true
     references: ["Wilkens et al., Multi-Stage Attack Detection via Kill Chain State Machines", "ALERTPRO Computers & Security 2023", "AACT Turcotte et al. 2025"]
     safety_notes: "attack names and signature ids are labels only, identical to REP-009. No exploit text and no payloads are ever emitted"
 
@@ -709,6 +717,7 @@ techniques:
       duration: "short and consistent per session, unlike a browsing session that holds open"
       handshake: "no handshake-derived field is emitted at all. A detection that needs JA3 or a cipher suite gets nothing, which is the point of the technique"
     benign_baseline: "concurrent browsing to 443 to other destinations with high byte variance and varied durations, so neither port nor destination count can separate them"
+    emits_foil: true
     references: ["Extending C2 Traffic Detection Methodologies: From TLS 1.2 to TLS 1.3-enabled Malware, RAID 2024"]
     safety_notes: "one synthetic external destination. Replicant negotiates no TLS for this technique; the --transport tls option is a separate concern (it encrypts the syslog channel to the collector)"
 
@@ -737,6 +746,7 @@ techniques:
       byte_correlation: "outbound out_bytes approximately equals inbound out_bytes (and in to in), because the host is forwarding rather than originating"
       lag: "jittered, and wide at the high preset, per the adversarially-robust framing of the source paper (naive fixed-window timing correlation is evadable)"
     benign_baseline: "a sanctioned proxy host doing the same thing is emitted alongside. The pattern is identical; only the asset role differs. This technique tests whether a detection uses role or only pattern"
+    emits_foil: true
     references: ["Beyond RTT: An Adversarially Robust Two-Tiered Approach for Residential Proxy Detection, NDSS"]
     safety_notes: "Replicant relays nothing. Both halves of every pair are fabricated records. The only socket opened is to the operator's collector"
 

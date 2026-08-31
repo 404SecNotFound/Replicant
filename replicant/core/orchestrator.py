@@ -377,7 +377,7 @@ class Orchestrator:
     def build_plan(self, request: RunRequest) -> ScenarioPlan:
         technique = self.catalog.by_id(request.technique_id)
         duration_s = parse_duration(request.duration) if request.duration else None
-        return self.engine.plan(
+        plan = self.engine.plan(
             technique,
             request.intensity,
             self.entities,
@@ -386,6 +386,12 @@ class Orchestrator:
             anchor_epoch=request.anchor_epoch or self.settings.anchor_epoch,
             param_overrides=request.param_overrides,
         )
+        if request.controls != "both":
+            # Filter to one control stream. Done here so the event count, the
+            # preview, and the manifest all reflect what will actually be sent.
+            keep = "negative" if request.controls == "negative" else "positive"
+            plan.events = [event for event in plan.events if event.control == keep]
+        return plan
 
     def run(
         self,
