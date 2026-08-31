@@ -13,7 +13,7 @@ Full design is in `docs/blueprint.md`. The FortiGate log schema and golden sampl
 1. The only network egress is to the operator-configured collector. Never open a socket to anything else. If no collector is configured, sends must fail closed.
 2. All entities are synthetic. Default IPs are RFC1918 and documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parents come from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761); note example.net does resolve, .invalid does not, and Replicant resolves neither. No real domains, no real malware, no real C2.
 3. No real attacks. Replicant writes log strings. It never executes commands, scans, or moves data. Attack names and byte counts are fields, nothing more.
-4. Respect the events-per-second cap. Default configurable, protect the operator's own collector.
+4. Respect the events-per-second cap. Default configurable, protect the operator's own collector. The cap is applied by one process's emit loop, so **the supported scope is one sending run per host and it is enforced**, not assumed: a second run that would open a socket to a collector is refused (`replicant/core/sendlock.py`). Two hosts pointed at one collector are still two caps, and nothing on a single machine can see that.
 5. Every run writes a manifest (seed, technique, params, entities, target, counts, times).
 
 ## Licensing guardrails
@@ -164,13 +164,12 @@ Output convention: command results go to stdout, operator-facing errors go to st
      the operator learns to trust it. Catalog-wide behaviour needs a parametrized test
      over the whole catalog, not a test of one representative entry.
 
-- Security review closeout and the second end-to-end review (complete): every finding of the
-  2026-08 security review is closed except **F-08, which needs a decision, not code** (host-level
-  eps lease keyed on collector destination, or a documented and enforced single-process scope).
-  **F-14 is also parked on a decision**: the remaining advisories need vite 8 and vitest 4, both of
-  which drop Node 18, and the installer declares 18 as its floor. Decision record and full status:
-  `docs/security-review-2026-08-response.md`. A separately proposed 17-technique expansion was
-  triaged and **not implemented**; the decisions are in `docs/round3-expansion-triage.md`.
+- Security review closeout and the second end-to-end review (complete): the 2026-08 security
+  review is now **fully closed**. F-08 and F-14 were the last two and were both operator
+  decisions rather than code problems; they shipped in v0.8.0, recorded below. Decision record
+  and full status: `docs/security-review-2026-08-response.md`. A separately proposed
+  17-technique expansion was triaged and **not implemented**; the decisions are in
+  `docs/round3-expansion-triage.md`.
 
   Five conventions this established, all of them earned the hard way:
 
@@ -203,10 +202,86 @@ Output convention: command results go to stdout, operator-facing errors go to st
   telemetry that exercises Y", which is true of all 24 entries and so answers nothing. Guarded
   parametrized over the whole catalog, for the reason `--duration` established.
 
+- v0.7.0 (catalog defects, complete): an external review of the technique catalog found three
+  places where the emitted telemetry contradicted the catalog text a detection engineer reads
+  before trusting it. REP-024's relay lag was a constant 1s at every preset (`int(ms) // 1000` on
+  sub-second ranges), so the technique whose stated purpose is defeating fixed-window timing
+  correlation emitted the fixed window. REP-002 ignored its own `window_s` preset and
+  `--duration` entirely. REP-014's benign foil was separable on duration alone, the one feature
+  it exists to make indistinguishable. Two ATT&CK mappings were wrong (REP-007's T1110.004,
+  REP-012's T1029) and three tactic lists claimed a tactic none of their own techniques carry.
+  Triage: `tasks/catalog-review-2026-08-plan.md`.
+
+  **The finding behind the findings: no test asserted that the code does what the catalog text
+  promises.** Every defect sat in the gap between a documented distribution and the emitted one.
+  `tests/test_readme_catalog_sync.py` now fails CI when README and catalog disagree.
+
+  Two conventions, both load-bearing:
+  1. **The seed is part of the guard.** The review's own REP-013 test passed against the code
+     containing the bug, because seed 1337 drew a host that never collided. The collision hits
+     2% of seeds (4% at high). A guard whose seed avoids the defect has never failed.
+  2. **A benign foil is a correctness requirement, not decoration.** Two of the three behavioural
+     defects were foils a detection could separate for free. A trivially separable foil is worse
+     than none, because it reports as coverage.
+
+- v0.8.0 (security review fully closed, complete):
+
+  **F-08, the eps cap is per process.** Decision: **documented and enforced single-process
+  scope**, not a host-level lease. `replicant/core/sendlock.py` takes an advisory `flock` for any
+  run that opens a socket to a collector; a second sending run on the host is refused and the
+  message names the holding pid. `--no-send` and `--to-file` never acquire it. The lease was
+  declined because expiry, clock drift and orphaned leases are worse failure modes than the one
+  being fixed, and `flock` is released by the kernel on exit including `kill -9`. **Scope stated
+  rather than implied: per host and per user, never across hosts.** Its guard spawns a real
+  second process, because the finding is precisely that the cap was scoped to one process and an
+  in-process re-entry would pass against code that locked nothing.
+
+  **F-14, npm advisories.** Decision: **drop EOL Node 18.** Six advisories, one critical, to
+  zero. vite 5 to 8, vitest 2 to 4. **The cost is real and is not hidden: Debian 12 and Ubuntu
+  24.04 ship Node 18 and can no longer build the web UI from their own repositories** (use
+  `--no-web`, or Node 20+ from NodeSource). CI covers `debian:12` with `--no-web` and added
+  `debian:13` for the full-install case. **`jsdom` is pinned to 26 on purpose**: 30 requires Node
+  22.22+, above the floor being declared, and a test-only dependency must not choose the
+  supported platform.
+
+  **The golden oracle was proving seven eighths of what it claimed.** All three vendor golden
+  tests assert the reference holds eight lines, assert the fixtures match, then byte-compare
+  `range(7)`. The eighth line of every vendor had never been compared to anything. It passes at
+  `range(8)`, so it was a coverage hole rather than a live defect, and it is still the sharpest
+  example of the rule this project keeps relearning: **a guard that proves less than its own name
+  claims.** Found by an external roadmap proposal, triaged in `docs/10x-roadmap-triage.md`, of
+  which roughly 13 person-weeks of 58 to 62 were adopted.
+
+  **The test suite had no `conftest.py`**, so it read and wrote the operator's real
+  `~/.config/replicant`: saved collector profile, persistent web token, and then the send lock.
+  It is isolated per test now, which is what made the host-global lock testable at all. That
+  surfaced as five failures, every one a true report about shared global state rather than a
+  defect in the thing under test, which is why the fix was isolation and not a weaker lock.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
+
+**The LogRhythm lab test has still never run**, so every timing and delivery claim in this
+project is loopback-only. It also gates the adopted roadmap order: F2 (CI detection regression)
+is a verification layer on a send path never once observed working end to end.
+
+**Never `git add -A` in this checkout.** `replicant-backup-*/` and `replicant-rewrite/` are whole
+git repositories living inside it, including a mirror and bundle of the pre-rewrite history.
+Committing those to this public repo would undo the history scrub. Both are gitignored; stage
+files by name.
 
 Vendor licensing position (trademarks, the `[Constructed]` golden lines, the field-mapping tables, the CEF spec's terms) is settled in `docs/prior-art-and-licensing.md` section 3. **Standing constraint: never claim CEF certification, CEF compliance, or ArcSight validation.**
 
 ## Definition of done for any change
 
 Tests pass (including CEF golden tests and loopback transport). Types clean. New source has the Apache header. Any new technique is a catalog entry with a unique `ndr_uc`. The safety rules above still hold.
+
+Two testing rules this project has paid for more than once:
+
+- **A new guard must be run against the unfixed code and observed to fail.** Not "it looks
+  right", not "the suite is green": revert the fix, watch it go red, restore it. Include the seed
+  and the preset in that check, because a guard whose inputs avoid the defect has never failed.
+  If a positive control cannot be run at all, that is a reason not to merge yet, not a caveat to
+  disclose in the PR body.
+- **Tests must not touch host-global state.** `tests/conftest.py` points `REPLICANT_CONFIG_DIR` at
+  a per-test directory. Anything reaching the real `~/.config/replicant` is a defect: it mutates
+  the operator's machine, and it lets one test's leftovers decide another test's result.
