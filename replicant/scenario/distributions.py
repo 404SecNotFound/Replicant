@@ -55,6 +55,38 @@ def lognormal_bytes(rng: Any, low: int, high: int, sigma: float = 0.15) -> int:
     return int(min(max(value, low), high))
 
 
+def packet_count(byte_count: int, salt: int = 0, typical_mss: int = 1400, spread: int = 400) -> int:
+    """Packet count for a byte count, with a per-flow effective segment size.
+
+    A fixed divisor (``byte_count // 1400``) makes bytes-per-packet a constant an
+    analyst spots at a glance: every flow reports the same ~1400 (or ~150). Real
+    captures never show one segment size across every session. The internal target
+    segment size varies over ``[typical_mss - spread, typical_mss]``, jittered by
+    BOTH the byte count and ``salt`` (a per-flow value, e.g. the session id), so
+    two flows of the same size need not report the same packet count. Without the
+    salt the count would be a pure function of the size, which is its own tell: a
+    checker regressing packets on bytes would find a perfect fit no real capture
+    shows. With it, packets-given-bytes carries real conditional variance.
+
+    Note the returned packet count, not the internal segment size, is what an
+    analyst measures as bytes-per-packet, and for a low-packet-count flow that
+    ratio is >= the segment size (a 1500-byte flow at mss 1400 is one 1500-byte
+    packet), so it can sit above ``typical_mss``; the band describes the target
+    segment size, not the emitted ratio.
+
+    The jitter is hashed, never drawn from the seeded rng, so it neither breaks
+    reproducibility nor shifts the seeded stream (which would change every
+    downstream draw for a given seed).
+    """
+
+    if byte_count <= 0:
+        return 1
+    # Knuth multiplicative mixing of size and salt; deterministic, rng-free.
+    jitter = (byte_count * 2654435761 + salt * 40503) % (spread + 1)
+    mss = typical_mss - jitter
+    return max(1, byte_count // max(mss, 1))
+
+
 def jittered_interval(rng: Any, base_s: float, jitter_pct: float) -> float:
     """``base_s`` scaled by a uniform +/- ``jitter_pct`` percent.
 
@@ -86,7 +118,14 @@ def high_entropy_labels(
     max_len: int,
     alphabet: str = BASE32_ALPHABET,
 ) -> list[str]:
-    """``count`` unique high-entropy DNS labels (base32 look, > 3.5 bits/char).
+    """``count`` unique high-entropy DNS labels with a near-uniform base32 look.
+
+    The character distribution is near-uniform over the alphabet, so a long run of
+    these labels measures close to log2(len(alphabet)) bits per character (~5 for
+    base32). Per-character Shannon entropy of a SINGLE short label is capped by its
+    length (an 8-char label tops out near 3 bits/char even when every character is
+    distinct), so short labels read lower on that per-label metric while the
+    distribution stays uniform; measure the distribution over many labels, not one.
 
     Lengths are clamped to the RFC 1035 63-octet label limit, so a label_len
     override above 63 cannot produce a label no resolver would ever emit. With

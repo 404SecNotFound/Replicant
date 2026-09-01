@@ -37,6 +37,7 @@ from replicant.scenario.distributions import (
     jittered_interval,
     lognormal_bytes,
     make_rng,
+    packet_count,
     unique_ints,
     weighted_choice,
 )
@@ -416,8 +417,8 @@ class ScenarioEngine:
                         "app": app,
                         "trandisp": "snat",
                         "duration": str(duration),
-                        "sentpkt": str(max(1, out_b // 150)),
-                        "rcvdpkt": str(max(1, in_b // 150)),
+                        "sentpkt": str(packet_count(out_b, session, typical_mss=150, spread=80)),
+                        "rcvdpkt": str(packet_count(in_b, session, typical_mss=150, spread=80)),
                     },
                 )
             )
@@ -633,8 +634,8 @@ class ScenarioEngine:
                         "app": app,
                         "trandisp": "snat",
                         "duration": str(duration),
-                        "sentpkt": str(max(1, out_b // 1400)),
-                        "rcvdpkt": str(max(1, in_b // 1400)),
+                        "sentpkt": str(packet_count(out_b, session_id)),
+                        "rcvdpkt": str(packet_count(in_b, session_id)),
                     },
                 )
             )
@@ -969,8 +970,8 @@ class ScenarioEngine:
                 "app": app,
                 "trandisp": "snat",
                 "duration": str(duration),
-                "sentpkt": str(max(1, out_b // 1400)),
-                "rcvdpkt": str(max(1, in_b // 1400)),
+                "sentpkt": str(packet_count(out_b, session)),
+                "rcvdpkt": str(packet_count(in_b, session)),
             },
         )
 
@@ -1254,8 +1255,8 @@ class ScenarioEngine:
             "app": app,
             "trandisp": "snat" if not inbound else "dnat",
             "duration": str(duration),
-            "sentpkt": str(max(1, out_b // 1400)),
-            "rcvdpkt": str(max(1, in_b // 1400)),
+            "sentpkt": str(packet_count(out_b, session)),
+            "rcvdpkt": str(packet_count(in_b, session)),
         }
         if inbound:
             extra["src_intf"] = "port1"  # WAN
