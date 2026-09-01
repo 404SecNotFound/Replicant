@@ -124,7 +124,15 @@ class Settings(BaseModel):
     eps_cap: int = Field(default=2000, gt=0)
     default_intensity: Intensity = "medium"
     vendor: str = "fortigate"  # fortigate | paloalto | checkpoint (selects the VendorProfile)
+    # The synthetic-data marker (flexString1). Default is destination-conditional
+    # (see Orchestrator._resolve_marker): off for --to-file and loopback where the
+    # golden line is the oracle, on for a non-loopback send where an analyst on a
+    # shared collector needs lab data separable from production. These two are the
+    # explicit overrides: benign_marker forces it on everywhere (--mark-synthetic),
+    # no_marker forces it off (--no-marker) and is logged when it overrides a
+    # non-loopback send. no_marker wins if both are set.
     benign_marker: bool = False
+    no_marker: bool = False
     byte_key_out: str = "out"
     byte_key_in: str = "in"
     anchor_epoch: int = DEFAULT_ANCHOR_EPOCH
