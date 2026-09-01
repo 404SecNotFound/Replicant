@@ -36,10 +36,19 @@ from replicant.scenario.distributions import packet_count, shannon_entropy
 CATALOG = load_catalog(TECHNIQUE_CATALOG)
 ORCH = Orchestrator(CATALOG, Settings())
 
+# The seed is part of the guard (CLAUDE.md): thresholds tuned to one lucky draw
+# have never failed. Every property here is asserted across several seeds so a
+# green run is not an artefact of seed 1337.
+SEEDS = (1337, 7, 20_250_901, 42)
 
-def _events(tid: str, intensity: str = "medium", controls: str = "positive") -> list:
+
+def _events(
+    tid: str, intensity: str = "medium", seed: int = 1337, controls: str = "positive"
+) -> list:
     return ORCH.build_plan(
-        RunRequest(technique_id=tid, intensity=intensity, no_send=True, controls=controls)
+        RunRequest(
+            technique_id=tid, intensity=intensity, seed=seed, no_send=True, controls=controls
+        )
     ).events
 
 
@@ -56,14 +65,20 @@ def test_packet_count_spreads_the_segment_size() -> None:
     multi-packet flows (>= 4 packets) isolates the fingerprint from the trivial
     single-packet edge, where any divisor gives segment == byte count."""
 
-    flows = range(6000, 40000, 137)
-    varied = [b / packet_count(b) for b in flows]
-    fixed = [b / max(1, b // 1400) for b in flows]
-    # packet_count dips well below the fixed 1400 segment and takes many values.
+    varied = [b / packet_count(b, b % 97) for b in range(6000, 40000, 137)]
+    # packet_count dips well below the old fixed 1400 segment (b // 1400 can never
+    # yield a segment under 1400 for these flows) and takes many distinct values.
     assert min(varied) < 1200, min(varied)
     assert len({round(s / 50) for s in varied}) >= 5
-    # positive-control contrast: the fixed divisor never dips below its floor.
-    assert min(fixed) >= 1350, min(fixed)
+
+
+def test_packet_count_has_conditional_variance_on_the_salt() -> None:
+    """Same byte count, different flow (salt): the packet count is not a fixed
+    function of size. Without this, a checker regressing packets on bytes finds a
+    perfect fit no real capture shows; the salt gives real residual variance."""
+
+    counts = {packet_count(12_000, salt) for salt in range(200)}
+    assert len(counts) >= 3, counts
 
 
 def test_emitted_bytes_per_packet_is_not_a_fixed_fingerprint() -> None:
@@ -75,16 +90,19 @@ def test_emitted_bytes_per_packet_is_not_a_fixed_fingerprint() -> None:
     Positive control: restore ``out_b // 150`` and the segment size pins at >= 150
     with almost no distinct values, so both assertions below go red."""
 
-    segments = [
-        e.out_bytes / int(e.extra["sentpkt"])
-        for e in _events("REP-001", "high")
-        if e.out_bytes and e.extra.get("sentpkt", "0").isdigit() and int(e.extra["sentpkt"]) >= 3
-    ]
-    assert len(segments) > 50
-    # the fix dips the segment size below the old fixed 150 floor and takes several
-    # distinct values; the fixed divisor did neither.
-    assert min(segments) < 130, min(segments)
-    assert len({round(s / 20) for s in segments}) >= 4
+    for seed in SEEDS:
+        segments = [
+            e.out_bytes / int(e.extra["sentpkt"])
+            for e in _events("REP-001", "high", seed)
+            if e.out_bytes
+            and e.extra.get("sentpkt", "0").isdigit()
+            and int(e.extra["sentpkt"]) >= 3
+        ]
+        assert len(segments) > 50, seed
+        # the fix dips the segment size below the old fixed 150 floor and takes
+        # several distinct values; the fixed divisor did neither.
+        assert min(segments) < 130, (seed, min(segments))
+        assert len({round(s / 20) for s in segments}) >= 4, seed
 
 
 # --- DGA / tunnel character distribution -------------------------------------
@@ -96,10 +114,11 @@ def test_dga_and_tunnel_labels_have_a_near_uniform_char_distribution() -> None:
     Per-label Shannon entropy is length-capped, so the distribution is measured
     over the whole run, not one short label."""
 
-    for tid in ("REP-004", "REP-016"):
-        labels = _labels(_events(tid))
-        assert labels, tid
-        assert shannon_entropy("".join(labels)) > 4.5, tid
+    for seed in SEEDS:
+        for tid in ("REP-004", "REP-016"):
+            labels = _labels(_events(tid, seed=seed))
+            assert labels, (tid, seed)
+            assert shannon_entropy("".join(labels)) > 4.5, (tid, seed)
 
 
 def test_rep016_benign_foil_is_lower_entropy_than_the_dga_cluster() -> None:
@@ -107,11 +126,14 @@ def test_rep016_benign_foil_is_lower_entropy_than_the_dga_cluster() -> None:
     like the DGA. A lower-entropy foil is realistic and is what makes an entropy
     detector's separation honest rather than free."""
 
-    malicious = shannon_entropy("".join(_labels(_events("REP-016", "medium", "positive"))))
-    foil_labels = _labels(_events("REP-016", "medium", "negative"))
-    assert foil_labels, "REP-016 emits no benign foil"
-    foil = shannon_entropy("".join(foil_labels))
-    assert foil < 3.5 < malicious, (foil, malicious)
+    for seed in SEEDS:
+        malicious = shannon_entropy(
+            "".join(_labels(_events("REP-016", "medium", seed, "positive")))
+        )
+        foil_labels = _labels(_events("REP-016", "medium", seed, "negative"))
+        assert foil_labels, ("REP-016 emits no benign foil", seed)
+        foil = shannon_entropy("".join(foil_labels))
+        assert foil < 3.5 < malicious, (seed, foil, malicious)
 
 
 def test_rep016_nxdomain_ratio_matches_its_preset() -> None:
@@ -119,10 +141,11 @@ def test_rep016_nxdomain_ratio_matches_its_preset() -> None:
     remainder; the ratio the catalog declares is the ratio emitted."""
 
     nx_ratio = float(CATALOG.by_id("REP-016").params["medium"]["nx_ratio"])
-    events = _events("REP-016", "medium")
-    nx = sum(1 for e in events if e.extra.get("rcode") == "NXDOMAIN")
-    measured = nx / len(events)
-    assert abs(measured - nx_ratio) < 0.05, (measured, nx_ratio)
+    for seed in SEEDS:
+        events = _events("REP-016", "medium", seed)
+        nx = sum(1 for e in events if e.extra.get("rcode") == "NXDOMAIN")
+        measured = nx / len(events)
+        assert abs(measured - nx_ratio) < 0.05, (seed, measured, nx_ratio)
 
 
 # --- C2 interval shape -------------------------------------------------------
@@ -133,10 +156,11 @@ def test_rep001_beacon_interval_has_bounded_jitter() -> None:
     interval is trivially detectable) yet stay within a bounded envelope of the
     base (a wildly varying gap is not a beacon)."""
 
-    times = sorted(e.eventtime for e in _events("REP-001", "medium"))
-    gaps = [b - a for a, b in zip(times, times[1:], strict=False)]
-    assert len(gaps) > 20
-    assert len(set(gaps)) >= 3, "no jitter: every gap is identical"
-    assert max(gaps) <= 2 * min(gaps), (min(gaps), max(gaps))
-    # jitter around a stable centre, not a trend
-    assert statistics.pstdev(gaps) > 0
+    for seed in SEEDS:
+        times = sorted(e.eventtime for e in _events("REP-001", "medium", seed))
+        gaps = [b - a for a, b in zip(times, times[1:], strict=False)]
+        assert len(gaps) > 20, seed
+        assert len(set(gaps)) >= 3, ("no jitter: every gap is identical", seed)
+        assert max(gaps) <= 2 * min(gaps), (seed, min(gaps), max(gaps))
+        # jitter around a stable centre, not a trend
+        assert statistics.pstdev(gaps) > 0, seed
