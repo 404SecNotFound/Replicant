@@ -47,11 +47,14 @@ from replicant.scenario.engine import ScenarioEngine
 CATALOG = load_catalog(TECHNIQUE_CATALOG)
 SEEDS = (1, 7, 1337, 99_999, 424_242)
 
-# The ten techniques whose builders append a labelled, isolable benign foil.
-# Kept here as an explicit expectation so a builder that silently gains or loses
-# a foil is caught, not just quietly re-derived.
+# The techniques whose builders append a labelled, isolable benign foil. Kept
+# here as an explicit expectation so a builder that silently gains or loses a foil
+# is caught, not just quietly re-derived. REP-006 and REP-007 gained STRUCTURAL
+# foils (roadmap #9) that break the aggregation key rather than adding volume.
 EXPECTED_FOIL = frozenset(
     {
+        "REP-006",
+        "REP-007",
         "REP-012",
         "REP-013",
         "REP-014",
@@ -76,7 +79,7 @@ def _emits_negative(technique, intensity: str) -> bool:
     return False
 
 
-def test_the_declared_foil_set_is_the_expected_ten() -> None:
+def test_the_declared_foil_set_is_the_expected_set() -> None:
     declared = {t.id for t in CATALOG.techniques if t.emits_foil}
     assert declared == EXPECTED_FOIL
 
