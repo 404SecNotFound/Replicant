@@ -64,6 +64,15 @@ class EventRecord(BaseModel):
     level: str
     eventtime: int
 
+    #: Which stream this event belongs to. ``positive`` is the technique's own
+    #: pattern; ``negative`` is a benign foil the technique emits so a detection
+    #: has something it must NOT alert on. Before this, foils were appended into
+    #: the same list with nothing to tell them apart, so a foil could not be
+    #: emitted alone and, after ingestion, could not be told from the attack.
+    #: Not rendered into CEF, so the wire format and the golden lines are
+    #: unchanged; it exists to be filtered on (--controls) and audited.
+    control: Literal["positive", "negative"] = "positive"
+
     src: str | None = None
     spt: int | None = None
     dst: str | None = None
@@ -112,6 +121,13 @@ class Technique(BaseModel):
     params: dict[str, dict[str, Any]] = Field(default_factory=dict)
     distributions: dict[str, Any] = Field(default_factory=dict)
     benign_baseline: str | None = None
+    #: Whether the builder emits a labelled, isolable benign foil, i.e. whether
+    #: ``--controls negative`` yields this technique's benign traffic on its own.
+    #: ``benign_baseline`` above is prose describing production normality and is
+    #: present on all 24; it does NOT mean the plan contains a foil. This does,
+    #: and a parametrized test asserts it matches what the builder actually
+    #: produces (safety against a foil that is documented but never generated).
+    emits_foil: bool = False
     references: list[str] = Field(default_factory=list)
     safety_notes: str | None = None
 
@@ -200,6 +216,13 @@ class RunRequest(BaseModel):
     duration: str | None = None
     to_file: str | None = None
     no_send: bool = False
+    # Which control streams to emit. "both" is the technique as designed (attack
+    # plus its benign foil); "positive" is the attack alone; "negative" is the
+    # foil alone, which is how a detection's false-positive rate gets measured
+    # against the exact traffic the technique says it must not fire on. A
+    # technique with no foil (emits_foil is false) yields nothing under
+    # "negative"; the orchestrator surfaces that rather than sending an empty run.
+    controls: Literal["both", "positive", "negative"] = "both"
     # A non-positive override disables the emit-loop rate limiter (safety rule 4),
     # so it must be a positive events-per-second value when present.
     rate_override: int | None = Field(default=None, gt=0)
@@ -227,6 +250,11 @@ class RunManifest(BaseModel):
     """Audit record written for every run (safety rule 5, blueprint s4)."""
 
     replicant_version: str
+    #: Stable per-run identifier, e.g. ``RUN-20260831T142212Z-a3f9c1``. The only
+    #: thing that ties a manifest, its telemetry and (when --mark-run is on) the
+    #: emitted CEF lines back to one another. Defaulted so manifests written before
+    #: this field existed still load; every run made since produces a real one.
+    run_id: str = ""
     technique_id: str
     technique_name: str
     ndr_uc: str

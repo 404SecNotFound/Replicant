@@ -36,6 +36,7 @@ from typing import Any
 from replicant import __version__
 from replicant.audit.manifest import (
     human_summary,
+    new_run_id,
     now_dubai_iso,
     write_advisory,
     write_manifest,
@@ -83,6 +84,31 @@ _log = get_logger("run")
 ProgressCallback = Callable[[int, int], None]
 EventCallback = Callable[[str, EventRecord], None]
 
+#: CEF extension key for the synthetic-data marker (settings.benign_marker).
+#: flexString1 is CEF's customer custom-string field and is used by none of the
+#: three vendor profiles, so the marker cannot overwrite a real device field.
+#: cs1..cs6 are all taken by at least one profile (Palo Alto uses cs6), which is
+#: why this uses a flex slot rather than a custom-string one.
+SYNTHETIC_MARKER_LABEL_KEY = "flexString1Label"
+SYNTHETIC_MARKER_KEY = "flexString1"
+SYNTHETIC_MARKER_LABEL = "ReplicantSynthetic"
+
+
+def synthetic_marker(run_id: str | None) -> dict[str, str]:
+    """The two CEF extension fields that flag a line as Replicant lab data.
+
+    The blueprint's "clear labeling option" (s58): a switch that stamps a marker
+    so synthetic telemetry is separable from production in a shared collector. The
+    value is the run id when there is one, so a marked line is both flagged
+    synthetic and traceable to the run that produced it; without a run context
+    (a preview sample) it is the literal ``synthetic``.
+    """
+
+    return {
+        SYNTHETIC_MARKER_LABEL_KEY: SYNTHETIC_MARKER_LABEL,
+        SYNTHETIC_MARKER_KEY: run_id or "synthetic",
+    }
+
 
 @dataclass
 class RunResult:
@@ -91,6 +117,10 @@ class RunResult:
     event_count: int
     plan: ScenarioPlan
     stopped: bool
+
+    @property
+    def run_id(self) -> str:
+        return self.manifest.run_id
 
     def summary(self) -> str:
         return human_summary(self.manifest, self.manifest_path)
@@ -292,14 +322,27 @@ class Orchestrator:
             },
         )
 
+    def _mark(self, extension: dict[str, str], run_id: str | None = None) -> dict[str, str]:
+        """Stamp the synthetic-data marker when settings.benign_marker is on.
+
+        Off by default, so the wire format and the golden lines are unchanged
+        unless the operator asks for the marker (safety-labelling is opt-in to
+        preserve fidelity). Applied at this single choke point, so every emitted
+        line, sample and test line is marked identically regardless of vendor.
+        """
+
+        if self.settings.benign_marker:
+            extension = {**extension, **synthetic_marker(run_id)}
+        return extension
+
     def build_test_line(self, *, eventtime: int | None = None) -> str:
         header, extension = self.profile.render(self.build_test_event(eventtime=eventtime))
-        return to_cef(header, extension)
+        return to_cef(header, self._mark(extension))
 
-    def render_line(self, event: EventRecord) -> str:
+    def render_line(self, event: EventRecord, *, run_id: str | None = None) -> str:
         """Serialize one planned event to a CEF line via the active vendor profile."""
         header, extension = self.profile.render(event)
-        return to_cef(header, extension)
+        return to_cef(header, self._mark(extension, run_id))
 
     def send_test(self, collector: CollectorProfile) -> bool:
         """Send one benign test line to the collector; return transport success.
@@ -334,7 +377,7 @@ class Orchestrator:
     def build_plan(self, request: RunRequest) -> ScenarioPlan:
         technique = self.catalog.by_id(request.technique_id)
         duration_s = parse_duration(request.duration) if request.duration else None
-        return self.engine.plan(
+        plan = self.engine.plan(
             technique,
             request.intensity,
             self.entities,
@@ -343,13 +386,26 @@ class Orchestrator:
             anchor_epoch=request.anchor_epoch or self.settings.anchor_epoch,
             param_overrides=request.param_overrides,
         )
+        if request.controls != "both":
+            # Filter to one control stream. Done here so the event count, the
+            # preview, and the manifest all reflect what will actually be sent.
+            keep = "negative" if request.controls == "negative" else "positive"
+            plan.events = [event for event in plan.events if event.control == keep]
+        return plan
 
     def run(
         self,
         request: RunRequest,
         on_progress: ProgressCallback | None = None,
         on_event: EventCallback | None = None,
+        run_id: str | None = None,
     ) -> RunResult:
+        # Generated once here so every surface shares one id: the CLI prints it,
+        # the manifest records it, the web runner passes its handle id in so the
+        # id an operator sees in a 409 resolves to a manifest on disk. Created
+        # before anything can raise, so even a run that dies on connect writes a
+        # manifest carrying the id it was known by.
+        run_id = run_id or new_run_id()
         technique = self.catalog.by_id(request.technique_id)
 
         want_send = not request.no_send
@@ -398,6 +454,7 @@ class Orchestrator:
                     speed=request.speed,
                     on_event=on_event,
                     on_progress=on_progress,
+                    run_id=run_id,
                 )
         except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
             failure = exc
@@ -410,6 +467,7 @@ class Orchestrator:
 
         manifest = RunManifest(
             replicant_version=__version__,
+            run_id=run_id,
             technique_id=technique.id,
             technique_name=technique.name,
             ndr_uc=technique.ndr_uc,
@@ -462,6 +520,7 @@ class Orchestrator:
         speed: float = 1.0,
         on_event: EventCallback | None = None,
         on_progress: ProgressCallback | None = None,
+        run_id: str | None = None,
     ) -> tuple[int, bool]:
         """Render + send/write a list of events. Shared by run() and run_scenario()."""
         # Compression moves the event times, not only the schedule, so it has to
@@ -618,7 +677,7 @@ class Orchestrator:
                     if now - plan_due > resync_after:
                         started = now - offsets[index]
                 header, extension = self.profile.render(event)
-                line = to_cef(header, extension)
+                line = to_cef(header, self._mark(extension, run_id))
                 if on_event is not None:
                     on_event(line, event)
                 if sink is not None:

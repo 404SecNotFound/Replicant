@@ -24,11 +24,11 @@ from __future__ import annotations
 
 import queue
 import threading
-import uuid
 from dataclasses import dataclass, field
 from queue import Full, Queue
 from typing import Any
 
+from replicant.audit.manifest import new_run_id
 from replicant.config.settings import Settings
 from replicant.core.models import Catalog, EventRecord, RunRequest
 from replicant.core.orchestrator import Orchestrator, run_record_of
@@ -223,7 +223,11 @@ class RunManager:
             total = len(orchestrator.build_plan(request))
         events: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=QUEUE_MAXSIZE)
         handle = RunHandle(
-            run_id=uuid.uuid4().hex,
+            # Same format the CLI and the manifest use, and passed into
+            # orchestrator.run below so the manifest on disk carries this exact
+            # id. The web 409 used to name a bare hex handle id that resolved to
+            # nothing an operator could look up.
+            run_id=new_run_id(),
             orchestrator=orchestrator,
             queue=events,
             total=total,
@@ -254,7 +258,9 @@ class RunManager:
             handle.publish({"type": "progress", "count": count, "total": total})
 
         try:
-            result = handle.orchestrator.run(request, on_progress=on_progress, on_event=on_event)
+            result = handle.orchestrator.run(
+                request, on_progress=on_progress, on_event=on_event, run_id=handle.run_id
+            )
             handle.status = "stopped" if result.stopped else "done"
             handle.manifest = result.manifest.model_dump()
             handle.manifest_path = str(result.manifest_path)

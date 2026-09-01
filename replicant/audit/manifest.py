@@ -22,12 +22,25 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 from replicant.core.models import RunManifest, ScenarioManifest
 
 DUBAI_TZ = timezone(timedelta(hours=4))  # UTC+04:00 (Dubai)
+
+
+def new_run_id(now: datetime | None = None) -> str:
+    """A stable per-run identifier: ``RUN-<UTC stamp>Z-<6 hex>``.
+
+    UTC rather than the catalog timezone, because a run id is an absolute handle
+    an operator greps across manifests and (with --mark-run) inside a SIEM, and a
+    local-time stamp reads differently depending on who is looking. Sortable by
+    construction; the hex suffix separates two runs started in the same second.
+    """
+
+    stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S")
+    return f"RUN-{stamp}Z-{uuid.uuid4().hex[:6]}"
 
 
 def now_dubai_iso() -> str:
@@ -64,13 +77,21 @@ def _write_unique(directory: Path, prefix: str, payload: str) -> Path:
 
 def write_manifest(manifest: RunManifest, out_dir: str | Path) -> Path:
     payload = json.dumps(manifest.model_dump(), indent=2, sort_keys=False) + "\n"
-    prefix = f"{manifest.technique_id}-seed{manifest.seed}"
+    # The run id makes the file findable from the id an operator has in hand (the
+    # web 409, the CLI summary, a marked CEF line). It stays after the technique
+    # and seed so a directory listing is still grouped and chronological, and it
+    # already contains a timestamp and a hex suffix, so it is unique on its own;
+    # _write_unique's token guards only the astronomically unlikely collision, or
+    # an older manifest with no run id at all.
+    suffix = manifest.run_id or "RUN-none"
+    prefix = f"{manifest.technique_id}-seed{manifest.seed}-{suffix}"
     return _write_unique(Path(out_dir), prefix, payload)
 
 
 def human_summary(manifest: RunManifest, manifest_path: Path) -> str:
     lines = [
         "Replicant run complete.",
+        f"  run id      : {manifest.run_id}",
         f"  technique   : {manifest.technique_id}  {manifest.technique_name}",
         f"  ndr_uc      : {manifest.ndr_uc}",
         f"  intensity   : {manifest.intensity}",

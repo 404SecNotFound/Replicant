@@ -1214,6 +1214,19 @@ class ScenarioEngine:
             },
         )
 
+    @staticmethod
+    def _mark_negative(events: list[EventRecord], start: int) -> None:
+        """Label every event appended since ``start`` as the benign foil.
+
+        Called right after a builder's benign-foil block, so the foil is
+        addressable (``--controls``) and separable from the technique's own
+        pattern after ingestion. Marking a slice rather than each construction
+        keeps the builders readable and cannot miss a record in the block.
+        """
+
+        for event in events[start:]:
+            event.control = "negative"
+
     def _steady_accept(
         self,
         rng: Any,
@@ -1359,6 +1372,7 @@ class ScenarioEngine:
             if truncated:
                 break
 
+        foil_start = len(events)
         # Benign periodic destination. Both source papers name legitimate
         # periodic software as the dominant false positive, so a plan without one
         # overstates how well a periodicity test performs.
@@ -1382,6 +1396,7 @@ class ScenarioEngine:
             session += 1
             benign_offset += 1800.0  # update-check cadence, no jitter
 
+        self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"mode={mode}: {len(srcs)} source(s) to one destination, jitter "
@@ -1452,6 +1467,7 @@ class ScenarioEngine:
             if next_infected:
                 infected = next_infected
 
+        foil_start = len(events)
         # Benign east-west baseline: a small stable set of server sources on the
         # same port. Same protocol, same port, non-growing source population.
         # Drawn from outside the seed set: a baseline server that is also a seed
@@ -1469,6 +1485,7 @@ class ScenarioEngine:
                 )
                 session += 1
 
+        self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{generations} generation(s) from {seed_hosts} seed host(s) on port {port}; "
@@ -1539,6 +1556,7 @@ class ScenarioEngine:
             if truncated:
                 break
 
+        foil_start = len(events)
         # Benign long-lived session: comparable duration profile, bursty bytes.
         # MineShark had to auto-filter over 99.3% of its alarms, which is the
         # argument for including this. The foil must reach the same order of
@@ -1564,6 +1582,7 @@ class ScenarioEngine:
                     (step + 1) * step_span_s,
                 )
             )
+        self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{sessions} pool session(s) of {session_s // 60} min, one exchange every "
@@ -1625,6 +1644,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        foil_start = len(events)
         # Benign parent with a comparable query count but low unique-label
         # cardinality, so per-minute rate cannot separate the two.
         benign_parent = str(rng.choice([p for p in entities.parents if p != parent] or [parent]))
@@ -1644,6 +1664,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{qph} queries/hour over {duration_s // 3600}h ({total} exfil queries), "
@@ -1747,6 +1768,7 @@ class ScenarioEngine:
             if truncated:
                 break
 
+        foil_start = len(events)
         # Benign NXDOMAIN trickle: typos and stale records. Without it, a rule
         # that alerts on any NXDOMAIN at all would look perfect. Capped at the
         # plan window so the trickle cannot outlive the epochs (or a duration
@@ -1767,6 +1789,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{epochs} epoch(s) of {domains_per_epoch} distinct generated domains, "
@@ -1952,6 +1975,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        foil_start = len(events)
         # Benign star: one workstation logging into several hosts. Same login
         # count, same ports, different shape. Chain versus star IS the detection.
         star_src = pool[(len(pool) - 1)]
@@ -1990,6 +2014,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"Chain of {len(hops)} hops with {len(users)} user(s), credential switch at "
@@ -2056,6 +2081,7 @@ class ScenarioEngine:
                 break
             elapsed += float(rng.uniform(gap_lo, gap_hi))
 
+        foil_start = len(events)
         # Sparse benign policy denies from an unrelated host, at a similar rate.
         benign_src = pool[len(pool) - 1]
         for index in range(min(20, max(self.max_events - len(events), 0))):
@@ -2071,6 +2097,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{total_probes} probes across {len(sources)} rotating sources over "
@@ -2320,6 +2347,7 @@ class ScenarioEngine:
                 break
             elapsed += int(rng.integers(gap_lo, gap_hi + 1))
 
+        foil_start = len(events)
         # Unrelated alert noise on other entity pairs, spread across the whole
         # window. A rule that fires on any N alerts in a window fires on this.
         window = max(elapsed, 1)
@@ -2363,6 +2391,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{stages}-stage ordered chain on one src/dst pair, interleaved with "
@@ -2423,6 +2452,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        foil_start = len(events)
         # Concurrent browsing to 443: high byte variance, varied durations.
         for index in range(min(sessions, max(self.max_events - len(events), 0))):
             events.append(
@@ -2438,6 +2468,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{sessions} session(s) to one destination on 443 every {interval_s}s with "
@@ -2538,6 +2569,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        foil_start = len(events)
         # A sanctioned proxy host producing the same pairing. Identical pattern,
         # different asset role. Tests whether a detection uses role or pattern.
         sanctioned = entities.internal_hosts[len(entities.internal_hosts) - 1]
@@ -2577,6 +2609,7 @@ class ScenarioEngine:
             )
             session += 1
 
+        self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{relay_pairs} relayed request(s) through one host from {len(client_list)} "
