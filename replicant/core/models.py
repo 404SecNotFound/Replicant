@@ -293,6 +293,11 @@ class RunManifest(BaseModel):
     #: datagrams handed to the kernel, and the two differing is the interesting
     #: case rather than an inconsistency.
     send_stats: dict[str, int] | None = None
+    #: One-line attestation of the synthetic-marker decision for this run: whether
+    #: the ReplicantSynthetic tag was stamped and why (destination-conditional
+    #: default, --mark-synthetic, or --no-marker override). Defaulted so manifests
+    #: written before this field existed still load. See Orchestrator._resolve_marker.
+    marker_attestation: str = ""
     status: RunStatus = "done"
     #: Bounded description of the failure, or None. Type and message only, never
     #: a traceback: this is an operator record, not a debugger.
@@ -430,6 +435,10 @@ class ScenarioManifest(BaseModel):
     """Audit record for a scenario run (safety rule 5)."""
 
     replicant_version: str
+    #: Stable per-run id, as RunManifest.run_id, so a marked scenario CEF line
+    #: (flexString1) traces back to this manifest. Defaulted so older scenario
+    #: manifests still load.
+    run_id: str = ""
     scenario_id: str
     scenario_name: str
     seed: int
@@ -445,6 +454,9 @@ class ScenarioManifest(BaseModel):
     anchor_epoch: int
     warmup_note: str | None = None
     coverage: dict[str, Any] = Field(default_factory=dict)
+    #: See RunManifest.marker_attestation: the synthetic-marker decision for this
+    #: scenario run, recorded so the marking is auditable after the fact.
+    marker_attestation: str = ""
     # See RunManifest: the delivered shape is part of the audit record.
     pace: str = "burst"
     speed: float = 1.0

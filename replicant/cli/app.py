@@ -221,8 +221,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--mark-synthetic",
         action="store_true",
-        help="stamp a ReplicantSynthetic marker (with the run id) on every line, "
-        "so lab data is separable from production in a shared collector",
+        help="force the ReplicantSynthetic marker (with the run id) onto every line, "
+        "including --to-file and loopback where it is off by default",
+    )
+    run.add_argument(
+        "--no-marker",
+        action="store_true",
+        help="never stamp the ReplicantSynthetic marker. Since it is applied by "
+        "default on a non-loopback send (so lab data stays separable on a shared "
+        "collector), overriding it on a live send is logged",
     )
     run.add_argument("--rate", type=int, help="events-per-second cap override")
     run.add_argument(
@@ -425,6 +432,10 @@ def cmd_run(
         # Per-run override of the standing benign_marker switch. model_copy so the
         # loaded settings object is not mutated for anything else in the process.
         settings = settings.model_copy(update={"benign_marker": True})
+    if getattr(args, "no_marker", False):
+        # Forces the marker off even where the destination-conditional default
+        # would apply it; _resolve_marker gives this precedence over benign_marker.
+        settings = settings.model_copy(update={"no_marker": True})
 
     orchestrator = Orchestrator(catalog, settings)
     # Said before the run, not after it. Plan pacing turns a three second run into

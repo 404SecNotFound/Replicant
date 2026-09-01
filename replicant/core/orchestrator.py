@@ -24,6 +24,7 @@ peer is the configured collector.
 
 from __future__ import annotations
 
+import ipaddress
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -108,6 +109,31 @@ def synthetic_marker(run_id: str | None) -> dict[str, str]:
         SYNTHETIC_MARKER_LABEL_KEY: SYNTHETIC_MARKER_LABEL,
         SYNTHETIC_MARKER_KEY: run_id or "synthetic",
     }
+
+
+#: Hostnames that mean loopback without a DNS lookup. Replicant never resolves a
+#: name (safety), so a name outside this set is treated as non-loopback.
+_LOOPBACK_HOSTNAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
+
+
+def _is_loopback_dest(host: str) -> bool:
+    """True only when the destination is confidently loopback.
+
+    Conservative by design: an IP literal is judged directly; the well-known
+    loopback names are matched by name; anything else (a hostname we will not
+    resolve, a malformed literal) is treated as NON-loopback. Marking a loopback
+    line is harmless, but failing to mark a line that reaches a shared collector
+    is the exact failure the default guards against, so ambiguity resolves to
+    "mark it".
+    """
+
+    h = host.strip().lower()
+    if h in _LOOPBACK_HOSTNAMES:
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
 
 
 @dataclass
@@ -216,6 +242,10 @@ class ScenarioRunResult:
     plan: ComposedPlan
     stopped: bool
 
+    @property
+    def run_id(self) -> str:
+        return self.manifest.run_id
+
 
 def build_profile(settings: Settings) -> VendorProfile:
     """Select the vendor profile from settings.vendor (blueprint s10, Phase 3).
@@ -322,22 +352,76 @@ class Orchestrator:
             },
         )
 
-    def _mark(self, extension: dict[str, str], run_id: str | None = None) -> dict[str, str]:
-        """Stamp the synthetic-data marker when settings.benign_marker is on.
+    def _mark(
+        self, extension: dict[str, str], run_id: str | None = None, *, on: bool | None = None
+    ) -> dict[str, str]:
+        """Stamp the synthetic-data marker at this single choke point.
 
-        Off by default, so the wire format and the golden lines are unchanged
-        unless the operator asks for the marker (safety-labelling is opt-in to
-        preserve fidelity). Applied at this single choke point, so every emitted
-        line, sample and test line is marked identically regardless of vendor.
+        ``on`` is the resolved per-destination decision from
+        :meth:`_resolve_marker`, which the emit path computes once and passes in.
+        When it is None (previews, the static test-line render), the decision
+        falls back to ``settings.benign_marker`` so a preview still honours an
+        explicit ``--mark-synthetic``. Applied here so every emitted line, sample
+        and test line is marked identically regardless of vendor.
         """
 
-        if self.settings.benign_marker:
+        apply = self.settings.benign_marker if on is None else on
+        if apply:
             extension = {**extension, **synthetic_marker(run_id)}
         return extension
 
-    def build_test_line(self, *, eventtime: int | None = None) -> str:
+    def _resolve_marker(
+        self, *, send: bool, collector: CollectorProfile | None
+    ) -> tuple[bool, str]:
+        """Decide whether to stamp the marker on this run, and record why.
+
+        Destination-conditional default (roadmap 2026-09 item 3): ON when the run
+        has a non-loopback network send, where analyst de-confliction on a shared
+        collector outranks a flex slot no detection reads; OFF when it does not (a
+        loopback or file-only run, or ``--no-send``), where the golden line is the
+        oracle and fidelity is what matters. A run that both sends live and writes
+        a file marks both, so the file mirrors what went on the wire.
+        ``--mark-synthetic`` (settings.benign_marker)
+        forces it on everywhere; ``--no-marker`` (settings.no_marker) forces it
+        off and is logged when it overrides a non-loopback send, because that is
+        the case the default exists to protect. ``no_marker`` wins if both are set.
+
+        Returns (marker_on, attestation) where attestation is the one line the
+        manifest records so a run's marking decision is auditable after the fact.
+        """
+
+        non_loopback_send = send and collector is not None and not _is_loopback_dest(collector.host)
+        if self.settings.no_marker:
+            if non_loopback_send:
+                # Reported as configuration intent, not as a claim that anything
+                # was emitted: this resolves at plan time, before the send is even
+                # attempted, so a run that never reaches the wire must not have
+                # logged "emitted lines will not carry the tag".
+                _log.warning(
+                    "--no-marker is set for a non-loopback send to %s: lines reaching that "
+                    "collector will NOT carry the %s tag, so this lab data will not be "
+                    "separable from production there",
+                    collector.host,  # type: ignore[union-attr]
+                    SYNTHETIC_MARKER_LABEL,
+                )
+                # Only a non-loopback send is a real override: for loopback/file
+                # the default was already off, so --no-marker overrode nothing and
+                # the attestation must not claim it did.
+                return False, "not applied (--no-marker override on a non-loopback send)"
+            return False, "not applied (loopback, --to-file, or --no-send)"
+        if self.settings.benign_marker:
+            return True, f"applied: {SYNTHETIC_MARKER_LABEL} (forced by --mark-synthetic)"
+        if non_loopback_send:
+            return (
+                True,
+                f"applied: {SYNTHETIC_MARKER_LABEL} "
+                f"(default for non-loopback send to {collector.host})",  # type: ignore[union-attr]
+            )
+        return False, "not applied (loopback, --to-file, or --no-send)"
+
+    def build_test_line(self, *, eventtime: int | None = None, mark: bool | None = None) -> str:
         header, extension = self.profile.render(self.build_test_event(eventtime=eventtime))
-        return to_cef(header, self._mark(extension))
+        return to_cef(header, self._mark(extension, on=mark))
 
     def render_line(self, event: EventRecord, *, run_id: str | None = None) -> str:
         """Serialize one planned event to a CEF line via the active vendor profile."""
@@ -358,7 +442,11 @@ class Orchestrator:
         run events were correctly stamped and only the test was stale.
         """
 
-        line = self.build_test_line(eventtime=int(datetime.now(tz=UTC).timestamp()))
+        # A test line to a non-loopback collector is a real send to a shared
+        # collector, so it follows the same destination-conditional marking as a
+        # run: tagged by default off loopback, plain on loopback or under --no-marker.
+        mark_on, _ = self._resolve_marker(send=True, collector=collector)
+        line = self.build_test_line(eventtime=int(datetime.now(tz=UTC).timestamp()), mark=mark_on)
         try:
             with SyslogEmitter(collector, hostname=self.syslog_hostname) as emitter:
                 _log.info("connect test: one benign line, stamped now")
@@ -424,6 +512,7 @@ class Orchestrator:
         target, transport = self._describe_target(request, send)
         eps_cap = request.rate_override or self.settings.eps_cap
         pace = self._resolve_pace(request.pace, request.speed, sending=send)
+        marker_on, marker_attestation = self._resolve_marker(send=send, collector=request.collector)
 
         started_at = now_dubai_iso()
         # The manifest is written whichever way this ends, including the ways that
@@ -455,6 +544,7 @@ class Orchestrator:
                     on_event=on_event,
                     on_progress=on_progress,
                     run_id=run_id,
+                    mark=marker_on,
                 )
         except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
             failure = exc
@@ -489,6 +579,7 @@ class Orchestrator:
             duration=request.duration,
             rate=eps_cap,
             send_stats=self.last_send_stats,
+            marker_attestation=marker_attestation,
             status=_run_status(failure, stopped),
             error=describe_error(failure) if failure is not None else None,
         )
@@ -521,8 +612,14 @@ class Orchestrator:
         on_event: EventCallback | None = None,
         on_progress: ProgressCallback | None = None,
         run_id: str | None = None,
+        mark: bool = False,
     ) -> tuple[int, bool]:
-        """Render + send/write a list of events. Shared by run() and run_scenario()."""
+        """Render + send/write a list of events. Shared by run() and run_scenario().
+
+        ``mark`` is the resolved synthetic-marker decision for this destination
+        (see :meth:`_resolve_marker`), applied uniformly to every line the run
+        emits, whether it goes to the sink, the emitter, or both.
+        """
         # Compression moves the event times, not only the schedule, so it has to
         # happen before anything renders. See replicant.core.pacing.
         events = compress_timeline(events, speed)
@@ -677,7 +774,7 @@ class Orchestrator:
                     if now - plan_due > resync_after:
                         started = now - offsets[index]
                 header, extension = self.profile.render(event)
-                line = to_cef(header, self._mark(extension, run_id))
+                line = to_cef(header, self._mark(extension, run_id, on=mark))
                 if on_event is not None:
                     on_event(line, event)
                 if sink is not None:
@@ -856,6 +953,10 @@ class Orchestrator:
         on_event: EventCallback | None = None,
     ) -> ScenarioRunResult:
         scenario = scenario_catalog.by_id(request.scenario_id)
+        # Mirror run(): one id ties the manifest to the marked CEF lines. Without
+        # it, scenario lines marked on a non-loopback send all carried the literal
+        # "synthetic" and nothing tied a wire line back to the run that made it.
+        run_id = new_run_id()
 
         want_send = not request.no_send
         if want_send and request.collector is None and request.to_file is None:
@@ -879,6 +980,7 @@ class Orchestrator:
         target, transport = self._describe_target(request, send)
         eps_cap = request.rate_override or self.settings.eps_cap
         pace = self._resolve_pace(request.pace, request.speed, sending=send)
+        marker_on, marker_attestation = self._resolve_marker(send=send, collector=request.collector)
 
         started_at = now_dubai_iso()
         # See run(): the manifest is written on every exit path, raising ones
@@ -906,6 +1008,8 @@ class Orchestrator:
                     speed=request.speed,
                     on_event=on_event,
                     on_progress=on_progress,
+                    run_id=run_id,
+                    mark=marker_on,
                 )
         except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
             failure = exc
@@ -914,6 +1018,7 @@ class Orchestrator:
         advisory_text, coverage = build_advisory(scenario, composed, self.catalog)
         manifest = ScenarioManifest(
             replicant_version=__version__,
+            run_id=run_id,
             scenario_id=scenario.id,
             scenario_name=scenario.name,
             seed=request.seed,
@@ -947,6 +1052,7 @@ class Orchestrator:
             anchor_epoch=composed.anchor_epoch,
             warmup_note=self._scenario_note(composed),
             coverage=coverage,
+            marker_attestation=marker_attestation,
             pace=pace,
             speed=request.speed,
             duration=request.duration,

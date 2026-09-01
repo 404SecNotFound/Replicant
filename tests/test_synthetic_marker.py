@@ -20,9 +20,9 @@ since the first release.
 
 The marker rides in flexString1, a CEF customer custom field used by none of the
 three vendor profiles (Palo Alto already uses cs6, so a custom-string slot was
-not free across all three). It is off by default, so the default wire format and
-the golden lines are unchanged; the positive control below reverts the wiring and
-watches the "on" assertions go red while the default-off ones stay green.
+not free across all three). The default is destination-conditional (roadmap
+2026-09 item 3, see the section at the end of this file): off for --to-file and
+loopback so the golden lines are unchanged, on for a non-loopback send.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from pathlib import Path
 import pytest
 
 from replicant.config.settings import Settings
-from replicant.core.models import EventRecord, RunRequest, load_catalog
+from replicant.core.models import CollectorProfile, EventRecord, RunRequest, load_catalog
 from replicant.core.orchestrator import (
     SYNTHETIC_MARKER_KEY,
     SYNTHETIC_MARKER_LABEL,
@@ -125,3 +125,132 @@ def test_marker_does_not_overwrite_a_vendor_field(vendor: str, tmp_path: Path) -
     for field in off.split(" "):
         if "=" in field and not field.startswith("CEF:"):
             assert field in on
+
+
+# --- roadmap 2026-09 item 3: destination-conditional default -----------------
+#
+# The default flips from "off unless asked" to "off for --to-file and loopback,
+# ON for a non-loopback send". flexString1 is an unused flex slot no detection
+# reads (see above), so marking a live send corrupts nothing a rule keys on,
+# while separability on a shared collector is exactly what an analyst needs at
+# 3am. --to-file and loopback stay off so the golden line remains the oracle.
+#
+# Positive control: revert the `non_loopback_send` branch of
+# Orchestrator._resolve_marker (make it always fall through to "off") and the
+# non-loopback assertions here go red while the loopback/file ones stay green.
+
+
+def _decision(*, send: bool, host: str | None = None, **flags: bool) -> tuple[bool, str]:
+    orch = Orchestrator(CATALOG, Settings(**flags))
+    collector = CollectorProfile(host=host) if host else None
+    return orch._resolve_marker(send=send, collector=collector)
+
+
+def test_default_on_for_a_non_loopback_send() -> None:
+    on, note = _decision(send=True, host="10.0.20.125")
+    assert on is True
+    assert "10.0.20.125" in note
+
+
+def test_default_off_for_a_loopback_send() -> None:
+    assert _decision(send=True, host="127.0.0.1")[0] is False
+    assert _decision(send=True, host="localhost")[0] is False
+    assert _decision(send=True, host="::1")[0] is False
+
+
+def test_default_off_for_file_or_no_send() -> None:
+    assert _decision(send=False)[0] is False
+
+
+def test_mark_synthetic_forces_on_even_off_wire() -> None:
+    assert _decision(send=False, benign_marker=True)[0] is True
+
+
+def test_no_marker_forces_off_and_warns_on_a_non_loopback_send(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        on, note = _decision(send=True, host="10.0.20.125", no_marker=True)
+    assert on is False
+    assert "no-marker" in note.lower()
+    assert "override" in note.lower()
+    assert any("no-marker" in r.message.lower() for r in caplog.records)
+
+
+def test_no_marker_on_loopback_does_not_claim_an_override() -> None:
+    """--no-marker overrode nothing off loopback/file: the attestation must not lie."""
+
+    _, loop_note = _decision(send=True, host="127.0.0.1", no_marker=True)
+    assert "override" not in loop_note
+    _, file_note = _decision(send=False, no_marker=True)
+    assert "override" not in file_note
+
+
+def test_a_non_loopback_scenario_send_is_marked_with_the_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scenario runs mark by default too, and the marker value is the run id, not
+    the literal 'synthetic', so a wire line traces back to the scenario manifest."""
+
+    from replicant.core.models import ScenarioRunRequest, load_scenario_catalog
+    from replicant.resources import SCENARIO_CATALOG
+
+    scenarios = load_scenario_catalog(SCENARIO_CATALOG, CATALOG)
+    captured: list[str] = []
+
+    class _FakeEmitter:
+        def __init__(self, collector: object, hostname: str = "") -> None: ...
+        def connect(self) -> None: ...
+        def send(self, line: str, level: str = "info") -> int:
+            captured.append(line)
+            return len(line)
+
+        def close(self) -> None: ...
+
+    monkeypatch.setattr("replicant.core.orchestrator.SyslogEmitter", _FakeEmitter)
+    orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
+    result = orch.run_scenario(
+        ScenarioRunRequest(
+            scenario_id="SCEN-001",
+            pace="burst",
+            collector=CollectorProfile(host="203.0.113.9", port=514, transport="udp"),
+        ),
+        scenarios,
+    )
+    assert captured, "fake emitter captured nothing"
+    assert result.run_id, "scenario run has no run id"
+    assert all(_MARKER_TOKEN in line for line in captured)
+    assert all(f"{SYNTHETIC_MARKER_KEY}={result.run_id}" in line for line in captured)
+
+
+def test_a_non_loopback_send_is_marked_by_default_end_to_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No marker flag set: a send to a non-loopback collector is marked anyway."""
+
+    captured: list[str] = []
+
+    class _FakeEmitter:
+        def __init__(self, collector: object, hostname: str = "") -> None: ...
+        def connect(self) -> None: ...
+        def send(self, line: str, level: str = "info") -> int:
+            captured.append(line)
+            return len(line)
+
+        def close(self) -> None: ...
+
+    monkeypatch.setattr("replicant.core.orchestrator.SyslogEmitter", _FakeEmitter)
+    orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
+    result = orch.run(
+        RunRequest(
+            technique_id="REP-001",
+            intensity="low",
+            pace="burst",
+            collector=CollectorProfile(host="203.0.113.9", port=514, transport="udp"),
+        )
+    )
+    assert captured, "fake emitter captured nothing"
+    assert all(_MARKER_TOKEN in line for line in captured)
+    assert "applied" in result.manifest.marker_attestation
