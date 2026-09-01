@@ -155,14 +155,20 @@ def _compose_pass(
                     anchor_epoch=stage_anchor + aligned_days * _DAY_SECONDS,
                     param_overrides=stage.param_overrides or None,
                 )
-        for event in plan.events:
+        # A scenario is a curated attack chain; the single-technique benign foil
+        # (--controls) has no scenario-level filter and no place on the composed
+        # wire, so compose the positive stream only. Without this a foil-emitting
+        # stage (REP-007 in SCEN-003, the first such) would leak benign
+        # negative-control events onto the collector and into the advisory counts.
+        stage_events = [event for event in plan.events if event.control == "positive"]
+        for event in stage_events:
             tagged.append((event.eventtime, i, event))
         if plan.warmup_note:
             warmups.append(f"stage {i} ({stage.technique_id}): {plan.warmup_note}")
-        times = [event.eventtime for event in plan.events]
-        top_src, top_src_count = _dominant([e.src for e in plan.events if e.src])
-        top_dst, top_dst_count = _dominant([e.dst for e in plan.events if e.dst])
-        top_user, top_user_count = _dominant([e.duser for e in plan.events if e.duser])
+        times = [event.eventtime for event in stage_events]
+        top_src, top_src_count = _dominant([e.src for e in stage_events if e.src])
+        top_dst, top_dst_count = _dominant([e.dst for e in stage_events if e.dst])
+        top_user, top_user_count = _dominant([e.duser for e in stage_events if e.duser])
         stages.append(
             StageResult(
                 index=i,
@@ -171,7 +177,7 @@ def _compose_pass(
                 ndr_uc=technique.ndr_uc,
                 intensity=intensity,
                 start_offset=stage.start_offset,
-                event_count=len(plan.events),
+                event_count=len(stage_events),
                 tactics=list(technique.attack.tactics),
                 techniques=list(technique.attack.techniques),
                 start_epoch=min(times) if times else None,

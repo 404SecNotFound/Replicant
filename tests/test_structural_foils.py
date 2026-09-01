@@ -88,6 +88,23 @@ def test_rep006_foil_is_not_separable_by_time_but_is_by_destination() -> None:
     assert {e.dst for e in pos} - BENIGN, "attack should reach non-benign dsts"
 
 
+def test_rep006_foil_is_not_separable_by_bytes_action_or_ports() -> None:
+    """The foil must match the attack's distributions so destination is the ONLY
+    discriminator. Diverging byte/action/port stats would be a free FP filter that
+    works on synthetic data and fails in production."""
+    pos = _events("REP-006", "positive")
+    neg = _events("REP-006", "negative")
+    assert {e.dpt for e in neg} <= {e.dpt for e in pos}  # same port set
+    assert len({e.dpt for e in neg}) >= 3  # varied ports, not a narrow tell
+    assert any(e.action == "deny" for e in neg)  # the occasional policy deny, like the attack
+    # byte volume does not separate them: the foil draws from the same envelope as
+    # the attack (out < 4000, in < 8000), so no threshold fires on only one of them.
+    assert all(80 <= (e.out_bytes or 0) < 4000 for e in neg)
+    assert all(80 <= (e.in_bytes or 0) < 8000 for e in neg)
+    assert all(80 <= (e.out_bytes or 0) < 4000 for e in pos)
+    assert all(80 <= (e.in_bytes or 0) < 8000 for e in pos)
+
+
 # --- REP-007: NAT / proxy source-collapse ------------------------------------
 
 
@@ -119,3 +136,56 @@ def test_rep007_foil_is_separable_by_fail_ratio_not_count() -> None:
     assert fail_ratio(neg) < 0.6
     assert any(e.action == "tunnel-up" for e in neg)
     assert not any(e.action == "tunnel-up" for e in pos)  # spray has no success
+
+
+# --- interactions: scenarios and the validation card -------------------------
+
+
+def test_scenarios_compose_the_attack_only_no_benign_foil() -> None:
+    """A scenario is a curated attack chain with no --controls escape hatch, so a
+    foil-emitting stage (REP-007 in SCEN-003) must not leak benign negative-control
+    events onto the wire. Positive control: drop the positive filter in compose()
+    and SCEN-003 gains negative events."""
+    from replicant.core.models import load_scenario_catalog
+    from replicant.entities.model import EntityModel
+    from replicant.resources import SCENARIO_CATALOG
+    from replicant.scenario.composer import compose
+    from replicant.scenario.engine import DEFAULT_ANCHOR_EPOCH, ScenarioEngine
+
+    scenarios = load_scenario_catalog(SCENARIO_CATALOG, CATALOG)
+    for sid in ("SCEN-001", "SCEN-002", "SCEN-003"):
+        composed = compose(
+            scenarios.by_id(sid),
+            CATALOG.by_id,
+            ScenarioEngine(),
+            1337,
+            DEFAULT_ANCHOR_EPOCH,
+            EntityModel.build(),
+        )
+        assert composed.events, sid
+        assert all(e.control == "positive" for e in composed.events), sid
+
+
+def test_validation_card_pivots_on_the_attack_not_the_foil(tmp_path) -> None:
+    """A structural foil adds a distinct benign source; the per-run card (roadmap
+    #7) must pivot on the attack, not list the benign proxy as an attack source.
+    Positive control: build the card from both streams and the foil src appears."""
+    from replicant.config.settings import Settings as _S
+
+    orch = Orchestrator(CATALOG, _S(manifest_dir=str(tmp_path)))
+    result = orch.run(
+        RunRequest(
+            technique_id="REP-006",
+            intensity="low",
+            to_file=str(tmp_path / "o.log"),
+            no_send=True,
+        )
+    )
+    text = result.card_path.read_text(encoding="utf-8")  # type: ignore[union-attr]
+    positive = [e for e in result.plan.events if e.control == "positive"]
+    negative = [e for e in result.plan.events if e.control == "negative"]
+    attack_src = Counter(e.src for e in positive).most_common(1)[0][0]
+    foil_src = Counter(e.src for e in negative).most_common(1)[0][0]
+    assert attack_src != foil_src
+    assert attack_src in text
+    assert foil_src not in text

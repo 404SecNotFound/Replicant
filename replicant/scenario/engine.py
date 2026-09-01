@@ -719,33 +719,43 @@ class ScenarioEngine:
         # destination context (the proxy reaches known-good externals, the attack
         # reaches the adversary and sweep pools), not the count of distinct dsts.
         # Co-located in the same window, so time of day is not a free discriminator.
-        if not truncated:
+        others = [h for h in entities.internal_hosts if h != src]
+        if not truncated and others and entities.benign_external:
             foil_start = len(events)
-            others = [h for h in entities.internal_hosts if h != src]
-            proxy = str(rng.choice(others)) if others else src
+            proxy = str(rng.choice(others))
             benign_dsts = entities.benign_external
             room = self.max_events - len(events)
             foil_count = max(0, min(len(benign_dsts), max(3, unique_dst // 2), room))
             proxy_session = int(rng.integers(60_000, 90_000))
+            dpt_choices = [443, 80, 53, 8080, 22]
             for j in range(foil_count):
-                dpt = int(rng.choice([443, 80]))
+                dpt = int(rng.choice(dpt_choices))
+                proto = 17 if dpt == 53 else 6
+                # Match the attack's distributions so the ONLY discriminator is the
+                # destination (a proxy reaches known-good externals): same ports,
+                # same byte ranges, same occasional policy deny. Diverging on bytes,
+                # action or ports would hand the analyst a free FP filter that works
+                # on synthetic data and fails in production.
+                is_open = j % 10 != 0
+                action = "accept" if is_open else "deny"
+                level = "notice" if is_open else "warning"
                 service, app = port_service(dpt)
                 events.append(
                     EventRecord(
                         log_type=technique.fortigate.log_type,
                         subtype=technique.fortigate.subtype,
-                        action="accept",
-                        level="notice",
+                        action=action,
+                        level=level,
                         eventtime=anchor + int(j * gap_s),
                         src=proxy,
                         spt=int(rng.integers(1024, 65535)),
-                        dst=benign_dsts[j % len(benign_dsts)],
+                        dst=benign_dsts[j],
                         dpt=dpt,
-                        proto=6,
+                        proto=proto,
                         session_id=proxy_session + j,
-                        out_bytes=int(rng.integers(200, 6000)),
-                        in_bytes=int(rng.integers(400, 20000)),
-                        extra=_scan_traffic_extra(True, service, app),
+                        out_bytes=int(rng.integers(80, 4000)),
+                        in_bytes=int(rng.integers(80, 8000)),
+                        extra=_scan_traffic_extra(is_open, service, app),
                     )
                 )
             self._mark_negative(events, foil_start)
@@ -903,7 +913,7 @@ class ScenarioEngine:
         # successes (this source mostly succeeds, across distinct users), not the raw
         # count of login events from one source, which the attack and a NAT share.
         # Co-located in the same window, so time of day is not a free discriminator.
-        if not truncated:
+        if not truncated and entities.benign_external:
             foil_start = len(events)
             nat = str(rng.choice(entities.benign_external))
             nat_users = synthetic_usernames(max(4, len(usernames)), entities.users)

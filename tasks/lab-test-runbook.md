@@ -230,9 +230,11 @@ replicant run REP-001 --intensity medium --anchor now --controls negative \
 rule that fires on both 4.1 and 4.2 has a false-positive problem the lab should
 know about; that is a finding about the rule, not about Replicant.
 
-> Only the ten techniques with `emits_foil` (REP-012, 013, 014, 015, 016, 018,
-> 019, 022, 023, 024) have a negative stream. REP-001 does **not** — for 4.2, use
-> one of those ten whose UC maps to a lab rule, or run REP-001's baseline peer per
+> Only the twelve techniques with `emits_foil` (REP-006, 007, 012, 013, 014, 015,
+> 016, 018, 019, 022, 023, 024) have a negative stream. REP-006 and REP-007 carry
+> the structural foils (shared-IP fan-out, NAT source-collapse) that break the
+> aggregation key. REP-001 does **not** — for 4.2, use one of those twelve whose UC
+> maps to a lab rule, or run REP-001's baseline peer per
 > the SIEM-09 note in the UAT plan. Asking for the negative stream on a foil-less
 > technique emits nothing and the CLI says so.
 
