@@ -118,3 +118,10 @@ def write_advisory(text: str, manifest_path: Path) -> Path:
     path = manifest_path.parent / f"{manifest_path.stem}.advisory.md"
     path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
     return path
+
+
+def write_validation_card(text: str, manifest_path: Path) -> Path:
+    """Write the single-technique validation card next to its manifest."""
+    path = manifest_path.parent / f"{manifest_path.stem}.card.md"
+    path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
+    return path
