@@ -108,6 +108,30 @@ python3.12 -m venv .venv
 ./.venv/bin/pip install -e ".[dev]"
 ```
 
+### pip, CLI-first
+
+The CLI is the product; the web UI is an optional extra. A CLI-only install pulls no Node toolchain and no web server:
+
+```bash
+pip install replicant            # CLI only
+pip install "replicant[web]"     # add the FastAPI web UI
+```
+
+The `replicant` console command is the entry point for everything (`replicant list`, `replicant run ...`). `pip install replicant` requires the package to be published to PyPI; until then install the wheel attached to a [GitHub release](https://github.com/404SecNotFound/Replicant/releases) the same way (`pip install ./replicant-*.whl`).
+
+### Container
+
+A CLI-first image runs a technique with nothing installed on the host but a container runtime:
+
+```bash
+docker build -t replicant .
+docker run --rm replicant list
+docker run --rm -v "$PWD/out:/work" replicant \
+  run REP-001 --intensity low --to-file /work/rep001.log --no-send
+```
+
+The image installs the CLI only (no web UI). Runs write to the working directory, so mount a volume at `/work` to keep the manifest and any `--to-file` output. The build context excludes everything but the package (see `.dockerignore`).
+
 ### Linux one-shot install
 
 On a fresh Linux box, `scripts/install.sh` does the whole setup and then verifies it:

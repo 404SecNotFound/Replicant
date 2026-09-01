@@ -396,7 +396,11 @@ jobs:
           cd /tmp/elsewhere
 
           /tmp/wheelvenv/bin/replicant --version
-          test "$(/tmp/wheelvenv/bin/replicant list | grep -c 'REP-0')" -eq 24
+          # Count DISTINCT technique ids, not lines matching REP-0: the catalog
+          # list gained a transferability-notes footer that repeats a few ids, so
+          # a raw line count overcounts (this is the regression that turned this
+          # job red on main after the transferability property shipped).
+          test "$(/tmp/wheelvenv/bin/replicant list | grep -oE 'REP-[0-9]{3}' | sort -u | wc -l)" -eq 24
           /tmp/wheelvenv/bin/replicant scenario list >/dev/null
           /tmp/wheelvenv/bin/replicant run REP-004 --intensity low --to-file ./out.log --no-send
           head -1 ./out.log | grep -q '^CEF:0|Fortinet|Fortigate'
@@ -421,3 +425,39 @@ jobs:
           print("wheel serves the built UI")
           PY
           pkill -f "replicant web" || true
+
+  container:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the CLI image
+        run: docker build -t replicant:ci .
+
+      # The verification the author cannot run locally (no Docker daemon on the
+      # dev Mac): build the image and drive the CLI inside it, from a directory
+      # with no repository in it. A broken Dockerfile fails here, which is why
+      # this job exists rather than the Dockerfile being merged on inspection.
+      - name: Smoke-test the CLI in the image
+        run: |
+          set -euo pipefail
+          docker run --rm replicant:ci --version
+          test "$(docker run --rm replicant:ci list | grep -oE 'REP-[0-9]{3}' | sort -u | wc -l)" -eq 24
+          docker run --rm replicant:ci scenario list >/dev/null
+          # A full run to a file inside the container, read back in the same shell.
+          # --entrypoint sh because the image's entrypoint is `replicant`.
+          docker run --rm --entrypoint sh replicant:ci -c \
+            'replicant run REP-004 --intensity low --to-file /tmp/dns.log --no-send \
+             && head -1 /tmp/dns.log' | grep -q '^CEF:0|Fortinet|Fortigate'
+
+      - name: The CLI image does not ship the web UI assets
+        run: |
+          set -euo pipefail
+          # CLI-first: the image excludes webui_dist, so the built assets are absent.
+          if docker run --rm --entrypoint sh replicant:ci -c \
+               'ls /usr/local/lib/python*/site-packages/replicant/webui_dist/assets/*.js' \
+               2>/dev/null; then
+            echo "CLI image unexpectedly carries the web UI assets" >&2
+            exit 1
+          fi

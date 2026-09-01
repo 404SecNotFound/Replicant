@@ -1,0 +1,35 @@
+# Whole git repositories living inside this tree (pre-rewrite history, a mirror
+# and a bundle). They are gitignored; keep them out of the Docker build context
+# too, so the image can never carry the scrubbed history.
+replicant-backup-*/
+replicant-rewrite/
+.git
+**/.git
+
+# Dev and build cruft that has no place in the image or the context.
+.venv
+venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+webui/node_modules
+webui/dist
+replicant/webui_dist
+dist
+dist-wheel
+build
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Runtime output.
+manifests
+out
+scratchpad
+
+# Not needed to build or run the CLI.
+tests
+docs
+tasks
+.github
