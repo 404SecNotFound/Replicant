@@ -55,6 +55,27 @@ def lognormal_bytes(rng: Any, low: int, high: int, sigma: float = 0.15) -> int:
     return int(min(max(value, low), high))
 
 
+def packet_count(byte_count: int, typical_mss: int = 1400, spread: int = 400) -> int:
+    """Packet count for a byte count, with a per-flow effective segment size.
+
+    A fixed divisor (``byte_count // 1400``) makes bytes-per-packet a constant an
+    analyst spots at a glance: every flow reports the same ~1400 (or ~150). Real
+    captures never show one segment size across every session. The effective size
+    here varies with the byte count itself, over ``[typical_mss - spread,
+    typical_mss]``, so the ratio moves flow to flow.
+
+    Deterministic on ``byte_count`` alone, and drawing from no rng, so it neither
+    breaks reproducibility nor shifts the seeded stream (which would change every
+    downstream draw for a given seed). ``byte_count`` already varies per flow, so
+    a deterministic function of it still spreads the ratio across the stream.
+    """
+
+    if byte_count <= 0:
+        return 1
+    mss = typical_mss - (byte_count % (spread + 1))
+    return max(1, byte_count // max(mss, 1))
+
+
 def jittered_interval(rng: Any, base_s: float, jitter_pct: float) -> float:
     """``base_s`` scaled by a uniform +/- ``jitter_pct`` percent.
 
@@ -86,7 +107,14 @@ def high_entropy_labels(
     max_len: int,
     alphabet: str = BASE32_ALPHABET,
 ) -> list[str]:
-    """``count`` unique high-entropy DNS labels (base32 look, > 3.5 bits/char).
+    """``count`` unique high-entropy DNS labels with a near-uniform base32 look.
+
+    The character distribution is near-uniform over the alphabet, so a long run of
+    these labels measures close to log2(len(alphabet)) bits per character (~5 for
+    base32). Per-character Shannon entropy of a SINGLE short label is capped by its
+    length (an 8-char label tops out near 3 bits/char even when every character is
+    distinct), so short labels read lower on that per-label metric while the
+    distribution stays uniform; measure the distribution over many labels, not one.
 
     Lengths are clamped to the RFC 1035 63-octet label limit, so a label_len
     override above 63 cannot produce a label no resolver would ever emit. With
