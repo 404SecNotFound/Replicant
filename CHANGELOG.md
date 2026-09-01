@@ -6,6 +6,73 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-01
+
+A defect release from an end-to-end review of the whole codebase (10 subsystem
+finders, every finding adversarially verified against the real code; 10 of 17
+raised survived). Gates were green before and after. One change alters rendered
+output, which is why this is a minor bump: REP-011 on Check Point now carries the
+source country it used to drop.
+
+### Fixed: three techniques or paths behaved against their own contract
+
+- **Scenario runs bypassed the F-08 send lock.** `run()` held the
+  one-sending-run-per-host lock; `run_scenario()` called the emit loop directly
+  without it, so a `scenario run` sent unlocked and a concurrent `replicant run`
+  found the slot free and both streamed up to the eps cap, the doubling F-08
+  exists to prevent. The scenario path now holds the same lock. Guarded by a real
+  second-process test, with a `--no-send` control proving a dry scenario run is
+  not blocked.
+- **Check Point dropped the geovelocity source country, blinding REP-011 on one
+  vendor.** FortiGate and PAN-OS rendered `srccountry`; the Check Point mobile
+  access path had no branch, so a correlation rule keyed on source country never
+  fired against Check Point logs, on the one technique whose whole signal is the
+  changing country. It now renders a Source Region field (`cs4`, following
+  `auth_status`, `[Unverified]` field name against a live exporter). All three
+  vendors now carry it; the eight golden lines are unchanged, since REP-011 is
+  not among them.
+- **A malformed `--duration` crashed with a raw traceback**, and in the Rich menu
+  it tore down the whole interactive session. `--duration 30min` now gets the
+  same clean refusal every other bad flag does, validated on the request model so
+  the CLI, the menu and the web form all reject it identically.
+
+### Fixed: robustness and web hardening
+
+- **`high_entropy_labels` hung forever** when asked for more distinct labels than
+  the alphabet can form (reachable through param overrides), pegging a CPU with
+  no error. It now refuses like `unique_ints` already did.
+- **TLS certificate verification, the secure default, was never tested.** Every
+  TLS test set verify off, so flipping the default to `CERT_NONE` would have
+  shipped green. A test now asserts verify-on rejects an untrusted certificate,
+  with a positive control that the same cert pinned as the CA is accepted.
+- **A header-token API client with no cookie jar minted a session per request,**
+  retained for the 12-hour TTL, so a once-a-second monitoring poll grew tens of
+  thousands of dead sessions in half a day. Only the browser's URL-token
+  navigation is promoted to a cookie now; the header path mints nothing.
+- **The run-event stream fan-out had no lock,** so a browser tab subscribing at
+  the instant of a publish could miss that item, including the terminal
+  done/error event, and stay showing an in-progress run. Subscribe, unsubscribe
+  and publish are now mutually exclusive.
+- **The Docs viewer's link sanitizer allowed protocol-relative URLs,** so a repo
+  document containing `[x](//host)` rendered a working off-site link. It now
+  rejects a second leading slash. Repo-controlled content plus the page CSP kept
+  this open-redirect class, but the sanitizer exists to be defence in depth.
+
+### The theme, and the method
+
+Four of the ten were the class this project keeps relearning: a renderer or guard
+that covers one verdict of two, or an invariant asserted but never negatively
+tested. The DNS response was rendered in a test only for NXDOMAIN, never the
+resolved answer; the synthetic-range guard that stands between a config and a
+real-IP log had no rejection test. Both now have one.
+
+Nine of the ten guards were run against the unfixed code and observed to fail
+before being trusted. The tenth, the stream fan-out race, has a window that
+cannot be forced from Python; its guard is a concurrency load test plus mutual
+exclusion by construction, and is labelled as such rather than dressed up as a
+forced-red control.
+
+
 ## [0.8.0] - 2026-08-31
 
 ### Fixed: the eighth golden line of every vendor was never compared
@@ -1262,6 +1329,7 @@ This project uses MITRE ATT&CK. Copyright 2026 The MITRE Corporation. Reproduced
 
 Licensed under the Apache License 2.0. Third-party notices are in [`NOTICE`](NOTICE).
 
+[0.9.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.9.0
 [0.8.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.8.0
 [0.7.0]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.7.0
 [0.6.1]: https://github.com/404SecNotFound/Replicant/releases/tag/v0.6.1
