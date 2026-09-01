@@ -27,39 +27,39 @@ So validation gets deferred. The rule ships. The spreadsheet goes green.
 It fabricates firewall telemetry in CEF, streams it over syslog to your collector, and ties every generated behavior to a named detection use case.
 
 ```bash
-replicant run REP-002 --intensity high --seed 1337 --host 10.20.0.50 --port 514
+replicant run REP-002 --intensity high --seed 1337 --to-file ./scan.log --no-send
 ```
 
-That is a vertical port scan, deterministic under seed 1337, delivered as FortiGate CEF. It emits 4,000 events: 4,000 unique destination ports against a single host, mostly denied, with source, destination and protocol held constant. Which is what a vertical scan looks like on the wire, and what your threshold logic actually has to catch.
+That is a vertical port scan, deterministic under seed 1337, written as FortiGate CEF. It emits 4,000 events: 4,000 unique destination ports against a single host, mostly denied, with source, destination and protocol held constant. Which is what a vertical scan looks like on the wire, and what your threshold logic actually has to catch. Point it at a collector with `--host` instead of a file and it streams over syslog.
 
 The format is exact, not approximate. One line from that run:
 
 ```
 CEF:0|Fortinet|Fortigate|v7.4.3|00013|traffic:forward deny|4|deviceExternalId=FGVMSYNTH0000001
 FTNTFGTlogid=0000000013 cat=traffic:forward FTNTFGTsubtype=forward FTNTFGTlevel=warning
-FTNTFGTvd=root FTNTFGTeventtime=1752586800 src=10.20.30.139 spt=42350
-deviceInboundInterface=port2 dst=10.20.40.224 dpt=13998 deviceOutboundInterface=port1
-proto=6 act=deny FTNTFGTpolicyid=0 FTNTFGTservice=tcp/13998 FTNTFGTpolicytype=policy
-externalId=14803 out=0 in=0 FTNTFGTsentpkt=1 FTNTFGTrcvdpkt=0
+FTNTFGTvd=root FTNTFGTeventtime=1752586800 src=10.20.30.139 spt=7069
+deviceInboundInterface=port2 dst=10.20.40.224 dpt=28971 deviceOutboundInterface=port1
+proto=6 act=deny FTNTFGTpolicyid=0 FTNTFGTservice=tcp/28971 FTNTFGTpolicytype=policy
+externalId=14801 out=0 in=0 FTNTFGTsentpkt=1 FTNTFGTrcvdpkt=0
 ```
 
 The accept record from the same run carries `FTNTFGTpolicyid=7`, `app`, `FTNTFGTtrandisp` and a session duration with real byte counts. This deny record carries none of them, zeroes the counters, and adds `FTNTFGTpolicytype`. FortiOS emits a different field set per action, and the profile reproduces that split rather than emitting one shape with the action swapped. That is the level at which a SIEM parser cares.
 
-Eleven techniques ship today, each mapped to a detection use case rather than only to an ATT&CK ID: periodic C2 callback, vertical port scan, horizontal sweep, DNS tunneling, outbound exfil volume anomaly, destination fan-out, brute force and password spray, newly observed external destination, IDS/IPS rate spike, denied outbound burst, and VPN geovelocity. The use-case IDs are a taxonomy, not a standard; remap them to whatever your content pack calls these.
+Twenty-four techniques ship today, each mapped to a detection use case rather than only to an ATT&CK ID, from periodic C2 callback, vertical port scan and DNS tunneling through DGA NXDOMAIN clusters, DNS-over-HTTPS policy bypass, first-contact with a newly registered domain, and proxy-relay lag. Every entry added past the original eleven is anchored to a peer-reviewed detection paper with measured results. The use-case IDs are a taxonomy, not a standard; remap them to whatever your content pack calls these.
 
-Three vendor profiles render the same technique into their own CEF dialect: FortiGate, Palo Alto PAN-OS, and Check Point. One catalog and one engine drive all three; only serialization differs.
+Three vendor profiles render the same technique into their own CEF dialect: FortiGate, Palo Alto PAN-OS, and Check Point. One catalog and one engine drive all three; only serialization differs. FortiGate is the verified profile, pinned field-for-field to a golden oracle; PAN-OS and Check Point ship as beta, modeled from public documentation and marked `[Unverified]` until a live appliance confirms them.
 
 ## Four decisions
 
-**It is deterministic.** Same seed plus technique plus parameters produces byte-identical output. This is the feature that turns validation into regression testing: pin a dataset to a rule, re-run after a tuning change, diff. Without it you are comparing a rule change against a data change and learning nothing. Two runs of a three-stage scenario at seed 1337 produce 181,071 identical lines, sha256 `3ad92c69…`, and the generated advisory documents come out byte-identical too.
+**It is deterministic.** Same seed plus technique plus parameters produces byte-identical output within a release. This is the feature that turns validation into regression testing: pin a dataset to a rule, re-run after a tuning change, diff. Without it you are comparing a rule change against a data change and learning nothing. Run the same scenario twice at one seed and diff: byte-identical, the paired advisory document included. (Emitted packet counts vary per flow as of this release, so a dataset pinned to an older version is regenerated, not assumed.)
 
-**The CEF is pinned to an oracle, not to intent.** Each vendor profile has a reference document with seven golden sample lines, and a test reproduces every one byte-for-byte from the profile and serializer. When someone reorders a field six months from now, the test fails. "Looks right" is not a passing condition.
+**The CEF is pinned to an oracle, not to intent.** Each vendor profile has a reference document with eight golden sample lines, and a test reproduces every one byte-for-byte from the profile and serializer. When someone reorders a field six months from now, the test fails. "Looks right" is not a passing condition.
 
 **Scenarios chain techniques into a timeline.** Individual techniques validate individual rules; real detection work is correlation. Three curated scenarios compose techniques into one deterministic multi-stage timeline sharing one victim host and one adversary IP. SCEN-001 runs external recon, then C2 an hour later, then bulk exfil aligned to the next off-hours window: twelve hours of timeline in a single reproducible file. The longest chain is four stages.
 
 Each run writes an advisory document beside its manifest, mapping the chain to ATT&CK tactics, naming the cross-stage correlation key, and flagging catalog tactics the chain does not cover. That advisory is deliberately bounded. It gives you coverage and correlation context, it does not write rule logic, and it says so in its own header. Detection design is yours. A generated rule you did not reason through is another hypothesis in a costume, which is the exact problem this tool exists to remove.
 
-**It writes log text and nothing else.** This one is about getting the tool approved, not about features. Replicant never executes commands, scans hosts, resolves or contacts real infrastructure, or moves data. Every entity is synthetic: RFC1918 plus the RFC 5737 documentation ranges, with DNS parents drawn from the reserved documentation domains and the non-resolvable `.invalid` TLD, none of which it ever resolves. At run time the only network egress is the collector you configure, and if you configure none, sends fail closed rather than defaulting to something convenient. Installing pulls packages from your distribution, PyPI and npm; that is install-time, and the runtime rule is unchanged. Every run writes a manifest recording seed, technique, parameters, entities, target, counts and times.
+**It writes log text and nothing else.** This one is about getting the tool approved, not about features. Replicant never executes commands, scans hosts, resolves or contacts real infrastructure, or moves data. Every entity is synthetic: RFC1918 plus the RFC 5737 documentation ranges, with DNS parents drawn from the reserved documentation domains and the non-resolvable `.invalid` TLD, none of which it ever resolves. At run time the only network egress is the collector you configure, and if you configure none, sends fail closed rather than defaulting to something convenient. Installing pulls packages from your distribution, PyPI and npm; that is install-time, and the runtime rule is unchanged. On a send to a non-loopback collector, every line carries a synthetic marker with the run id by default, so lab data stays separable from production and a mistaken injection is traceable and reversible: Replicant is a detection-lab tool, not a production SIEM component, and it says so in a deployment-boundary document. Every run writes a manifest recording seed, technique, parameters, entities, target, counts, times, and the marking decision.
 
 You can hand that paragraph to whoever signs off on tooling in your environment.
 
@@ -97,11 +97,13 @@ Which is indistinguishable from your detection being broken. Pass `--anchor now`
 
 Stated plainly, because a limitations section you have to go looking for is marketing.
 
-FortiGate is the profile modeled field-for-field first. The Palo Alto and Check Point references are grounded in vendor documentation and published samples but are marked `[Unverified]` against live builds, and so are two FortiGate signature IDs. Confirm those against your own appliance before you rely on them for customer work.
+**The end-to-end claim is not proven yet, and this is the big one.** Everything above is measured on loopback. A rule firing in a real SIEM on Replicant's telemetry has not been observed end to end, so the honest posture is "generates vendor-accurate CEF, detection-unverified." The generator is the verified half: the FortiGate CEF is byte-checked against its oracle. Whether the whole path delivers and the rule fires is the activation milestone, and until it clears every "it fires" reading is loopback-only. This release also flags, per technique, whether a green result exercises your shipped rule or only its parser: a synthetic GeoIP tag, a `.invalid` DGA label or a domain with no registration date exercises the parse and threshold path, not the enrichment your production rule keys on, and the catalog now says so.
+
+FortiGate is the profile modeled field-for-field first and is the verified oracle. The Palo Alto and Check Point profiles are beta: grounded in vendor documentation and published samples but marked `[Unverified]` against live builds, as are two FortiGate signature IDs. Confirm those against your own appliance before you rely on them for customer work.
 
 The installer is verified against live package repositories on Debian 12 and Rocky 9, which install, and Ubuntu 22.04, where the correct behaviour is a refusal. AlmaLinux, RHEL proper, Arch and openSUSE carry package mappings that have not been exercised. The sudo elevation path is unverified too, because the container runs that validated everything else execute as root.
 
-The events-per-second cap is a fixed-window average rather than an instantaneous ceiling. Scenario composition is CLI and menu only; the web UI has no scenario surface yet.
+Scenario composition is CLI and menu only; the web UI has no scenario surface yet. The two ops surfaces that turn an offline run into a CI signal, a detection-regression check and a GitHub Action, are positioned but not built: they wait behind the end-to-end milestone above.
 
 None of that is buried in an issue tracker. It is in the README, the CHANGELOG and the release notes, because the alternative is you finding out during an engagement.
 
@@ -121,6 +123,8 @@ Anywhere else, or if you prefer to see what you are installing:
 python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"
 ./.venv/bin/replicant list
 ```
+
+CLI-first, no Node toolchain: `pip install replicant` (add `[web]` for the browser UI), or run it in a container with `docker build -t replicant . && docker run --rm replicant list`. `pip install replicant` needs the package on PyPI, which is pending; until then install the wheel attached to the release with `pip install ./replicant-0.10.0-py3-none-any.whl`.
 
 A headless CLI, a terminal menu and a browser UI, all over the same orchestrator, so anything the menu does the CLI does headless and scriptable.
 
