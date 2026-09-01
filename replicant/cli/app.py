@@ -48,6 +48,7 @@ from replicant.core.models import (
     CollectorProfile,
     RunRequest,
     ScenarioRunRequest,
+    Technique,
     load_catalog,
     load_scenario_catalog,
 )
@@ -310,7 +311,10 @@ def cmd_list(catalog: Catalog, console: Console) -> int:
     table.add_column("UC")
     table.add_column("Log type")
     table.add_column("ATT&CK")
+    table.add_column("Transfers")
+    noted: list[Technique] = []
     for index, technique in enumerate(catalog.techniques, start=1):
+        transfers = "no" if technique.transferability == "parser-only" else "yes"
         table.add_row(
             str(index),
             technique.id,
@@ -318,8 +322,27 @@ def cmd_list(catalog: Catalog, console: Console) -> int:
             technique.ndr_uc,
             f"{technique.fortigate.log_type}:{technique.fortigate.subtype}",
             ", ".join(technique.attack.techniques),
+            transfers,
         )
+        if technique.transferability_note:
+            noted.append(technique)
     console.print(table)
+    # CLI-first (roadmap item 2): the transferability reasons an engineer needs
+    # before spending a validation cycle are printed here, not only in the web UI.
+    # Covers parser-only techniques AND transferring ones that carry a disclosed
+    # limit (REP-024's integer-second eventtime ceiling), which the earlier
+    # parser-only-only footer silently dropped.
+    if noted:
+        console.print(
+            "\n[bold]Transferability notes[/bold] " "(what a green result does and does not prove):"
+        )
+        for technique in noted:
+            kind = (
+                "parser-only" if technique.transferability == "parser-only" else "disclosed limit"
+            )
+            console.print(
+                f"  [bold]{technique.id}[/bold] ({kind})  {technique.transferability_note}"
+            )
     return 0
 
 

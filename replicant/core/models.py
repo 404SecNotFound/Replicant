@@ -32,6 +32,8 @@ from replicant.resources import SCENARIO_CATALOG
 
 Intensity = Literal["low", "medium", "high"]
 Transport = Literal["udp", "tcp", "tls"]
+#: Does a green result exercise the shipped production rule, or only its parser?
+Transferability = Literal["transfers", "parser-only"]
 #: How a run ended. ``stopped`` is the kill switch, ``error`` is a raised failure.
 RunStatus = Literal["done", "stopped", "error"]
 
@@ -128,8 +130,32 @@ class Technique(BaseModel):
     #: and a parametrized test asserts it matches what the builder actually
     #: produces (safety against a foil that is documented but never generated).
     emits_foil: bool = False
+    #: Whether a green result exercises the SHIPPED production detection this
+    #: technique names, or only its parser. "transfers" (default) means no known
+    #: field-level gap between what the emitted telemetry carries and what the
+    #: production rule keys on; it is still subject to the overall
+    #: delivery-unverified gate (docs/roadmap-2026-09.md). "parser-only" means even
+    #: perfect delivery would exercise the parse/threshold path but not the real
+    #: rule, because the synthetic entities cannot legitimately carry what it keys
+    #: on (real GeoIP/ASN enrichment, WHOIS registration age, a resolvable TLD).
+    #: Roadmap 2026-09 item 5: coverage honesty at catalog granularity.
+    transferability: Transferability = "transfers"
+    #: Why a technique is parser-only, or a disclosed transferability limit on one
+    #: that otherwise transfers (e.g. the integer-second eventtime ceiling).
+    #: Required when transferability is "parser-only": a parser-only claim with no
+    #: stated reason tells an engineer nothing.
+    transferability_note: str | None = None
     references: list[str] = Field(default_factory=list)
     safety_notes: str | None = None
+
+    @model_validator(mode="after")
+    def _parser_only_needs_a_reason(self) -> Technique:
+        if self.transferability == "parser-only" and not (self.transferability_note or "").strip():
+            raise ValueError(
+                f"{self.id}: transferability 'parser-only' requires a transferability_note "
+                "stating what the shipped rule keys on that the synthetic data cannot carry"
+            )
+        return self
 
     def preset(self, intensity: Intensity) -> dict[str, Any]:
         if intensity not in self.params:

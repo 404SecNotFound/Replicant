@@ -208,6 +208,23 @@ export function TechniqueDetail({ technique, vendor }: Props) {
               {technique.benign_baseline}
             </p>
           )}
+          {technique.transferability === "parser-only" ? (
+            <p
+              className="border-t pt-4 text-body leading-relaxed text-text-4"
+              data-testid="technique-transferability"
+            >
+              <span className="text-text-3">Parser-only · </span>
+              {technique.transferability_note}
+            </p>
+          ) : technique.transferability_note ? (
+            <p
+              className="border-t pt-4 text-body leading-relaxed text-text-4"
+              data-testid="technique-transferability"
+            >
+              <span className="text-text-3">Transfers, with a limit · </span>
+              {technique.transferability_note}
+            </p>
+          ) : null}
         </Card>
 
         <Card title="Rule specifics">
