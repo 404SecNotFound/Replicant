@@ -616,10 +616,16 @@ class Orchestrator:
         # card whose window or count disagreed with the wire would send the analyst
         # hunting for events that were never emitted.
         emitted = compress_timeline(plan.events, request.speed)[:count]
+        # The card describes the ATTACK, so its pivot is the positive stream: a
+        # structural foil (roadmap #9) introduces a distinct benign source, and a
+        # card built from both would list that benign proxy/NAT as an attack pivot.
+        # Fall back to the whole stream for a --controls negative run, which has no
+        # positive events to describe.
+        card_events = [e for e in emitted if e.control == "positive"] or emitted
         card_path: Path | None = None
         try:
             card_path = write_validation_card(
-                build_validation_card(technique, emitted, manifest, marked=marker_on),
+                build_validation_card(technique, card_events, manifest, marked=marker_on),
                 manifest_path,
             )
         except OSError as exc:

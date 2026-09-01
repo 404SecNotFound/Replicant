@@ -216,7 +216,8 @@ techniques:
     distributions:
       dst: "mix of synthetic internal and external destinations"
       out_bytes: "small"
-    benign_baseline: "normal host contacts < 10 unique dst in a 5 minute window"
+    benign_baseline: "normal host contacts < 10 unique dst in a 5 minute window. A legitimate internal proxy or egress gateway is emitted as a benign foil: it is ALSO one source to many destinations, so a rule keyed on the source-fanout count alone fires on it. The honest discriminator is destination context (the proxy reaches known-good externals), not the count of distinct dsts"
+    emits_foil: true
     references: ["UC-005", "fortigate-cef-reference: T1018 fan-out"]
     safety_notes: "destination pools are synthetic"
 
@@ -244,7 +245,8 @@ techniques:
       spray: "many unique duser, few attempts each"
       brute: "one duser, many attempts, optional success at end"
       source_type: "event:vpn ssl-login-fail or event:system login failed (selectable)"
-    benign_baseline: "normal auth failures are sparse and self-correct"
+    benign_baseline: "normal auth failures are sparse and self-correct. A NAT or CGNAT egress fronting many users is emitted as a benign foil: per-source login counts spike benignly, so a per-source spray threshold fires on it. The honest discriminator is the fail RATIO and the presence of successes across distinct users, not the raw per-source login count"
+    emits_foil: true
     references: ["UC-006 User normalisation prereq", "fortigate-cef-reference: T1110"]
     safety_notes: "usernames drawn from a synthetic directory pool"
 

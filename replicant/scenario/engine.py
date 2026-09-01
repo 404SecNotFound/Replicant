@@ -711,6 +711,54 @@ class ScenarioEngine:
                 )
             )
             session_id += 1
+
+        # Structural FP foil (roadmap #9, shared-IP fan-out): a legitimate internal
+        # proxy or egress gateway is ALSO 'one source, many destinations', so a rule
+        # keyed on that aggregation alone fires on it. This breaks the source-fanout
+        # key rather than adding benign volume, so the only honest discriminator is
+        # destination context (the proxy reaches known-good externals, the attack
+        # reaches the adversary and sweep pools), not the count of distinct dsts.
+        # Co-located in the same window, so time of day is not a free discriminator.
+        others = [h for h in entities.internal_hosts if h != src]
+        if not truncated and others and entities.benign_external:
+            foil_start = len(events)
+            proxy = str(rng.choice(others))
+            benign_dsts = entities.benign_external
+            room = self.max_events - len(events)
+            foil_count = max(0, min(len(benign_dsts), max(3, unique_dst // 2), room))
+            proxy_session = int(rng.integers(60_000, 90_000))
+            dpt_choices = [443, 80, 53, 8080, 22]
+            for j in range(foil_count):
+                dpt = int(rng.choice(dpt_choices))
+                proto = 17 if dpt == 53 else 6
+                # Match the attack's distributions so the ONLY discriminator is the
+                # destination (a proxy reaches known-good externals): same ports,
+                # same byte ranges, same occasional policy deny. Diverging on bytes,
+                # action or ports would hand the analyst a free FP filter that works
+                # on synthetic data and fails in production.
+                is_open = j % 10 != 0
+                action = "accept" if is_open else "deny"
+                level = "notice" if is_open else "warning"
+                service, app = port_service(dpt)
+                events.append(
+                    EventRecord(
+                        log_type=technique.fortigate.log_type,
+                        subtype=technique.fortigate.subtype,
+                        action=action,
+                        level=level,
+                        eventtime=anchor + int(j * gap_s),
+                        src=proxy,
+                        spt=int(rng.integers(1024, 65535)),
+                        dst=benign_dsts[j],
+                        dpt=dpt,
+                        proto=proto,
+                        session_id=proxy_session + j,
+                        out_bytes=int(rng.integers(80, 4000)),
+                        in_bytes=int(rng.integers(80, 8000)),
+                        extra=_scan_traffic_extra(is_open, service, app),
+                    )
+                )
+            self._mark_negative(events, foil_start)
         return events, None, truncated
 
     # -- REP-010 denied outbound connection burst -----------------------------
@@ -857,6 +905,72 @@ class ScenarioEngine:
                     },
                 )
             )
+
+        # Structural FP foil (roadmap #9, NAT/proxy source-collapse): a CGNAT or
+        # office egress fronts many users, so per-source login counts spike benignly.
+        # An analyst cannot set a per-source spray threshold honestly without this in
+        # the data. The honest discriminator is the fail RATIO and the presence of
+        # successes (this source mostly succeeds, across distinct users), not the raw
+        # count of login events from one source, which the attack and a NAT share.
+        # Co-located in the same window, so time of day is not a free discriminator.
+        if not truncated and entities.benign_external:
+            foil_start = len(events)
+            nat = str(rng.choice(entities.benign_external))
+            nat_users = synthetic_usernames(max(4, len(usernames)), entities.users)
+            nat_session = int(rng.integers(60_000, 90_000))
+            step = window_s / max(len(nat_users) * 2, 1)
+            k = 0
+            for user in nat_users:
+                if len(events) >= self.max_events - 1:
+                    break
+                # a realistic office user: an occasional typo fail, then a success.
+                if int(rng.integers(0, 10)) < 4:
+                    reason = _VPN_FAIL_REASONS[int(rng.integers(0, len(_VPN_FAIL_REASONS)))]
+                    events.append(
+                        EventRecord(
+                            log_type=technique.fortigate.log_type,
+                            subtype=technique.fortigate.subtype,
+                            action="ssl-login-fail",
+                            level="alert",
+                            eventtime=anchor + int(k * step),
+                            duser=user,
+                            src=nat,
+                            session_id=nat_session + k,
+                            extra={
+                                "logdesc": "SSL VPN login fail",
+                                "fgt_action": "ssl-login-fail",
+                                "remip": nat,
+                                "tunneltype": "ssl-web",
+                                "reason": reason,
+                                "msg": "SSL user failed to logged in",
+                            },
+                        )
+                    )
+                    k += 1
+                events.append(
+                    EventRecord(
+                        log_type=technique.fortigate.log_type,
+                        subtype=technique.fortigate.subtype,
+                        action="tunnel-up",
+                        level="notice",
+                        eventtime=anchor + int(k * step),
+                        duser=user,
+                        src=nat,
+                        session_id=nat_session + k,
+                        extra={
+                            "logdesc": "SSL VPN tunnel up",
+                            "fgt_action": "tunnel-up",
+                            "remip": nat,
+                            "tunneltype": "ssl-tunnel",
+                            "tunnelid": str(int(rng.integers(1_000_000, 9_999_999))),
+                            "group": "vpn-users",
+                            "reason": "login-success",
+                            "msg": "SSL tunnel established",
+                        },
+                    )
+                )
+                k += 1
+            self._mark_negative(events, foil_start)
         return events, None, truncated
 
     # -- REP-009 IDS/IPS event-rate spike -------------------------------------

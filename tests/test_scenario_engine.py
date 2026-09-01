@@ -234,12 +234,15 @@ _SYNTHETIC_RANGES = [
 
 def test_rep006_destination_fanout_shape() -> None:
     plan = _plan("REP-006", "low", 1337)
+    # The plan now carries a structural benign foil too (roadmap #9); this test is
+    # about the attack shape, so filter to the positive stream.
+    attack = [e for e in plan.events if e.control == "positive"]
     unique_dst = CATALOG.by_id("REP-006").params["low"]["unique_dst"]
-    assert len(plan.events) == unique_dst
-    assert len({e.src for e in plan.events}) == 1  # one source, held
-    assert len({e.dst for e in plan.events}) == unique_dst  # many unique destinations
+    assert len(attack) == unique_dst
+    assert len({e.src for e in attack}) == 1  # one source, held
+    assert len({e.dst for e in attack}) == unique_dst  # many unique destinations
     assert unique_dst >= 50  # far above the benign baseline of < 10 in the window
-    assert all((e.out_bytes or 0) < 100_000 for e in plan.events)  # small byte volume
+    assert all((e.out_bytes or 0) < 100_000 for e in attack)  # small byte volume
 
 
 def test_rep006_within_five_minute_window() -> None:
@@ -293,31 +296,35 @@ def test_rep010_deterministic_same_seed() -> None:
 
 def test_rep007_spray_many_users_few_attempts() -> None:
     plan = _plan("REP-007", "low", 1337)
+    # Filter to the attack; a NAT source-collapse foil now rides alongside (#9).
+    attack = [e for e in plan.events if e.control == "positive"]
     preset = CATALOG.by_id("REP-007").params["low"]
     users, attempts = preset["users"], preset["attempts_each"]
     assert preset["mode"] == "spray"
-    assert len(plan.events) == users * attempts  # every user tried a few times
-    assert len({e.src for e in plan.events}) == 1  # one attacking source, held
-    assert len({e.duser for e in plan.events}) == users  # many distinct victims
-    assert all(e.action == "ssl-login-fail" for e in plan.events)  # spray never succeeds
-    counts = Counter(e.duser for e in plan.events)
+    assert len(attack) == users * attempts  # every user tried a few times
+    assert len({e.src for e in attack}) == 1  # one attacking source, held
+    assert len({e.duser for e in attack}) == users  # many distinct victims
+    assert all(e.action == "ssl-login-fail" for e in attack)  # spray never succeeds
+    counts = Counter(e.duser for e in attack)
     assert set(counts.values()) == {attempts}  # each user tried exactly attempts_each times
 
 
 def test_rep007_brute_one_user_many_attempts_optional_success() -> None:
     plan = _plan("REP-007", "high", 1337)
+    # Filter to the attack; a NAT source-collapse foil now rides alongside (#9).
+    attack = [e for e in plan.events if e.control == "positive"]
     preset = CATALOG.by_id("REP-007").params["high"]
     attempts = preset["attempts_each"]
     assert preset["mode"] == "brute"
-    assert len({e.src for e in plan.events}) == 1  # one source, held
-    assert len({e.duser for e in plan.events}) == 1  # one victim, held (brute)
-    fails = [e for e in plan.events if e.action == "ssl-login-fail"]
-    successes = [e for e in plan.events if e.action == "tunnel-up"]
+    assert len({e.src for e in attack}) == 1  # one source, held
+    assert len({e.duser for e in attack}) == 1  # one victim, held (brute)
+    fails = [e for e in attack if e.action == "ssl-login-fail"]
+    successes = [e for e in attack if e.action == "tunnel-up"]
     assert len(fails) == attempts  # many attempts
     assert len(successes) == 1  # optional success at the end
-    assert max(plan.events, key=lambda e: e.eventtime).action == "tunnel-up"  # success is last
+    assert max(attack, key=lambda e: e.eventtime).action == "tunnel-up"  # success is last
     # both fail and success templates must serialize cleanly
-    assert len(_serialize(plan.events)) == len(plan.events)
+    assert len(_serialize(attack)) == len(attack)
 
 
 def test_rep007_reason_and_duser_vary() -> None:
