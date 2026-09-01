@@ -6,6 +6,69 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-01
+
+Execution of the 2026-09 five-persona roadmap (`docs/roadmap-2026-09.md`): all 13
+buildable survivors of the 16, across ten PRs, each code-reviewed with every new
+guard run red against the unfixed code before being accepted. The three that did
+not ship are lab-gated (the operational pilot, and the two that refine the
+still-unbuilt F2/F5), and stay behind the launch gate. Two changes alter emitted
+output, which is why this is a minor bump: the synthetic marker now defaults on
+for non-loopback sends, and packet counts now vary per flow.
+
+The keystone holds: every timing and delivery claim remains loopback-only until
+the first observed rule fire. External posture stays "generates vendor-accurate
+CEF, detection-unverified."
+
+### Added
+
+- **Per-technique validation-transferability property.** Each technique declares
+  whether a green result exercises the shipped rule (`transfers`) or only its
+  parser (`parser-only`, with a required reason). REP-011, REP-016 and REP-020 are
+  parser-only (synthetic GeoIP tag, `.invalid` TLD, no WHOIS registration age);
+  surfaced in `replicant list` and the web catalog.
+- **Per-run analyst validation card.** A single-technique run writes a
+  copy-pasteable `<manifest>.card.md`: the pivot entities, the emitted window, the
+  correlate-on fields, a find-events search (keyed on the run id when the run is
+  marked), and what a green result does and does not prove.
+- **Statistical fidelity-regression suite.** Asserts each technique's emitted
+  stream satisfies the quantitative property it claims (DGA/tunnel character
+  distribution, NXDOMAIN ratio, beacon interval jitter, and that bytes-per-packet
+  is not a fixed fingerprint).
+- **Two structural false-positive foils.** REP-006 gains a shared-egress fan-out
+  foil and REP-007 a NAT/proxy source-collapse foil: benign traffic that breaks
+  the aggregation key, so a rule keyed on that key alone fires on it.
+- **CLI-first container image.** A `Dockerfile` and `.dockerignore` plus a CI job
+  that builds and drives it. `pip install replicant` / `pip install "replicant[web]"`
+  documented.
+- **Reference detection specs** (`docs/detection-specs/`), phased on the pilot
+  technique: the REP-001 periodicity detection in SIEM-neutral pseudocode, with a
+  spec/catalog sync guard. No rule is auto-generated.
+- **`docs/deployment-boundary.md`**: detection lab, not production SIEM.
+
+### Changed
+
+- **Synthetic marker is destination-conditional and default-on for a non-loopback
+  send** (was opt-in only), off for `--to-file`/loopback; `--no-marker` overrides
+  and is logged; the run manifest records the decision in `marker_attestation`.
+- **Packet counts (`sentpkt`/`rcvdpkt`) vary per flow** instead of a fixed
+  `bytes // 150|1400` divisor, so bytes-per-packet is no longer a constant an
+  analyst spots. Emitted values for a given seed differ from prior versions;
+  same-seed reproducibility within a version is preserved.
+- **Scenarios compose the attack (positive) stream only**, so a foil-emitting
+  stage never leaks benign events onto the scenario wire, and scenario runs now
+  carry a run id.
+- Positioning: identity resolved to OSS detection-as-code (CLI-first); PAN-OS and
+  Check Point reframed as beta against the FortiGate verified oracle; the
+  AlphaSOC flightsim contrast named in the prior-art survey; external claims
+  scoped to generator-verified / delivery-unverified.
+- Catalog expansion is now gated on the tactic-gap tally (recorded rule).
+
+### Fixed
+
+- The `wheel` CI job (and the new container job) count distinct technique ids
+  rather than raw lines, so a catalog-list footer can no longer inflate the count.
+
 ## [0.9.0] - 2026-09-01
 
 A defect release from an end-to-end review of the whole codebase (10 subsystem
