@@ -38,6 +38,13 @@
 #   params:           default_intensity + low/medium/high presets
 #   distributions:    guidance the scenario engine uses to look realistic
 #   benign_baseline:  what normal looks like, so the signal stands out
+#   emits_foil:       true if the builder emits a labelled, isolable benign foil
+#                     (--controls negative yields it). Prose benign_baseline does
+#                     NOT imply this
+#   transferability:  transfers | parser-only. Does a green result exercise the
+#                     shipped rule, or only its parser? Defaults to transfers
+#   transferability_note: why a technique is parser-only, or a disclosed limit on
+#                     one that otherwise transfers. Required when parser-only
 #   references:       research anchors (see docs/fortigate-cef-reference.md)
 #   safety_notes:     anything an operator must know
 #
@@ -45,6 +52,16 @@
 # Each technique exposes low/medium/high. Intensity scales volume and rate, not
 # safety. "high" is still synthetic text to one collector. Duration and rate are
 # always operator-overridable from the menu or CLI flags.
+#
+# EXPANSION (roadmap 2026-09 item 16)
+# The next technique is gated on the tactic-gap tally, not on which paper had
+# measured results. This catalog is heavily weighted to Command and Control (12 of
+# 24 techniques carry TA0011, several of them beacon/callback variants) while
+# network-visible Impact (1), Credential Access (1) and Defense Evasion (1) sit
+# near zero. A ninth beacon variant has near-zero marginal coverage value; weight
+# a new entry by the tactic it fills, and record its prevalence basis. A recorded
+# rule, downstream of the coverage scorecard deferred until F2 produces real
+# numbers; it commits no slot today.
 
 version: 0.2.0
 vendor_profile: fortigate
