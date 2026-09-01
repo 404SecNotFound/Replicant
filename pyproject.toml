@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "replicant"
-version = "0.9.0"
+version = "0.10.0"
 description = "Safe, synthetic firewall CEF telemetry (FortiGate, Palo Alto PAN-OS, Check Point) for detection engineering."
 readme = "README.md"
 requires-python = ">=3.11"
