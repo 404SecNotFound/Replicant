@@ -37,6 +37,8 @@ function technique(overrides: Partial<Technique> = {}): Technique {
     params: {},
     distributions: {},
     benign_baseline: null,
+    transferability: "transfers",
+    transferability_note: null,
     references: [],
     ...overrides,
   };

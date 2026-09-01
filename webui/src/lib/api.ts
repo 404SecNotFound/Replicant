@@ -54,6 +54,10 @@ export interface Technique {
   params: Record<string, Record<string, unknown>>;
   distributions: Record<string, unknown>;
   benign_baseline: string | null;
+  /** Does a green result exercise the shipped rule, or only its parser? */
+  transferability: "transfers" | "parser-only";
+  /** Why it is parser-only, or a disclosed limit on one that otherwise transfers. */
+  transferability_note: string | null;
   references: string[];
 }
 

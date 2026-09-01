@@ -42,6 +42,8 @@ const TECHNIQUE: api.Technique = {
   params: { medium: {} },
   distributions: {},
   benign_baseline: null,
+  transferability: "transfers",
+  transferability_note: null,
   references: [],
 };
 

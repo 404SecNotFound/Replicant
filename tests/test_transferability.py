@@ -79,14 +79,22 @@ def test_transfers_technique_may_omit_the_note() -> None:
     assert t.transferability_note is None
 
 
-def test_cli_list_shows_the_transfers_column_and_the_parser_only_notes() -> None:
+def test_cli_list_surfaces_every_transferability_note() -> None:
+    """The footer covers parser-only techniques AND transferring ones with a
+    disclosed limit (REP-024). Positive control: gate the footer on
+    ``transferability == 'parser-only'`` again and REP-024's note vanishes."""
+
     console = Console(file=io.StringIO(), width=240)
     cmd_list(CATALOG, console)
     out = console.file.getvalue()  # type: ignore[attr-defined]
     assert "Transfers" in out
-    assert "Parser-only techniques" in out
+    assert "Transferability notes" in out
     for tid in PARSER_ONLY:
         assert tid in out
+    # REP-024 transfers but discloses a limit: its note (unique word "eventtime")
+    # and the "disclosed limit" tag appear only in the footer, not the table row.
+    assert "eventtime" in out.lower()
+    assert "disclosed limit" in out
 
 
 def test_web_catalog_exposes_transferability() -> None:

@@ -60,3 +60,46 @@ describe("TechniqueDetail objective", () => {
     expect(screen.queryByTestId("technique-objective")).toBeNull();
   });
 });
+
+describe("TechniqueDetail transferability (roadmap item 5)", () => {
+  it("warns when a technique is parser-only, with its reason", () => {
+    render(
+      <TechniqueDetail
+        technique={makeTechnique({
+          transferability: "parser-only",
+          transferability_note: "the production rule keys on real GeoIP enrichment",
+        })}
+        vendor="fortigate"
+      />,
+    );
+    expect(screen.getByTestId("technique-transferability")).toHaveTextContent(/Parser-only/);
+    expect(screen.getByTestId("technique-transferability")).toHaveTextContent(
+      /real GeoIP enrichment/,
+    );
+  });
+
+  it("shows a disclosed limit on a technique that otherwise transfers", () => {
+    render(
+      <TechniqueDetail
+        technique={makeTechnique({
+          transferability: "transfers",
+          transferability_note: "the integer-second eventtime ceiling hides sub-second lag",
+        })}
+        vendor="fortigate"
+      />,
+    );
+    expect(screen.getByTestId("technique-transferability")).toHaveTextContent(
+      /Transfers, with a limit/,
+    );
+  });
+
+  it("renders nothing when a technique transfers cleanly", () => {
+    render(
+      <TechniqueDetail
+        technique={makeTechnique({ transferability: "transfers", transferability_note: null })}
+        vendor="fortigate"
+      />,
+    );
+    expect(screen.queryByTestId("technique-transferability")).toBeNull();
+  });
+});
