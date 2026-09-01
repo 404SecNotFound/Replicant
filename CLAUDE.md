@@ -262,7 +262,17 @@ Next up, not started: a live-vendor pass to replace the `[Unverified]` markers o
 
 **The LogRhythm lab test has still never run**, so every timing and delivery claim in this
 project is loopback-only. It also gates the adopted roadmap order: F2 (CI detection regression)
-is a verification layer on a send path never once observed working end to end.
+is a verification layer on a send path never once observed working end to end. **Per
+`docs/roadmap-2026-09.md` this is now a hard launch gate:** external claims hold at "generates
+vendor-accurate CEF, detection-unverified" until the first observed rule fire, and nothing that
+adds surface ships before the pipe is proven.
+
+**Identity (resolved 2026-09-01):** Replicant is an OSS detection-as-code tool for detection
+engineers, CLI-first, web optional. Not a personal-lab script and not customer-delivery
+consulting output. This settles the fork the shipped surface (React UI, installer matrix, three
+vendor profiles, public wheels) had already made de facto, and it is why pip/container packaging
+and vendor-honesty framing are table stakes rather than scope creep. Full record:
+`docs/roadmap-2026-09.md`.
 
 **Never `git add -A` in this checkout.** `replicant-backup-*/` and `replicant-rewrite/` are whole
 git repositories living inside it, including a mirror and bundle of the pre-rewrite history.

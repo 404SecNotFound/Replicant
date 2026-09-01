@@ -45,6 +45,9 @@ Source: https://api.github.com/users/404SecNotFound/repos
 | tcpreplay | Replay captured pcap onto a NIC | No (transmits real captured packets) | No | GPL-3.0 |
 | Cisco Talos EvidenceForge | Multi-format synthetic security logs from YAML scenarios | Yes | No (batch files; firewall = Cisco ASA syslog, not NGFW CEF) | MIT |
 | summved log-generator | Multi-source SIEM log generator w/ ATT&CK chains | Yes | Partial (CEF + firewall + syslog, but generic, not NGFW-accurate) | GPL-3.0 |
+| AlphaSOC Network Flight Simulator (flightsim) | Emit real suspicious traffic (DNS, HTTP, tunneling, etc.) to exercise network detections | No (sends real traffic to real external infrastructure) | No (generates on-wire traffic, not CEF logs) | [Unverified] |
+
+**flightsim is the closest on-wire alternative and the sharpest positioning contrast.** It is the tool a detection engineer actually reaches for to test network detections, and it exercises them by putting real traffic on the wire to real infrastructure. Replicant targets the same class of network detections from the opposite side: log strings only, exactly one fail-closed socket to the operator's own collector, no real hosts, DNS, or infrastructure touched. Same detections in view, none of the wire risk. That is the axis this project is both stronger and safer on, and it belongs in the pitch. (License left `[Unverified]` here: flightsim is a positioning comparison, not a reuse candidate, so its license was not confirmed from source.)
 
 ---
 

@@ -6,9 +6,12 @@
 
 Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS, and Check Point, streams them over syslog to your SIEM, and lets a detection engineer pick an ATT&CK-grounded technique from a menu to exercise the matching detection. It writes log text only. It never runs commands, scans hosts, resolves domains, or moves data.
 
+> **Maturity: generator-verified, delivery-unverified.** Replicant's FortiGate CEF is byte-checked field-for-field against a golden oracle, so the *generator* is verified. End-to-end *delivery* to a live SIEM, and a detection actually firing on the result, have not been observed yet: every timing and delivery claim here is loopback-only until the first observed rule fire. See the [roadmap](#roadmap).
+
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](pyproject.toml)
-[![Vendors](https://img.shields.io/badge/vendors-FortiGate%20%7C%20PAN--OS%20%7C%20Check%20Point-4c6ef5.svg)](#what-the-output-looks-like)
+[![FortiGate](https://img.shields.io/badge/FortiGate-verified-2ea44f.svg)](#what-the-output-looks-like)
+[![PAN-OS / Check Point](https://img.shields.io/badge/PAN--OS%20%7C%20Check%20Point-beta-e67700.svg)](#what-the-output-looks-like)
 [![Safety](https://img.shields.io/badge/entities-synthetic%20only-2ea44f.svg)](#safety-model)
 [![Status](https://img.shields.io/badge/phase-4%20complete-2ea44f.svg)](tasks/todo.md)
 
@@ -43,7 +46,7 @@ Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS
 
 A detection is only as trustworthy as the last time you saw it fire. Detection engineers who want to validate a firewall rule usually face a choice: replay production captures (slow, sensitive, hard to shape), hand-craft a few log lines (brittle, not statistically realistic), or reach for a generic log generator (rarely accurate to a specific next-generation firewall on the wire).
 
-Replicant takes a narrower, more useful position. It reproduces a specific firewall's CEF format field-for-field, streams it with realistic timing, and ties every generated behavior to a named detection use case, so the telemetry and the detection ship and get tested together. Three vendor profiles ship today: FortiGate, Palo Alto PAN-OS, and Check Point.
+Replicant takes a narrower, more useful position. It reproduces a specific firewall's CEF format field-for-field, streams it with realistic timing, and ties every generated behavior to a named detection use case, so the telemetry and the detection ship and get tested together. FortiGate is the verified profile and the trust anchor: its CEF is byte-checked field-for-field against a golden oracle. Palo Alto PAN-OS and Check Point ship as beta profiles, modeled from each vendor's public documentation but not yet confirmed against a live appliance (`[Unverified]`); clearing those markers is an open community-contribution ask for anyone with the hardware.
 
 ## What Replicant is, and is not
 
@@ -53,6 +56,7 @@ Replicant takes a narrower, more useful position. It reproduces a specific firew
 - Vendor-profile driven. FortiGate (FortiOS) was modeled first, field-for-field, against a documented CEF reference; Palo Alto PAN-OS and Check Point followed. Each profile has its own reference doc with golden sample lines used as the correctness oracle.
 - A validation harness whose technique catalog maps one-to-one to detection use cases.
 - Deterministic and seedable, so a run is reproducible for tests and for the analyst reviewing it.
+- Open-source detection-as-code tooling for detection engineers, CLI-first. The web UI is an optional extra; anything the menu does, `replicant run ...` does headless. Apache-2.0, no vendor affiliation.
 
 **Replicant is not:**
 
@@ -413,13 +417,16 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 - **Web UI access and navigation (complete):** the UI serves on a fixed port and can bind an address the rest of the segment can reach, with a persistent token, an httpOnly session cookie, a Host allowlist that follows the bind address, and the embedded terminal off by default once the bind is not loopback. The left rail is grouped by ATT&CK tactic with a filter box and log-type toggles, a Docs tab renders the vendor CEF references in the browser, and the event-time anchor is a visible control in the run form.
 - **Light theme and responsive layout (complete, light theme since removed):** the web UI briefly shipped a measured light palette alongside the dark one; the Factory redesign below made the UI dark-only and removed it. The responsive half survives: below 1024px the fixed-viewport shell becomes an ordinary scrolling page and the left rail becomes a disclosure panel; wide content such as CEF samples and the reference tables scrolls inside its own container rather than pushing the page sideways.
 - **Factory redesign (complete):** the web UI's visual system is the archived dark-era Factory design, "terminal war room at midnight": Geist and JetBrains Mono (both OFL, self-hosted with their licenses), the #101010/#ee6018 palette on a single dark theme, weight 400 everywhere, no gradients or shadows, chromatic color reserved for live data, and the run panel rebuilt as a dashboard frame with an instrumented sparkline. Design contract: `docs/webui-factory-design.md`.
-- **Next:** a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances.
+- **Next (hard launch gate):** the LogRhythm lab test. Every timing and delivery claim above is loopback-only; the headline "exercises the matching detection" has never been observed end to end. Until the first observed rule fire, the honest posture is "generates vendor-accurate CEF, detection-unverified." Nothing that adds surface ships before the pipe is proven. Decision record: [`docs/roadmap-2026-09.md`](docs/roadmap-2026-09.md).
+- **Community ask:** the Palo Alto and Check Point profiles stay beta until their `[Unverified]` references are confirmed against a live appliance. FortiGate is already the verified oracle; clearing the other two needs real hardware, so it is an open contribution path for anyone who runs those platforms.
 
 ## Prior art and positioning
 
 Replicant is not the first synthetic log generator, and it does not claim to be. Two projects shaped its design: Cisco Talos EvidenceForge (MIT), a strong permissive engine that writes batch dataset files and is host-centric with Cisco ASA as its only firewall output, and summved/log-generator (GPL-3.0), which streams generic firewall CEF over syslog with ATT&CK chains. Neither code base is reused here.
 
 Replicant's contribution is narrower and specific: next-generation-firewall-accurate CEF modeled on a real vendor schema, alignment with a specific SIEM's parser expectations, live streaming with realistic timing, an explicit safety model, and a technique catalog mapped to a specific detection pack.
+
+The sharpest contrast is with on-wire test tools. AlphaSOC Network Flight Simulator (`flightsim`) is what a detection engineer usually reaches for to exercise network detections, and it works by emitting real DNS, HTTP, and other traffic to real external infrastructure. Replicant aims at the same class of network detections from the opposite side of the wire: it opens exactly one fail-closed socket to the operator's own collector and never touches real infrastructure, real hosts, or real DNS. Same detections in view, none of the wire risk. That safety model is the differentiator on shared or production-adjacent segments, and it is the axis where a log-strings-only generator is both stronger and safer than a traffic emitter.
 
 ## Attribution and license
 
