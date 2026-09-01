@@ -242,6 +242,10 @@ class ScenarioRunResult:
     plan: ComposedPlan
     stopped: bool
 
+    @property
+    def run_id(self) -> str:
+        return self.manifest.run_id
+
 
 def build_profile(settings: Settings) -> VendorProfile:
     """Select the vendor profile from settings.vendor (blueprint s10, Phase 3).
@@ -371,11 +375,13 @@ class Orchestrator:
     ) -> tuple[bool, str]:
         """Decide whether to stamp the marker on this run, and record why.
 
-        Destination-conditional default (roadmap 2026-09 item 3): ON for a
-        non-loopback network send, where analyst de-confliction on a shared
-        collector outranks a flex slot no detection reads; OFF for ``--to-file``,
-        loopback, and ``--no-send``, where the golden line is the oracle and
-        fidelity is what matters. ``--mark-synthetic`` (settings.benign_marker)
+        Destination-conditional default (roadmap 2026-09 item 3): ON when the run
+        has a non-loopback network send, where analyst de-confliction on a shared
+        collector outranks a flex slot no detection reads; OFF when it does not (a
+        loopback or file-only run, or ``--no-send``), where the golden line is the
+        oracle and fidelity is what matters. A run that both sends live and writes
+        a file marks both, so the file mirrors what went on the wire.
+        ``--mark-synthetic`` (settings.benign_marker)
         forces it on everywhere; ``--no-marker`` (settings.no_marker) forces it
         off and is logged when it overrides a non-loopback send, because that is
         the case the default exists to protect. ``no_marker`` wins if both are set.
@@ -387,14 +393,22 @@ class Orchestrator:
         non_loopback_send = send and collector is not None and not _is_loopback_dest(collector.host)
         if self.settings.no_marker:
             if non_loopback_send:
+                # Reported as configuration intent, not as a claim that anything
+                # was emitted: this resolves at plan time, before the send is even
+                # attempted, so a run that never reaches the wire must not have
+                # logged "emitted lines will not carry the tag".
                 _log.warning(
-                    "synthetic marker disabled by --no-marker on a non-loopback send to %s: "
-                    "emitted lines will NOT carry the %s tag, so this lab data will not be "
-                    "separable from production on that collector",
+                    "--no-marker is set for a non-loopback send to %s: lines reaching that "
+                    "collector will NOT carry the %s tag, so this lab data will not be "
+                    "separable from production there",
                     collector.host,  # type: ignore[union-attr]
                     SYNTHETIC_MARKER_LABEL,
                 )
-            return False, "not applied (--no-marker override)"
+                # Only a non-loopback send is a real override: for loopback/file
+                # the default was already off, so --no-marker overrode nothing and
+                # the attestation must not claim it did.
+                return False, "not applied (--no-marker override on a non-loopback send)"
+            return False, "not applied (loopback, --to-file, or --no-send)"
         if self.settings.benign_marker:
             return True, f"applied: {SYNTHETIC_MARKER_LABEL} (forced by --mark-synthetic)"
         if non_loopback_send:
@@ -939,6 +953,10 @@ class Orchestrator:
         on_event: EventCallback | None = None,
     ) -> ScenarioRunResult:
         scenario = scenario_catalog.by_id(request.scenario_id)
+        # Mirror run(): one id ties the manifest to the marked CEF lines. Without
+        # it, scenario lines marked on a non-loopback send all carried the literal
+        # "synthetic" and nothing tied a wire line back to the run that made it.
+        run_id = new_run_id()
 
         want_send = not request.no_send
         if want_send and request.collector is None and request.to_file is None:
@@ -990,6 +1008,7 @@ class Orchestrator:
                     speed=request.speed,
                     on_event=on_event,
                     on_progress=on_progress,
+                    run_id=run_id,
                     mark=marker_on,
                 )
         except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
@@ -999,6 +1018,7 @@ class Orchestrator:
         advisory_text, coverage = build_advisory(scenario, composed, self.catalog)
         manifest = ScenarioManifest(
             replicant_version=__version__,
+            run_id=run_id,
             scenario_id=scenario.id,
             scenario_name=scenario.name,
             seed=request.seed,

@@ -175,7 +175,54 @@ def test_no_marker_forces_off_and_warns_on_a_non_loopback_send(
         on, note = _decision(send=True, host="10.0.20.125", no_marker=True)
     assert on is False
     assert "no-marker" in note.lower()
+    assert "override" in note.lower()
     assert any("no-marker" in r.message.lower() for r in caplog.records)
+
+
+def test_no_marker_on_loopback_does_not_claim_an_override() -> None:
+    """--no-marker overrode nothing off loopback/file: the attestation must not lie."""
+
+    _, loop_note = _decision(send=True, host="127.0.0.1", no_marker=True)
+    assert "override" not in loop_note
+    _, file_note = _decision(send=False, no_marker=True)
+    assert "override" not in file_note
+
+
+def test_a_non_loopback_scenario_send_is_marked_with_the_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scenario runs mark by default too, and the marker value is the run id, not
+    the literal 'synthetic', so a wire line traces back to the scenario manifest."""
+
+    from replicant.core.models import ScenarioRunRequest, load_scenario_catalog
+    from replicant.resources import SCENARIO_CATALOG
+
+    scenarios = load_scenario_catalog(SCENARIO_CATALOG, CATALOG)
+    captured: list[str] = []
+
+    class _FakeEmitter:
+        def __init__(self, collector: object, hostname: str = "") -> None: ...
+        def connect(self) -> None: ...
+        def send(self, line: str, level: str = "info") -> int:
+            captured.append(line)
+            return len(line)
+
+        def close(self) -> None: ...
+
+    monkeypatch.setattr("replicant.core.orchestrator.SyslogEmitter", _FakeEmitter)
+    orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
+    result = orch.run_scenario(
+        ScenarioRunRequest(
+            scenario_id="SCEN-001",
+            pace="burst",
+            collector=CollectorProfile(host="203.0.113.9", port=514, transport="udp"),
+        ),
+        scenarios,
+    )
+    assert captured, "fake emitter captured nothing"
+    assert result.run_id, "scenario run has no run id"
+    assert all(_MARKER_TOKEN in line for line in captured)
+    assert all(f"{SYNTHETIC_MARKER_KEY}={result.run_id}" in line for line in captured)
 
 
 def test_a_non_loopback_send_is_marked_by_default_end_to_end(

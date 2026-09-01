@@ -18,10 +18,12 @@ destination-conditional synthetic marker.
   `flexString1Label=ReplicantSynthetic` marker, carrying the run id, on every line
   it sends off loopback, so an analyst can filter lab data out of production views
   and de-conflict a "3am fake attack" against the run manifest. The marker is off
-  for `--to-file` and loopback, where the golden line is the format oracle and
-  fidelity is what matters. `--no-marker` removes it and the override is logged on
-  a live send. `flexString1` is a flex slot none of the three vendor profiles
-  populate, so marking corrupts no field a detection reads.
+  for a loopback or file-only (`--to-file --no-send`) run, where the golden line
+  is the format oracle and fidelity is what matters; a run that both sends live
+  and writes a file marks both, so the file mirrors what went on the wire.
+  `--no-marker` removes it and the override is logged on a live send.
+  `flexString1` is a flex slot none of the three vendor profiles populate, so
+  marking corrupts no field a detection reads.
 
 - **Authorize the run.** Before sending to any shared collector, tell the SOC the
   run id, the technique, the source and destination entities, and the window. The

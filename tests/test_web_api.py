@@ -259,6 +259,42 @@ def test_connect_test_passes_tls_options(client: TestClient) -> None:
     assert collector.tls_cafile == "/tmp/ca.pem"  # type: ignore[attr-defined]
 
 
+def test_connect_test_marks_a_non_loopback_probe(client: TestClient) -> None:
+    """The web probe follows the same destination-conditional marking as the CLI.
+
+    Positive control: drop the _resolve_marker call in server.connect_test (revert
+    to build_test_line() with no mark) and the non-loopback assertion goes red
+    while the loopback one stays green.
+    """
+    from unittest.mock import patch
+
+    from replicant.core.orchestrator import SYNTHETIC_MARKER_LABEL
+    from replicant.transport.syslog import PathReport
+
+    def fake_probe(collector: object, payload: str) -> PathReport:
+        return PathReport(
+            host=collector.host,  # type: ignore[attr-defined]
+            port=collector.port,  # type: ignore[attr-defined]
+            transport=collector.transport,  # type: ignore[attr-defined]
+            verdict="sent_unconfirmed",
+            summary="stub",
+            proves="stub",
+            does_not_prove="stub",
+        )
+
+    with patch("replicant.web.server.probe_collector", fake_probe):
+        far = client.post(
+            "/api/connect/test", headers=HEADERS, json={"host": "203.0.113.9", "port": 514}
+        )
+        near = client.post(
+            "/api/connect/test", headers=HEADERS, json={"host": "127.0.0.1", "port": 514}
+        )
+    assert far.status_code == 200 and near.status_code == 200
+    # non-loopback: marked by default; loopback: left as the format oracle.
+    assert SYNTHETIC_MARKER_LABEL in far.json()["line"]
+    assert SYNTHETIC_MARKER_LABEL not in near.json()["line"]
+
+
 def test_run_notimplemented_maps_to_400(client: TestClient) -> None:
     # All catalog techniques are implemented, so force the engine's not-implemented
     # path and assert the endpoint still maps it to a 400 (the error contract).

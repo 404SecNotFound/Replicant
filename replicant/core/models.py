@@ -435,6 +435,10 @@ class ScenarioManifest(BaseModel):
     """Audit record for a scenario run (safety rule 5)."""
 
     replicant_version: str
+    #: Stable per-run id, as RunManifest.run_id, so a marked scenario CEF line
+    #: (flexString1) traces back to this manifest. Defaulted so older scenario
+    #: manifests still load.
+    run_id: str = ""
     scenario_id: str
     scenario_name: str
     seed: int

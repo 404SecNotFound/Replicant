@@ -755,7 +755,12 @@ def create_app(
             tls_verify=body.tls_verify,
             tls_cafile=body.tls_cafile,
         )
-        line = orch.build_test_line()
+        # A test line to a non-loopback collector is a real send to a shared
+        # collector, so it follows the same destination-conditional marking the
+        # CLI connect test does (Orchestrator._resolve_marker). Without this the
+        # web probe path sent an unmarked line where the CLI path marked it.
+        mark_on, _ = orch._resolve_marker(send=True, collector=collector)
+        line = orch.build_test_line(mark=mark_on)
         # A verdict, not a bool. The bool was rendered as a green "verified" and
         # on UDP its only guaranteed meaning is that the kernel accepted the
         # datagram, which is true whenever any route exists. It said "verified"
