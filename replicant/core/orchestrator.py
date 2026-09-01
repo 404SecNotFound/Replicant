@@ -42,7 +42,9 @@ from replicant.audit.manifest import (
     write_advisory,
     write_manifest,
     write_scenario_manifest,
+    write_validation_card,
 )
+from replicant.audit.validation_card import build_validation_card
 from replicant.cef.serializer import to_cef
 from replicant.config.settings import Settings, parse_duration
 from replicant.core.models import (
@@ -143,13 +145,19 @@ class RunResult:
     event_count: int
     plan: ScenarioPlan
     stopped: bool
+    #: The analyst validation card written beside the manifest, or None on a run
+    #: that raised before it could be written.
+    card_path: Path | None = None
 
     @property
     def run_id(self) -> str:
         return self.manifest.run_id
 
     def summary(self) -> str:
-        return human_summary(self.manifest, self.manifest_path)
+        text = human_summary(self.manifest, self.manifest_path)
+        if self.card_path is not None:
+            text += f"\n  card        : {self.card_path}"
+        return text
 
 
 #: Attribute names used to carry a partial run record on a raised exception.
@@ -597,7 +605,15 @@ class Orchestrator:
             # half of what F-02 was for.
             attach_run_record(failure, manifest.model_dump(), str(manifest_path), count)
             raise failure
-        return RunResult(manifest, manifest_path, count, plan, stopped)
+        # Roadmap item 7: a copy-pasteable analyst card beside the manifest, so an
+        # ad-hoc run does not leave the pivot, window and expected rule to be
+        # reverse-engineered from raw JSON. Marker-aware: a marked run's card can
+        # key its find-events search on the run id.
+        card_path = write_validation_card(
+            build_validation_card(technique, plan.events, manifest, marked=marker_on),
+            manifest_path,
+        )
+        return RunResult(manifest, manifest_path, count, plan, stopped, card_path)
 
     def _emit(
         self,
