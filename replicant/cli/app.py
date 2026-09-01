@@ -48,6 +48,7 @@ from replicant.core.models import (
     CollectorProfile,
     RunRequest,
     ScenarioRunRequest,
+    Technique,
     load_catalog,
     load_scenario_catalog,
 )
@@ -310,7 +311,10 @@ def cmd_list(catalog: Catalog, console: Console) -> int:
     table.add_column("UC")
     table.add_column("Log type")
     table.add_column("ATT&CK")
+    table.add_column("Transfers")
+    parser_only: list[Technique] = []
     for index, technique in enumerate(catalog.techniques, start=1):
+        transfers = "yes" if technique.transferability == "transfers" else "parser-only"
         table.add_row(
             str(index),
             technique.id,
@@ -318,8 +322,20 @@ def cmd_list(catalog: Catalog, console: Console) -> int:
             technique.ndr_uc,
             f"{technique.fortigate.log_type}:{technique.fortigate.subtype}",
             ", ".join(technique.attack.techniques),
+            transfers,
         )
+        if technique.transferability == "parser-only":
+            parser_only.append(technique)
     console.print(table)
+    # CLI-first (roadmap item 2): the transferability reasons an engineer needs
+    # before spending a validation cycle are printed here, not only in the web UI.
+    if parser_only:
+        console.print(
+            "\n[bold]Parser-only techniques[/bold] "
+            "(a green result exercises the parser, not the shipped rule):"
+        )
+        for technique in parser_only:
+            console.print(f"  [bold]{technique.id}[/bold]  {technique.transferability_note}")
     return 0
 
 

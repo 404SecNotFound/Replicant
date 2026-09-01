@@ -458,6 +458,8 @@ def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
                 "params": technique.params,
                 "distributions": technique.distributions,
                 "benign_baseline": technique.benign_baseline,
+                "transferability": technique.transferability,
+                "transferability_note": technique.transferability_note,
                 "references": technique.references,
             }
         )
