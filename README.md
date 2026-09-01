@@ -126,11 +126,11 @@ A CLI-first image runs a technique with nothing installed on the host but a cont
 ```bash
 docker build -t replicant .
 docker run --rm replicant list
-docker run --rm -v "$PWD/out:/work" replicant \
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/out:/work" replicant \
   run REP-001 --intensity low --to-file /work/rep001.log --no-send
 ```
 
-The image installs the CLI only (no web UI). Runs write to the working directory, so mount a volume at `/work` to keep the manifest and any `--to-file` output. The build context excludes everything but the package (see `.dockerignore`).
+The image installs the CLI only; `replicant web` needs the `[web]` extra and is not in this image. Runs write to the working directory, so mount a volume at `/work` to keep the manifest and any `--to-file` output, and pass `--user "$(id -u):$(id -g)"` so the non-root image can write to your host-owned mount. The build context excludes everything but the package (see `.dockerignore`).
 
 ### Linux one-shot install
 

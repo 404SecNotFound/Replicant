@@ -431,6 +431,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      # Build the frontend FIRST so replicant/webui_dist exists in the build
+      # context (it is gitignored, absent from a fresh checkout). That is what
+      # makes the "no web assets" assertion below a real guard: the CLI-only
+      # property then comes from .dockerignore excluding a file that IS present,
+      # not from the file never existing. Mirrors the wheel job.
+      - name: Build the frontend
+        working-directory: webui
+        run: |
+          npm ci
+          npm run build
 
       - name: Build the CLI image
         run: docker build -t replicant:ci .
@@ -451,10 +465,23 @@ jobs:
             'replicant run REP-004 --intensity low --to-file /tmp/dns.log --no-send \
              && head -1 /tmp/dns.log' | grep -q '^CEF:0|Fortinet|Fortigate'
 
+      - name: A bind-mounted run keeps its output (as the host user)
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          # --user so a non-root image writes to a host-owned bind mount on Linux,
+          # the platform the README example targets. This is the workflow that
+          # would have silently failed with EACCES without the flag.
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/out:/work" replicant:ci \
+            run REP-001 --intensity low --to-file /work/rep001.log --no-send
+          head -1 out/rep001.log | grep -q '^CEF:0|Fortinet|Fortigate'
+          test -d out/manifests
+
       - name: The CLI image does not ship the web UI assets
         run: |
           set -euo pipefail
-          # CLI-first: the image excludes webui_dist, so the built assets are absent.
+          # webui_dist was built above and is present in the tree; .dockerignore
+          # must keep it out of the image. Deleting that line makes this fail.
           if docker run --rm --entrypoint sh replicant:ci -c \
                'ls /usr/local/lib/python*/site-packages/replicant/webui_dist/assets/*.js' \
                2>/dev/null; then
