@@ -111,6 +111,38 @@ def test_a_marked_run_keys_the_search_on_the_run_id(tmp_path: Path, monkeypatch)
     assert f"{SYNTHETIC_MARKER_KEY}={result.run_id}" in captured[0]
 
 
+def test_the_card_window_reflects_speed_compression(tmp_path: Path) -> None:
+    """Under --speed the emitted event times are compressed; the card's window must
+    follow the wire, not the raw plan. Positive control: build the card from
+    plan.events (uncompressed) and the compressed last-time no longer appears.
+
+    --no-send keeps this fast: the emit loop only waits the plan timeline when a
+    collector is attached, but compress_timeline is applied to what it renders
+    either way, which is exactly what the card must reflect."""
+
+    from replicant.audit.validation_card import _fmt
+    from replicant.core.pacing import compress_timeline
+
+    orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
+    req = RunRequest(
+        technique_id="REP-001",
+        intensity="low",
+        to_file=str(tmp_path / "o.log"),
+        no_send=True,
+        pace="plan",
+        speed=60.0,
+    )
+    plan = orch.build_plan(req)  # deterministic, pure
+    result = orch.run(req)
+    text = result.card_path.read_text(encoding="utf-8")  # type: ignore[union-attr]
+
+    compressed_last = _fmt(max(e.eventtime for e in compress_timeline(plan.events, 60.0)))
+    raw_last = _fmt(max(e.eventtime for e in plan.events))
+    assert compressed_last != raw_last, "60x did not compress the window; pick a wider technique"
+    assert compressed_last in text  # the card follows the compressed wire
+    assert raw_last not in text  # not the uncompressed plan
+
+
 def test_the_card_carries_a_parser_only_transferability_note(tmp_path: Path) -> None:
     """REP-011 is parser-only; the card states what a green result does not prove."""
     orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))

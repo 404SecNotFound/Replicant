@@ -609,10 +609,23 @@ class Orchestrator:
         # ad-hoc run does not leave the pivot, window and expected rule to be
         # reverse-engineered from raw JSON. Marker-aware: a marked run's card can
         # key its find-events search on the run id.
-        card_path = write_validation_card(
-            build_validation_card(technique, plan.events, manifest, marked=marker_on),
-            manifest_path,
-        )
+        #
+        # Built from what ACTUALLY went out, not the raw plan: compress_timeline
+        # applies --speed (a copy _emit made and never wrote back to plan.events),
+        # and a graceful stop truncates the tail, so slice to the emitted count. A
+        # card whose window or count disagreed with the wire would send the analyst
+        # hunting for events that were never emitted.
+        emitted = compress_timeline(plan.events, request.speed)[:count]
+        card_path: Path | None = None
+        try:
+            card_path = write_validation_card(
+                build_validation_card(technique, emitted, manifest, marked=marker_on),
+                manifest_path,
+            )
+        except OSError as exc:
+            # A secondary artifact must never fail a send that already completed and
+            # whose manifest is already on disk.
+            _log.warning("could not write the validation card: %s", describe_error(exc))
         return RunResult(manifest, manifest_path, count, plan, stopped, card_path)
 
     def _emit(

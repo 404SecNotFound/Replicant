@@ -28,11 +28,10 @@ authors the rule.
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
+from replicant.audit.manifest import DUBAI_TZ
 from replicant.core.models import EventRecord, RunManifest, Technique
-
-_DUBAI = timezone(timedelta(hours=4))  # the catalog timezone
 
 _BOUNDARY = (
     "> Starting point for your own detection work: a hunt pivot that finds this "
@@ -50,7 +49,7 @@ _MARKER_LABEL = "ReplicantSynthetic"
 def _fmt(epoch: int | None) -> str:
     if epoch is None:
         return "-"
-    return datetime.fromtimestamp(epoch, _DUBAI).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.fromtimestamp(epoch, DUBAI_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _span(seconds: int) -> str:
@@ -68,6 +67,18 @@ def _top(values: list[str], limit: int = 3) -> list[str]:
     """The most common non-empty values, most frequent first."""
     counts = Counter(v for v in values if v)
     return [v for v, _ in counts.most_common(limit)]
+
+
+def _unmarked_query(srcs: list[str], dsts: list[str], first: int | None, last: int | None) -> str:
+    """Entity + window pivot for an unmarked run, joined so it never leads with 'and'
+    even when a technique's events carry no src or dst."""
+    clauses = []
+    if srcs:
+        clauses.append(f"src IN ({', '.join(srcs)})")
+    if dsts:
+        clauses.append(f"dst IN ({', '.join(dsts)})")
+    clauses.append(f"eventtime {_fmt(first)} .. {_fmt(last)}")
+    return " and ".join(clauses)
 
 
 def build_validation_card(
@@ -115,16 +126,7 @@ def build_validation_card(
             "on the entities and window below rather than the run id:",
             "",
             "```",
-            " ".join(
-                filter(
-                    None,
-                    [
-                        f"src IN ({', '.join(srcs)})" if srcs else "",
-                        f"dst IN ({', '.join(dsts)})" if dsts else "",
-                        f"and eventtime {_fmt(first)} .. {_fmt(last)}",
-                    ],
-                )
-            ),
+            _unmarked_query(srcs, dsts, first, last),
             "```",
         ]
 
@@ -139,8 +141,9 @@ def build_validation_card(
         f"- What varies: {', '.join(technique.cef_fields_varied) or '-'}",
         f"- Emitted window: {_fmt(first)} to {_fmt(last)} ({_span(span)}), {len(events)} events",
         "",
-        "  Under `--pace plan` the window above is the real timeline the events claim; "
-        "under `--pace burst` the events are sent back to back and only the event times span it.",
+        "  The window above is the event times as emitted (compressed by `--speed` if given). "
+        "Under `--pace plan` the events leave the sender across that span; under `--pace burst` "
+        "they are sent back to back and only the event times span it.",
         "",
         "## What a green result does and does not prove",
         "",
