@@ -12,6 +12,12 @@ it can be argued with rather than rediscovered, which is the same standard
 **Nothing here is implemented.** Adopting any of it is a separate decision about
 where the project's effort goes, and it belongs to the project owner.
 
+**2026-09 status addendum:** REP-025 through REP-041 remain research options, not a
+scheduled backlog. `docs/roadmap-2026-09.md` supersedes the sequencing question:
+the next expansion waits for the first observed LogRhythm rule fire and for the
+deferred tactic-gap and coverage verdicts. The entries below preserve the technical
+triage only; an "adopt" classification is not authorization to add one now.
+
 ## How the report was checked
 
 Its claims about this codebase were verified against the code rather than taken

@@ -1,19 +1,36 @@
 # Replicant — User Acceptance Test (UAT) Plan
 
 Owner (QA lead): Claude Code (automated suites) + DJR/RZA (manual suites)
-Status: **Revision 3** — Round 1 executed and signed **GO**; Round 2 (Phase 4 scenarios + Linux installer) authored, awaiting execution; Round 3 (live SIEM ingestion) authored, blocked on a lab
-Authored: 2026-07-19 · Revised: 2026-07-29
+Status: **Revision 4**. Round 1 automated scope executed and signed **GO**, with
+manual Suites C/D still open; Round 2 (Phase 4
+scenarios + Linux installer) executed to **CONDITIONAL GO**, with manual and
+unprivileged-host cases still open; Round 3 (live SIEM
+ingestion) authored, blocked on a lab; Round 4 (PR #101 validation trust foundations)
+authored and not executed as a UAT round.
+Authored: 2026-07-19 · Revised: 2026-09-06
 
 **Revision history**
 - **r1 (2026-07-19)** — Phases 1, 1.5, 2, 3. Suites A–E. Executed; automated verdict GO; Suites C/D still pending DJR.
 - **r2 (2026-07-21)** — adds Suite F (Phase 4 scenario composition, PR #7) and Suite G (Linux installer, PR #8), plus TUI-07..09. Refreshes facts that went stale between the two rounds.
 - **r3 (2026-07-29)** — adds Suite H (live SIEM ingestion) and requirements LR-1..LR-6. Moves live SIEM ingestion out of "Out of scope", where it had sat since r1 with no pass criteria attached. This is the oldest open item in the project and it predates v0.1.0; until now the plan gave a tester nothing to measure it against, so the result would have been an opinion rather than a record.
+- **r4 (2026-09-06)** adds the PR #101 write-ahead manifest and rate-contract
+  checks, plus WEB-07..15 and UI-07..08 for the server-side browser bootstrap,
+  cookie-only SPA, session lifecycle, Vite proxy authority, and active-run vendor
+  lock. These cases are authored only. Empty Result cells are deliberate and no
+  manual pass is claimed.
 
 ## 1. Purpose & scope
 
-Validate that Replicant meets its stated requirements and non-negotiable safety rules across **every surface and every claim** before it is treated as production-ready. Round 1 was the quality gate on Phases 1, 1.5, 2, and 3. Round 2 extends that gate over Phase 4 scenario composition and the Linux install script, neither of which existed when this plan was first written.
+Validate that Replicant meets its stated requirements and non-negotiable safety rules across **every surface and every claim** before it is treated as production-ready. Round 1 was the quality gate on Phases 1, 1.5, 2, and 3. Round 2 extends that gate over Phase 4 scenario composition and the Linux install script, neither of which existed when this plan was first written. Round 4 adds focused regression criteria for the changed browser trust boundary and vendor identity controls; it does not alter the earlier verdicts.
 
-**Product under test:** Round 3 targets `main` @ `f9894dc` (v0.3.1 plus the light theme and screenshot work). Round 2 was authored against `main` @ `0af51f7` (PR #8 merge); Round 1 ran against `main` @ `8fe3d31`. The delta into Round 3 is the v0.2.0 catalog expansion (11 → 24 techniques), the web UI access and navigation work, multi-vendor `[Unverified]` references, the v0.3.1 packaging fix, and the light theme.
+**Product under test:** Round 4 targets PR #101 on
+`codex/validation-trust-foundations`; pin the merge commit in the execution
+record before running it. Round 3 targets `main` @ `f9894dc` (v0.3.1 plus the
+light theme and screenshot work). Round 2 was authored against `main` @
+`0af51f7` (PR #8 merge); Round 1 ran against `main` @ `8fe3d31`. The delta into
+Round 3 is the v0.2.0 catalog expansion (11 → 24 techniques), the web UI access
+and navigation work, multi-vendor `[Unverified]` references, the v0.3.1
+packaging fix, and the light theme.
 
 **In scope — Round 1 (executed)**
 - 11 techniques (REP-001..REP-011), each with a unique `ndr_uc`.
@@ -27,7 +44,7 @@ Validate that Replicant meets its stated requirements and non-negotiable safety 
 
 **In scope — Round 2 (new)**
 - Phase 4 scenario composition: the 3 curated chains (SCEN-001/002/003), `replicant scenario list|show|run`, and the Rich menu `[a]` flow.
-- The paired manifest + advisory artifacts every scenario run writes, and the advisory's coverage/correlation boundary.
+- The paired manifest + advisory artifacts written after normal scenario completion or a handled stop, the error-manifest-only failure path, and the advisory's coverage/correlation boundary.
 - `scripts/install.sh` on a real Linux host: flags, consent and sudo scope, the distribution package mappings, and the self-verification step.
 - The use-case detail panel shipped in PR #6, to the extent Suite D touches it.
 
@@ -38,6 +55,22 @@ Validate that Replicant meets its stated requirements and non-negotiable safety 
 - Resolving the two `[Unverified]` FortiGate signature IDs (`dns:dns-query` 54803, SSL-VPN `tunnel-up` 39947) against a real parser.
 - Whether the detection a technique targets actually fires on the malicious pattern **and stays quiet on the benign baseline**.
 
+**In scope, Round 4 (authored, not executed)**
+
+- Durable initial, checkpoint, and terminal manifest states; exact rendered-count
+  semantics; collision-resistant paths; and the emission-error path that keeps a
+  finalized manifest without writing a scenario advisory.
+- The configured collector rate as a hard ceiling, with above-cap overrides
+  rejected and non-sending runs explicitly unthrottled with `rate=null`.
+- The server-side `303` exchange that removes a browser launch token before the
+  SPA or its dependencies execute, followed by cookie-only browser traffic.
+- Independent, 12-hour in-memory session ids, one-browser logout, and
+  thread-safe issuance, validation, expiry, and revocation.
+- The Vite development proxy's tokenized-root bootstrap and preservation of the
+  browser-facing `Host` for Origin checks on writes and terminal WebSockets.
+- Vendor-native catalog refresh while idle, plus the vendor selector lock and
+  release around both local and server-discovered active runs.
+
 **Out of scope**
 - **Authoring or tuning the LogRhythm AIE rules themselves.** Replicant exercises a detection; it does not write one. A rule that does not exist in the lab is a gap in the lab, not a defect in Replicant, and is recorded as such.
 - SIEMs other than LogRhythm. The blueprint is explicit that LogRhythm is first; Splunk, Sentinel and Elastic are not covered here.
@@ -47,7 +80,7 @@ Validate that Replicant meets its stated requirements and non-negotiable safety 
 
 ## 2. Environment & entry criteria
 
-Setup the executor runs once before Suite A/B:
+Historical setup used before the Round 1/2 Suite A/B execution:
 
 ```bash
 git checkout main && git pull                 # UAT the shipping product
@@ -57,7 +90,11 @@ pip install -e ".[web]"                        # web extra for replicant web + A
 mkdir -p out                                   # Suite F writes scenario CEF to ./out
 ```
 
-**Entry criteria (all must hold before execution starts)**
+**Historical Round 1/2 entry criteria**
+
+These criteria applied to their recorded execution. They are not prerequisites
+for Round 4, which targets the open validation branch below.
+
 - [ ] On `main` @ `0af51f7`, clean working tree.
 - [ ] `.venv` tools runnable: pytest 9.1.1, black, ruff, mypy, Python 3.12.13. Record the exact versions at execution time.
 - [ ] `webui/dist` built (else `replicant web` serves a build-me stub).
@@ -65,11 +102,25 @@ mkdir -p out                                   # Suite F writes scenario CEF to 
 - [ ] `manifests/` snapshotted or emptied before Suite F, so CHAIN-03 can prove `scenario show` writes nothing.
 - [ ] **No other session or process holds the working tree during Suite F.** CHAIN-03 and CHAIN-11 assert that nothing was written; a concurrent edit inside the measurement window produces a false FAIL. This happened during the 2026-07-21 run (see OBS-D).
 
+**Round 4 entry criteria (current)**
+
+- [ ] PR #101 or its merge commit is checked out and recorded; do not use the
+  historical Round 1 to 3 commit pins above for WEB-07..15 or UI-07..08.
+- [ ] For UI-08, ports 8000 and 5173 are free, the backend is loopback-bound with
+  the terminal enabled, and browser developer tools are open before navigation.
+- [ ] Record automated results and manual results separately. Passing pytest or
+  Vitest is not evidence that the live Vite browser flow was driven.
+
 **Suite G entry criteria (installer — additional, and currently unmet)**
 - [ ] A disposable Linux VM with sudo and network access. Suite G changes system packages, so it must not run on a host anyone cares about.
 - [ ] At minimum one host from each group: a distro shipping Python ≥ 3.11 (Debian 12, Ubuntu 24.04, Fedora) and one shipping < 3.11 (Ubuntu 22.04, RHEL/Rocky 9). The second group is what confirms or clears DEF-004.
 - [ ] Ability to snapshot and roll back the VM between cases. INST-06/07/11/17 deliberately leave the host in a changed or failed state.
 - [ ] **Status 2026-07-21: NOT MET.** No Linux host is available. Every Suite G case except INST-03 and INST-04 is BLOCKED. `scripts/install.sh` has never been executed on Linux.
+- **Later correction, 2026-07-21:** the preceding entry criterion records the
+  state before execution. Suite G was subsequently exercised in Debian 12,
+  Rocky 9, and Ubuntu 22.04 containers and reached 18/20; the interactive
+  consent, no-TTY refusal, and unprivileged `sudo` path remain open. See the
+  execution record and Round 2 verdict below.
 
 **Suite H entry criteria (live SIEM — additional)**
 - [ ] A LogRhythm deployment DJR controls and is authorised to send test data into. Suite H writes synthetic events into a real log store; they are indistinguishable from production data to anyone who did not run the test, so the destination must be a lab, not a customer or a shared production estate.
@@ -84,22 +135,24 @@ mkdir -p out                                   # Suite F writes scenario CEF to 
 | Req | Requirement (source) | Test case(s) | Owner |
 |-----|----------------------|--------------|-------|
 | SR-1 | Only egress is the operator-configured collector; fail closed if none (CLAUDE.md safety 1) | SAFE-01, CORE-07, CHAIN-11, INST-14, SIEM-11 | Both |
-| SR-2 | All entities synthetic — RFC1918 + 192.0.2/24, 198.51.100/24, 203.0.113/24; non-resolvable DNS (safety 2) | SAFE-02, CORE-06, CHAIN-15, SIEM-12 | Both |
+| SR-2 | All entities synthetic: RFC1918 plus 192.0.2/24, 198.51.100/24, and 203.0.113/24; DNS strings use IANA documentation domains or `.invalid`, and Replicant performs no DNS resolution (safety 2) | SAFE-02, CORE-06, CHAIN-15, SIEM-12 | Both |
 | SR-3 | No real attacks — writes log strings only (safety 3) | SAFE-03 | Claude |
 | SR-4 | Respect eps cap, default 2000 (safety 4) | SAFE-04, CORE-08, CHAIN-14, SIEM-07 | Both |
 | SR-5 | Every run writes a manifest (seed, technique, params, entities, target, counts, times) (safety 5) | SAFE-05, CORE-05, CHAIN-05, INST-16, SIEM-13 | Both |
-| FR-1 | 11 techniques REP-001..011, each unique `ndr_uc` (phase 2) | CORE-01 | Claude |
-| FR-2 | 3 vendors selectable on CLI, menu, web (phase 3) | CORE-04, TUI-03, UI-03, CHAIN-13 | Both |
+| FR-1 | 24 techniques REP-001..024, each with a unique `ndr_uc`; expansion entries retain their evidence metadata | CORE-01 | Claude |
+| FR-2 | 3 vendors selectable on CLI, menu, web while idle; the web selection and native catalog metadata stay fixed during an active run | CORE-04, TUI-03, UI-03, UI-07, CHAIN-13 | Both |
 | FR-3 | 3 transports UDP/TCP/TLS + loopback test (phase 2) | CORE-03 | Claude |
 | FR-4 | CEF golden-line correctness per vendor (blueprint / *-cef-reference.md) | CORE-02 | Claude |
 | FR-5 | Menu/CLI parity — anything the menu does, `replicant run` does headless (CLAUDE.md architecture) | CORE-09, TUI-05 | Both |
 | FR-6 | Determinism — same seed+technique+params → same plan / byte-identical `--to-file` (CLAUDE.md standards) | CORE-05, CHAIN-06 | Claude |
-| FR-7 | Web UI over the same Orchestrator (phase 1.5) | WEB-01..05, UI-01..06 | Both |
+| FR-7 | Web UI over the same Orchestrator (phase 1.5) | WEB-01..15, UI-01..08 | Both |
 | FR-8 | Intensity presets low/medium/high + duration parsing (blueprint) | CORE-05, TUI-04, CHAIN-12 | Both |
 | FR-9 | Scenario catalog composes multi-stage chains; `list`/`show`/`run` all reachable headless (phase 4) | CHAIN-01..04 | Claude |
-| FR-10 | Every scenario run writes a paired manifest + advisory with matching stems (phase 4 design §7) | CHAIN-05, CHAIN-06 | Claude |
+| FR-10 | Normal completion and handled stops write a paired scenario manifest + advisory with matching stems; emission errors retain only the finalized error manifest (phase 4 design §7) | CHAIN-05, CHAIN-06, CORE-12 | Claude |
 | FR-11 | Stage offsets, off-hours alignment, and correlation keys surfaced on both CLI and menu (phase 4) | CHAIN-07, CHAIN-08, TUI-07..09 | Both |
 | FR-12 | Advisory is coverage/correlation only — humans author detection design (CLAUDE.md phase 4 boundary) | CHAIN-09, CHAIN-10, TUI-08 | Both |
+| FR-13 | A browser launch token is exchanged by a clean server redirect before SPA execution; subsequent browser traffic is cookie-only while explicit API credentials remain independent | WEB-07..11, UI-08 | Both |
+| FR-14 | Vite preserves the browser-facing Host through bootstrap, API, and WebSocket proxying so the backend Origin comparison remains valid | WEB-12, UI-08 | Both |
 | IN-1 | Installer fails closed and names the failing step on every error path (install design §7, exit codes §9) | INST-01, INST-02, INST-04, INST-17..19 | DJR |
 | IN-2 | `sudo` used solely for package installs; consent explicit; declining leaves the host unchanged (§6) | INST-11, INST-12, INST-13 | DJR |
 | IN-3 | Documented flags behave as documented; `--dry-run` changes nothing (§5) | INST-03, INST-05, INST-08..10 | DJR |
@@ -122,37 +175,53 @@ Each case: run the command, capture output, record PASS/FAIL + evidence. Actual/
 
 | ID | Req | Objective | Command / method | Expected | Result |
 |----|-----|-----------|------------------|----------|--------|
-| CORE-01 | FR-1 | All 11 techniques listed with unique ids/ndr_uc | `replicant list` | REP-001..011 shown; matches catalog table; no dup ndr_uc | |
-| CORE-02 | FR-4 | CEF golden lines byte-for-byte, all 3 vendors | `pytest -k golden` (fortigate/paloalto/checkpoint golden files) | 27 golden assertions pass | |
-| CORE-03 | FR-3 | UDP/TCP/TLS + loopback + fail-closed framing | `pytest tests/test_transport_loopback.py` | 8 pass incl. refused-TCP/TLS fail-closed | |
+| CORE-01 | FR-1 | All 24 techniques listed with unique ids/ndr_uc | `replicant list` | REP-001..024 shown; matches the catalog; no duplicate id or `ndr_uc` | |
+| CORE-02 | FR-4 | CEF golden lines byte-for-byte, all 3 vendors | `pytest -k golden` (fortigate/paloalto/checkpoint golden files) | All three eight-line oracles and their reference, fixture, and CI-path guards pass; record the selected-test count rather than reusing a historical total | |
+| CORE-03 | FR-3 | UDP/TCP/TLS + loopback + fail-closed framing | `pytest tests/test_transport_loopback.py` | All UDP, TCP, and TLS loopback, framing, refused-connection, and fail-closed cases pass; record the current selected-test count | |
 | CORE-04 | FR-2 | Each vendor renders correct CEF header to file | `replicant run REP-001 --vendor {fortigate,paloalto,checkpoint} --to-file <f> --no-send` x3 | Header vendor/product correct (Fortinet/Fortigate, Palo Alto Networks/PAN-OS, Check Point/…); no send attempted | |
 | CORE-05 | FR-6, FR-8, SR-5 | Determinism + intensity + manifest | Run REP-004 seed 1337 medium `--to-file a.log --no-send`; repeat `--to-file b.log`; `diff a.log b.log`; inspect newest manifest | `a.log == b.log` byte-identical; manifest JSON has all required fields | |
-| CORE-06 | SR-2 | Output entities are synthetic ranges only | Parse a `--to-file` output; extract src/dst IPs + any DNS names | Every IP in RFC1918/doc ranges; DNS names non-resolvable synthetic | |
+| CORE-06 | SR-2 | Output entities are synthetic ranges only | Parse a `--to-file` output; extract src/dst IPs + any DNS names | Every IP is in RFC1918 or documentation ranges; names use IANA documentation domains or reserved `.invalid`; Replicant performs no DNS resolution | |
 | CORE-07 | SR-1 | Fail closed when send requested but no collector | `replicant run REP-001` with no `--host`/`--profile` and no `--to-file`/`--no-send` | Raises fail-closed RuntimeError; nothing emitted | |
-| CORE-08 | SR-4 | eps cap honored / `--rate` override | Short run with `--rate 50 --to-file <f>`; check event_count vs elapsed in manifest | Rate not exceeded; cap default 2000 confirmed in `/api/config` and settings | |
+| CORE-08 | SR-4 | eps cap honored / `--rate` semantics | `pytest tests/test_safety_constraints.py tests/test_plan_pacing.py tests/test_cli_pacing.py tests/test_web_pacing.py -k 'rate or eps_cap or non_sending'` | Collector-bound gaps respect the effective ceiling; direct, scenario, CLI, and API overrides above the configured cap are rejected; file-only and dry runs are unthrottled and record `rate=null` | |
 | CORE-09 | FR-5 | CLI headless parity for a full run | `replicant run REP-007 --intensity high --seed 7 --to-file <f> --no-send` | Produces expected line volume; same as menu path would | |
-| CORE-10 | QG-1 | Full suite green | `pytest` (note: the repo sets `addopts = "-q"`; do not pass `-q` again or `-qq` suppresses the summary line) | 235 passed | |
-| CORE-11 | QG-2 | Lint/format/type clean | `black --check replicant tests`; `ruff check replicant tests`; `mypy replicant` | All clean | |
+| CORE-10 | QG-1 | Full suite green | `pytest` (note: the repo sets `addopts = "-q"`; do not pass `-q` again or `-qq` suppresses the summary line) | Suite passes and the actual count is recorded for this execution; no historical count is used as a gate | |
+| CORE-11 | QG-2 | Lint/format/type clean | `black --check .`; `ruff check .`; `mypy replicant` | All clean | |
+| CORE-12 | SR-5 | Write-ahead manifest lifecycle and failure evidence | `pytest tests/test_manifest_write_ahead.py tests/test_manifest_naming.py` | A durable `running` record precedes output; checkpoints preserve exact rendered progress; done, stopped, and error states finalize the same path; preflight failure emits nothing; same-second runs have distinct timestamp-and-token paths; a scenario emission error writes no advisory | |
 
 ## 5. Suite B — Automated web / API (Claude-driven)
 
+WEB-07..15 were added in revision 4 and have not been executed as part of this
+UAT revision. Their empty Result cells remain open even when the same regression
+tests pass in engineering CI.
+
 | ID | Req | Objective | Command / method | Expected | Result |
 |----|-----|-----------|------------------|----------|--------|
-| WEB-00 | QG-3 | Frontend builds | `(cd webui && npm run build)` | `tsc -b && vite build` succeed; `webui/dist` produced | |
-| WEB-01 | FR-7 | API contract green | `pytest tests/test_web_api.py` | 16 passed | |
+| WEB-00 | QG-3 | Frontend builds | `(cd webui && npm run build)` | `tsc -b && vite build` succeed; packaged assets are produced under `replicant/webui_dist` | |
+| WEB-01 | FR-7 | API contract green | `pytest tests/test_web_api.py` | Every collected API contract case passes; record the current selected-test count | |
 | WEB-02 | FR-7 | Server launches on loopback with token | `replicant web --no-browser` | Prints `http://127.0.0.1:<port>/?token=…`; bound to 127.0.0.1 only | |
-| WEB-03 | FR-1/FR-7 | Catalog endpoint serves 11 techniques | `GET /api/health`, `GET /api/catalog` (with token) | health ok; catalog has 11 entries | |
+| WEB-03 | FR-1/FR-7 | Catalog endpoint serves 24 techniques | `GET /api/health`, `GET /api/catalog` (with token) | health is public and healthy; authenticated catalog has 24 entries with unique ids and `ndr_uc` values | |
 | WEB-04 | FR-2/SR-4 | Config exposes vendors + real eps_cap | `GET /api/config` | `vendors=[fortigate,paloalto,checkpoint]`, `eps_cap=2000`, seed default | |
 | WEB-05 | FR-7 | Run lifecycle via API | `POST /api/runs` (to loopback/file), `GET /api/runs/{id}`, SSE `…/events`, `POST …/stop` | Run starts, streams line/progress/done, stop works, manifest written | |
 | WEB-06 | SR-1 | Host-header allowlist rejects non-localhost | Request with foreign Host header | Rejected by `_localhost_only` middleware | |
+| WEB-07 | FR-7/FR-13 | Valid browser bootstrap is complete before SPA execution | Run `TestExchange::test_browser_bootstrap_redirects_before_serving_any_javascript` in `tests/test_web_sessions.py` | Tokenized root returns `303`, `Location` has no token, response is `no-store`, and a fresh httpOnly `SameSite=Strict` cookie is issued; no SPA document or module is served on that response | |
+| WEB-08 | FR-7/FR-13 | Invalid browser token is removed without granting a session | With one `TestClient`, request `/?token=wrong` without following redirects, then request `/api/config` with the resulting cookie jar | Response still redirects to a clean same-host path, sets no cookie, and the clean follow-up has no authenticated API access | |
+| WEB-09 | FR-7/FR-13 | Browser becomes cookie-only after bootstrap | `pytest tests/test_web_sessions.py`; `(cd webui && npm test -- src/lib/api.test.ts)` | Cookie alone authenticates; the launch token and a forged cookie do not; frontend fetches use same-origin credentials and contain no launch-token header or query; logout leaves the browser unauthenticated | |
+| WEB-10 | FR-7/FR-13 | Programmatic credentials remain independent and create no sessions | `pytest tests/test_web_access.py -k 'mints_no_session_cookie'` plus the bearer-after-logout case in `test_web_sessions.py` | Bearer, `X-Replicant-Token`, and query-token API calls remain valid where supported, issue no session cookie, and still work independently after one browser logs out | |
+| WEB-11 | FR-7/FR-13 | Session expiry and revocation are race-safe | `pytest tests/test_web_sessions.py` | Session ids differ from the launch token, expire at their TTL, revoke independently, and concurrent expired validation/logout completes without an exception or leaked valid id | |
+| WEB-12 | FR-7/FR-14 | Vite proxy pins the bootstrap and browser authority contract | `(cd webui && npm test -- src/lib/viteConfig.test.ts)` | Only tokenized root navigation uses the bootstrap matcher, and bootstrap, `/api`, and `/ws` all retain `changeOrigin: false` | |
+| WEB-13 | FR-7 | Restored-run endpoints retain exact live rendered progress before terminal | `pytest tests/test_web_active_run.py -k track_each_render` | Freeze a real sub-100-event plan-paced worker after its first rendered line and before any coalesced progress callback; `/api/runs/active` and `/api/runs/{id}` both remain `running` and report exactly `event_count=1`, while SSE progress cadence is unchanged | |
+| WEB-14 | FR-2/FR-7 | Run admission and ownership never expose an unlocked or stale-owner gap | `pytest tests/test_web_active_run.py tests/test_run_stream_fanout.py`; `(cd webui && npm test -- src/App.test.tsx src/components/RunPanel.test.tsx)` | Admission locks vendor and tab navigation, reserves a client-generated idempotency key before preview, exposes the same owner through `reserved`, `admitting`, and `running`, distinguishes an unclaimed reservation from plan preparation, retries a lost reservation response safely, and resolves a lost start response from the admission record without a timed null heuristic. A fast terminal admission retains its final count and manifest. Definitive client errors leave ambiguous reconciliation, then cancel a known reservation or retain it as a visible owner if the session no longer permits cancellation. Initial owner discovery fails closed, and an evicted status handle reconciles through the active endpoint after restoration or a local SSE disconnect. Restored natural/Stop paths preserve the final manifest. Local SSE/dropped-SSE paths retain run A through transient failures, transfer directly to successor B without a null callback, preserve bootstrap ownership through React StrictMode replay, reject unmounted continuations, and cancel watchers on unmount. An early Stop survives worker scheduling, and every terminal producer publishes its SSE item before a drained stream may close | |
+| WEB-15 | FR-2/FR-7 | Restored-run vendor identity overrides the configured default | `pytest tests/test_web_active_run.py -k paloalto`; `(cd webui && npm test -- src/App.test.tsx src/components/RunPanel.test.tsx)` | Start, active, status, and 409 contracts carry the run owner's resolved vendor. Reloading a Palo Alto run with a FortiGate default selects and locks PAN-OS, loads only PAN-OS native metadata for the restored view, and transfers both ownership and vendor directly to any successor | |
 
 ## 6. Suite C — Manual Rich TUI menu (DJR-driven)
 
-Launch: `replicant menu`. Prompt shows `[1-11] technique  [a] scenario  [c] connection  [v] vendor  [s] seed  [q] quit`. The `[a]` key and TUI-07..09 are new in r2 (Phase 4).
+Launch: `replicant menu`. The prompt derives its range from the catalog and
+currently shows `[1-24] technique  [a] scenario  [c] connection  [v] vendor  [s]
+seed  [q] quit`. The `[a]` key and TUI-07..09 were added in r2 (Phase 4).
 
 | ID | Req | Objective | Steps | Expected | Result |
 |----|-----|-----------|-------|----------|--------|
-| TUI-01 | FR-7 | Menu renders technique table | Launch menu | 11 techniques in a numbered table; readable in the reskinned theme | |
+| TUI-01 | FR-7 | Menu renders the current technique catalog | Launch menu | 24 techniques in a numbered table; prompt range matches the catalog length and the table is readable | |
 | TUI-02 | FR-7 | Connection config `[c]` | Press `c`, enter host/port/transport | Collector set; no send until run | |
 | TUI-03 | FR-2 | Vendor picker `[v]` | Press `v`, choose each vendor | Selection echoed; orchestrator rebuilt | |
 | TUI-04 | FR-8 | Seed `[s]` + technique + intensity | Set seed, pick a technique, choose intensity | Run plan uses the chosen seed/intensity | |
@@ -166,14 +235,32 @@ Launch: `replicant menu`. Prompt shows `[1-11] technique  [a] scenario  [c] conn
 
 Open the URL printed by `replicant web`. Emitter view = left rail (Connection + Catalog) / right (Run panel); Terminal tab = embedded `replicant menu`.
 
+UI-07 and UI-08 are revision 4 cases and are not yet executed. For UI-08, use
+two terminals:
+
+```bash
+# terminal 1
+replicant web --port 8000 --no-browser
+
+# terminal 2
+cd webui
+VITE_PROXY=http://127.0.0.1:8000 npm run dev
+```
+
+Copy only the `?token=...` portion of the backend launch URL onto the Vite
+origin, for example `http://127.0.0.1:5173/?token=...`. Keep browser developer
+tools open from before navigation so the bootstrap response is retained.
+
 | ID | Req | Objective | Steps | Expected | Result |
 |----|-----|-----------|-------|----------|--------|
-| UI-01 | FR-7 | Emitter layout + theme | Load page | Header (logo, Emitter/Terminal tabs, collector status, theme toggle); reskin renders; theme toggle works light/dark | |
-| UI-02 | FR-1 | Technique list + selection | Click techniques in the left rail | Selection arms the Run panel; first implemented technique auto-selected on load. NOTE: today click only selects — no detail panel yet (that is the next feature) | |
-| UI-03 | FR-2 | Vendor selector | Change vendor radio in Connection card | Vendor switches; eps cap label shows real `config.eps_cap` | |
+| UI-01 | FR-7 | Factory emitter layout | Load page | Dark-only Factory shell renders with Replicant header; Emitter, Docs, and Logs navigation plus Terminal when enabled; Connection and grouped Catalog rail; technique detail and run stage; no theme toggle is present | |
+| UI-02 | FR-1 | Technique detail + selection | Click techniques in the left rail | First implemented technique is selected on load; selection preserves one armed id and updates the objective, ATT&CK chips, signal path, native rule fields, intensity presets, vendor sample CEF, and Run panel | |
+| UI-03 | FR-2 | Idle vendor selector and native catalog metadata | With no active run, change each vendor radio in the Connection card | Vendor switches, catalog/detail native match and field names refresh for that profile, selected technique id is preserved, and eps cap label shows real `config.eps_cap` | |
 | UI-04 | FR-7 | Connection test | Enter collector, click Test | One benign line rendered/returned | |
 | UI-05 | FR-7/SR-4 | Run + eps SignalReadout | Start a run | Progress + live eps waveform; count/total advance; stop works. WATCH: does the waveform cap/scale match a non-default eps_cap? (see DEF-002) | |
 | UI-06 | FR-7 | Embedded terminal | Open Terminal tab | xterm connects to `replicant menu` over WS; interactive | |
+| UI-07 | FR-2/FR-7 | Vendor selector locks for local and restored active runs, then releases | Select a non-default vendor and start a long plan-paced run. Confirm the radios are disabled, then reload while it is still active. Stop the server-discovered run from the reloaded page and wait for terminal status | Before and after reload, every vendor radio is disabled and the visible reason names the active technique. The restored selector and native catalog match the run's vendor, not the configured default. No profile switch or catalog relabel occurs. Stop or natural completion clears the lock and the radios become usable again | |
+| UI-08 | FR-7/FR-13/FR-14 | Live Vite bootstrap, authenticated write, and terminal WebSocket | Use the two-terminal setup above. Open the tokenized Vite URL, inspect the first navigation, start a plan-paced no-send run, stop it, then open Terminal | First navigation is proxied to a clean `303` with the session cookie; the clean URL is served by Vite before SPA execution. Later API, SSE, and WebSocket requests carry no launch token, authenticated POST and Stop avoid 401/403, and the terminal connects without an Origin rejection | |
 
 ## 8. Suite E — Safety rules (Claude-driven, explicit)
 
@@ -184,8 +271,8 @@ The five non-negotiables get their own dedicated validation, independent of func
 | SAFE-01 | SR-1 | Attempt to emit with no collector + no file (see CORE-07); inspect emitter binds to single peer | Fail-closed; single-peer only (`transport/syslog.py:20-23`) | |
 | SAFE-02 | SR-2 | Static + runtime: entity ranges enforced (`entities/model.py:31-63`); scan real output | Out-of-range entity raises; output all-synthetic | |
 | SAFE-03 | SR-3 | Confirm transport only ever receives a `str` (`cef/serializer.to_cef`→`SyslogEmitter.send(str)`); no exec/socket to non-collector | Only strings sent; no command execution path | |
-| SAFE-04 | SR-4 | eps cap default 2000 enforced in emit loop (`orchestrator.py:187,219-224`); `--rate` override respected | Rate honored | |
-| SAFE-05 | SR-5 | Every run writes a manifest with all fields (`audit/manifest.py`, `models.py:176-194`) | Manifest present + complete after each run above | |
+| SAFE-04 | SR-4 | Run CORE-08 and inspect the effective collector rate in completed sending manifests | Configured cap cannot be raised; non-sending manifests record `rate=null` | |
+| SAFE-05 | SR-5 | Run CORE-12 and inspect the manifest from each operational case above | Initial evidence precedes output and the same path retains exact checkpoint or terminal evidence; see `docs/run-manifest.md` | |
 
 ## 9. Suite F — Scenario composition, Phase 4 (Claude-driven)
 
@@ -199,7 +286,7 @@ Note the CLI/menu asymmetry recorded as OBS-005: `scenario run` takes `--to-file
 | CHAIN-02 | FR-9 | Bare verb defaults to `list` | `replicant scenario` | Identical output to CHAIN-01 (`action` defaults, `cli/app.py:276`) | |
 | CHAIN-03 | FR-9 | `show` is a dry preview that writes nothing | Snapshot `manifests/`; `replicant scenario show SCEN-001`; re-snapshot | Advisory rendered to stdout; **no** manifest, **no** `.advisory.md`, no emit; `manifests/` byte-identical before and after | |
 | CHAIN-04 | FR-9 | Unknown id fails cleanly | `replicant scenario show SCEN-999` | `unknown scenario` + hint to run `scenario list`; exit 1; no traceback | |
-| CHAIN-05 | FR-10, SR-5 | Run writes a paired manifest + advisory | `replicant scenario run SCEN-001 --seed 1337 --to-file ./out/s1.log --no-send` | `manifests/SCEN-001-seed1337-<ts>.json` plus `…​<ts>.advisory.md` sharing the stem; 3 summary lines (events/stages, manifest, advisory) | |
+| CHAIN-05 | FR-10, SR-5 | Successful run writes a paired manifest + advisory | `replicant scenario run SCEN-001 --seed 1337 --to-file ./out/s1.log --no-send` | `manifests/SCEN-001-seed1337-<timestamp>-<8hex>.json` plus an `.advisory.md` sharing that full stem; 3 summary lines (events/stages, manifest, advisory) | |
 | CHAIN-06 | FR-6, FR-10 | Determinism across identical runs | Run SCEN-002 seed 1337 to file twice; `diff` the CEF; diff the advisories | CEF byte-identical; advisory identical apart from timestamps | |
 | CHAIN-07 | FR-11 | Off-hours alignment surfaces in the kill chain | `replicant scenario show SCEN-001`; read the kill-chain table | Exfil stage annotated `(+Nd aligned)`, from `align: next-off-hours` on the REP-005 stage. This is the one chain carrying it | |
 | CHAIN-08 | FR-11 | Mixed correlation keys render per stage | `replicant scenario show SCEN-003` | Credential stages (REP-007) correlate on user; C2 stage (REP-001) correlates on host; both shown in the `correlate on` column | |
@@ -266,7 +353,7 @@ New in r3. This is the **oldest open item in the project**; it predates v0.1.0 a
 | SIEM-09 | LR-6 | **The benign baseline does not fire it** | Same rule. Run only the technique's benign baseline, or a technique whose baseline covers the same log type | The rule stays quiet. This is the case that distinguishes a detection from an alarm that fires on everything, and it is why `benign_baseline` is generated rather than merely documented. A rule that fires on both SIEM-08 and SIEM-09 has a false-positive problem the lab should know about | |
 | SIEM-10 | LR-3 | Resolve the two `[Unverified]` signature IDs | Run REP-004 (`dns:dns-query`) and REP-007 (`event:vpn`, includes a `tunnel-up` success). Read what the parser makes of signature **54803** and **39947** | Either the parser accepts them, in which case the `[Unverified]` markers in `replicant/profiles/fortigate.py:53,55` come off, or it does not, in which case the correct values are recorded and the code, the reference doc and the CHANGELOG are all corrected together. `dns-response` 54802 and `login-fail` 39426 are already confirmed and serve as the control | |
 | SIEM-11 | SR-1 | Egress is the collector and nothing else | Packet-capture the sending host for the duration of a live run | Traffic to the configured collector only. No DNS resolution of the synthetic domains, no connection to any documentation-range address, no telemetry anywhere. This is safety rule 1 tested against real infrastructure instead of a loopback socket | |
-| SIEM-12 | SR-2 | What lands in the SIEM is synthetic | Query the ingested events for source and destination addresses and any domains | Addresses confined to RFC1918 and the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). Domains under the IANA documentation domains or `.invalid`. **Nothing routable and nothing real.** An analyst finding these later must be able to tell they were synthetic | |
+| SIEM-12 | SR-2 | What lands in the SIEM is synthetic | Query the ingested events for source and destination addresses and any domains | Addresses confined to RFC1918 and the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). Domain strings stay under IANA documentation domains or `.invalid`. Replicant performs no DNS lookup or connection to those names; note that documentation domains can themselves resolve. An analyst finding these later must be able to tell they were synthetic | |
 | SIEM-13 | LR-1, SR-5 | Manifest reconciles with what arrived | After a completed run, compare `manifests/<run>.json` against the SIEM's event count for the window | The manifest's event count matches the number ingested. A shortfall is loss and needs SIEM-07 revisited; an excess means the window caught something else. The manifest is the reproduction recipe, so attach it to every recorded result | |
 | SIEM-14 | LR-3 | Palo Alto and Check Point, if the lab has them | Repeat SIEM-02..04 with `--vendor paloalto` and `--vendor checkpoint` against matching log sources | Optional and **expected to be skipped**. Both profiles' golden lines are `[Unverified]` and have never been checked against a live build (3 PA markers, 4 CP). Any result here is a bonus; a failure is a known-unknown being resolved, not a regression | |
 
@@ -317,9 +404,9 @@ Round 1 recon surfaced 5 issues. All five were re-verified against `main` @ `0af
 |----|-----|----------|-------|----------|---------------------|
 | DEF-001 | Trivial | Low | Stale test count in README | `README.md:224` | **FIXED.** README now reads `# 235 tests`, matching the suite. |
 | DEF-002 | Low | Medium | Web eps waveform cap hardcoded `2000` instead of `config.eps_cap` | `webui/src/components/RunPanel.tsx` | **FIXED.** `RunPanel` now takes an `epsCap: number` prop and passes `cap={epsCap}` (`:276`). No hardcoded literal remains. |
-| DEF-003 | Trivial | Low | All 11 techniques hardcoded `implemented=true` → `soon`/`not-runnable` UI states are dead code | `replicant/web/server.py:92-105` | **STILL OPEN.** Re-confirmed: `implemented` is `technique.id in {…all 11 ids…}`, a set literal, so it is unconditionally true. Cleanup or drive from real state. Not user-facing while all 11 are implemented. |
+| DEF-003 | Trivial | Low | All 11 techniques hardcoded `implemented=true` → `soon`/`not-runnable` UI states are dead code | `replicant/web/server.py` | **RESOLVED after the 2026-07-21 record.** The API now derives support from `implemented_technique_ids()` rather than a duplicated set literal. All current 24 entries are implemented, but the state follows the engine instead of being hardcoded in the web layer. |
 | OBS-001 | Info | — | `/api/catalog` omitted `distributions`/`benign_baseline`/`cef_fields_*`/`references` | `replicant/web/server.py:109-114` | **RESOLVED** by PR #6. All four field groups are now served; the detail panel consumes them. |
-| OBS-002 | Info | — | No frontend test runner (no `test` script / vitest) | `webui/package.json:6-10` | **STILL OPEN.** Scripts are `dev`/`build`/`preview` only; zero vitest references. All backend is covered; the SPA is not. |
+| OBS-002 | Info | n/a | No frontend test runner (no `test` script / vitest) | `webui/package.json` | **RESOLVED after the 2026-07-21 record.** Vitest is part of the package scripts and PR #101 engineering verification runs 219 frontend tests before the production build. |
 | DEF-004 | High | High | Installer distro mappings cannot reach the required Python 3.11 (or Node 18) on several current LTS releases | `scripts/install.sh` | **CONFIRMED on real Linux 2026-07-21, then FIXED.** No longer `[Unverified]`. Reproduced in `ubuntu:22.04`: the original script installed packages, re-checked, and died `still missing after install: python node` (exit 3) having mutated the host. Measured availability: Ubuntu 22.04 default `python3` 3.10.6 and `nodejs` 12.22.9; Rocky 9 default 3.9.18 and 16.20.2; Debian 12 already fine at 3.11.2 / 18.20.4. Fix resolves candidates by querying the package manager *before* consenting to sudo, and refuses with actionable guidance when nothing on offer qualifies. Re-verified: Ubuntu 22.04 → exit 3 with `pkg_delta=0`; Rocky 9 → exit 0, Python 3.12.13, verification green. |
 | DEF-005 | High | High | apt path installed a GUI desktop stack onto a headless host | `scripts/install.sh:196` | **FOUND BY REAL TESTING, FIXED.** `apt-get install -y` carried no `--no-install-recommends`, so the recommended closure pulled in `tilix` (a GUI terminal emulator), `libgtk-3-bin`, `libvte`, `ubuntu-mono` and `humanity-icon-theme` on a server image. Nobody predicted this; it is invisible to `--dry-run` because dry-run never resolves the dependency tree. Fixed with `--no-install-recommends` (apt) and `--setopt=install_weak_deps=False` (dnf/yum). Rocky 9 post-fix installs 9 packages total. |
 | OBS-A | Info | Medium | The eps cap is a fixed-window cap, not an instantaneous one | `replicant/core/orchestrator.py:280-299` | Counts to `eps_cap`, sleeps the remainder of the wall second, resets. Events cluster at the head of each window, so a *sliding* one-second window straddling a boundary can exceed the cap: measured once at 59 against a cap of 50 (+18%), not reproduced on repeat. Fixed one-second buckets never exceeded 50. Does not fail CHAIN-14 (overall 49.94/s), but safety rule 4 should state which guarantee it makes. Recommend documenting it as a fixed-window average. **RESOLVED in v0.4.0**: the fixed-window limiter is gone. Sends are scheduled from a precomputed offset list and the floor is measured against the previous *actual* send, so no two sends are ever closer than `1/eps_cap` even when the host runs late. The line reference above points at code that no longer exists; see `replicant/core/pacing.py` and the emit loop in `replicant/core/orchestrator.py`. The README safety table was corrected at the same time — it had gone on describing the burst-then-pause shape after the mechanism was replaced. |
@@ -343,15 +430,20 @@ Any Critical against a safety rule is an automatic **No-Go** and blocks release.
 - [x] QG-1, QG-2, QG-3 green (against the then-current 179 tests).
 - [x] DEF-001..003 dispositioned. DEF-001 and DEF-002 have since been fixed; DEF-003 accepted as Trivial and remains open.
 
-### Round 2 — Phase 4 scenarios + installer (not started)
-- [ ] Suite F: 100% pass (Claude).
-- [ ] Suite G: 100% pass (DJR on Linux), or each failure triaged and accepted.
+### Round 2: Phase 4 scenarios + installer (conditional go, 2026-07-21)
+- [x] Suite F: 16/16 pass (Claude).
+- [ ] Suite G: 18/20 pass in Linux containers; INST-11, INST-12, and the
+  unprivileged `sudo` clause of INST-13 remain open.
 - [ ] TUI-07..09 pass (DJR).
-- [ ] QG-1 (235 green), QG-2 (lint/type clean), QG-3 (frontend build), QG-4 (shellcheck) all green.
-- [ ] **DEF-004 dispositioned.** It is currently High, and a High blocks Go under the rule below. Either the distro mappings are fixed, or the installer refuses before taking sudo on a host it cannot satisfy, or the release explicitly narrows its supported-distro claim. Shipping an installer that changes a RHEL host and then dead-ends is not an acceptable resolution.
+- [x] Recorded quality gate green: 238 Python tests, lint/type checks,
+  frontend tests/build, and shellcheck.
+- [x] **DEF-004 dispositioned.** Unsupported distro mappings now refuse before
+  installing packages.
 - [ ] DEF-003 and OBS-002 re-dispositioned (fix now, or accept + ticket).
 
-**Blocking note:** Round 2 cannot reach Go while Suite G is unexecutable. A Linux VM is the single dependency. Until then the honest status is *Round 2 authored, not run*, and the product should not be described as having a validated Linux install path.
+**Current note:** Round 2 reached conditional go, not unconditional go. The
+container evidence validates the recorded distributions and refusal paths; it
+does not validate the remaining unprivileged, interactive, or manual TUI cases.
 
 ### Round 3 — Live SIEM ingestion (authored 2026-07-29, not started)
 
@@ -365,9 +457,28 @@ Any Critical against a safety rule is an automatic **No-Go** and blocks release.
 
 **Blocking note:** Round 3 cannot start without a LogRhythm deployment, which is the single dependency and has never been available. Until it runs, the honest status is *Round 3 authored, not run*, and **Replicant must not be described as validated against a SIEM, or as having working detections**. Passing golden-line tests proves the CEF matches a reference document; it does not prove a parser accepts it or a rule fires on it. Those are different claims and only Suite H tests the second one.
 
+### Round 4: PR #101 validation trust foundations (authored 2026-09-06, not started)
+
+- [ ] WEB-07..15 execute on the pinned PR or merge commit and their Result
+  cells carry the command output or response evidence.
+- [ ] UI-07 proves the vendor selector stays locked across both a local start
+  and a reload that discovers the server's active run, then releases on stop or
+  terminal completion.
+- [ ] UI-08 proves the live Vite bootstrap, same-origin authenticated writes,
+  SSE, and terminal WebSocket. A passing source/config test alone is not enough.
+- [ ] Any 401/403, token-bearing post-bootstrap request, profile relabel, or
+  selector release before terminal state is triaged before a Round 4 verdict.
+
+**Status:** authored only. No Round 4 UAT command or browser walkthrough has
+been recorded, so this revision makes no Round 4 Go/No-Go claim.
+
 **Sign-off:** QA lead (Claude) records automated results; DJR signs the manual + overall Go/No-Go.
 
 ## 15. Execution log
+
+### Round 4 execution record
+
+Not run. WEB-07..15 and UI-07..08 intentionally have no PASS/FAIL result yet.
 
 ### Automated run 1 — 2026-07-19 (on `main` @ `8fe3d31`, PR #5 merge commit)
 
@@ -384,6 +495,7 @@ Any Critical against a safety rule is an automatic **No-Go** and blocks release.
 - **CORE-04 PASS** — vendor CEF headers: `Fortinet|Fortigate`, `Palo Alto Networks|PAN-OS`, `Check Point|VPN-1 & FireWall-1` (CP severity string `Unknown`).
 - **CORE-05 PASS** — REP-004 medium seed 1337 byte-identical across 2 runs (108,000 lines).
 - **CORE-06 / SAFE-02 PASS** — entity scan of 5 files (3 vendors + DNS + VPN): 0 IP violations (all RFC1918/doc ranges); DNS names all under non-resolvable `example.net`.
+- **Correction, 2026-09-06:** the preceding execution record preserves the wording used in 2026-07, but `example.net` is an IANA documentation domain that does resolve. The result established that emitted names stayed under the documentation parent; it did not establish DNS non-resolution. Replicant itself performs no DNS lookup or connection to the emitted name.
 - **CORE-07 / SAFE-01 PASS** — fail-closed, exit 1, when send requested with no collector + no `--to-file`.
 - **CORE-08 / SAFE-04 PASS** — eps throttle: N=4000; `--rate 30` → 29.9/s delivered (throttled), `--rate 5000` → 6208/s (unthrottled). Cap governs send rate.
 - **CORE-09 PASS** — REP-007 `event:vpn` renders (ssl-login-fail, sev 7, synthetic `duser`/`src`).

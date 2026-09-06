@@ -39,6 +39,7 @@ from replicant.audit.manifest import (
     human_summary,
     new_run_id,
     now_dubai_iso,
+    update_manifest,
     write_advisory,
     write_manifest,
     write_scenario_manifest,
@@ -86,6 +87,14 @@ _log = get_logger("run")
 
 ProgressCallback = Callable[[int, int], None]
 EventCallback = Callable[[str, EventRecord], None]
+ManifestCheckpointCallback = Callable[[int, int], None]
+ManifestCheckpointWaitCallback = Callable[[float], None]
+
+# Manifest fsyncs protect the audit trail but must not become the dominant load
+# at the 2,000 EPS safety ceiling. In-memory progress is observed after every
+# completed event; durable replacements are coalesced to about once per second,
+# plus the mandatory initial and final writes.
+_MANIFEST_CHECKPOINT_INTERVAL_S = 1.0
 
 #: CEF extension key for the synthetic-data marker (settings.benign_marker).
 #: flexString1 is CEF's customer custom-string field and is used by none of the
@@ -165,7 +174,12 @@ RUN_RECORD_ATTR = "replicant_run_record"
 
 
 def attach_run_record(
-    exc: BaseException, manifest: dict[str, Any], manifest_path: str, event_count: int
+    exc: BaseException,
+    manifest: dict[str, Any],
+    manifest_path: str,
+    event_count: int,
+    *,
+    durable_event_count: int | None = None,
 ) -> None:
     """Attach the manifest of a failed run to the exception that ended it.
 
@@ -176,11 +190,14 @@ def attach_run_record(
     """
 
     try:
-        exc.__dict__[RUN_RECORD_ATTR] = {
+        record: dict[str, Any] = {
             "manifest": manifest,
             "manifest_path": manifest_path,
             "event_count": event_count,
         }
+        if durable_event_count is not None:
+            record["durable_event_count"] = durable_event_count
+        exc.__dict__[RUN_RECORD_ATTR] = record
     except (AttributeError, TypeError):  # pragma: no cover - slotted exception
         pass
 
@@ -199,6 +216,84 @@ def _run_status(failure: BaseException | None, stopped: bool) -> RunStatus:
     if failure is not None:
         return "error"
     return "stopped" if stopped else "done"
+
+
+@dataclass
+class _ManifestCheckpoint:
+    """Coalesced durable progress for an already-published running manifest."""
+
+    manifest: RunManifest | ScenarioManifest
+    path: Path
+    count_field: str
+    planned_count: int
+    count: int = 0
+    last_write: float = 0.0
+
+    def observe(self, count: int, total: int) -> None:
+        """Remember exact progress; fsync it no more than about once a second."""
+
+        self.count = count
+        if total != self.planned_count:
+            raise RuntimeError(
+                f"manifest planned {self.planned_count} events but emitter reported {total}"
+            )
+        now = time.monotonic()
+        if now - self.last_write < _MANIFEST_CHECKPOINT_INTERVAL_S:
+            return
+        self._persist()
+
+    def flush_before_wait(self, wait_s: float) -> None:
+        """Persist dirty progress before a wait would carry it past the cadence."""
+
+        if wait_s <= 0.0 or self.count == self.durable_count:
+            return
+        now = time.monotonic()
+        if now + wait_s - self.last_write < _MANIFEST_CHECKPOINT_INTERVAL_S:
+            return
+        self._persist()
+
+    def _persist(self) -> None:
+        """Durably replace the record with the latest observed count."""
+
+        stamp = now_dubai_iso()
+        next_manifest = self.manifest.model_copy(
+            update={
+                self.count_field: self.count,
+                "partial": self.count < self.planned_count,
+                "updated_at": stamp,
+            }
+        )
+        update_manifest(next_manifest, self.path)
+        # Only advance this reference after the durable update is confirmed. If
+        # replace/fsync raises, ``manifest`` remains the last known durable record
+        # that can safely be attached to the original transport exception.
+        self.manifest = next_manifest
+        # Measure from the completed fsync, not from before it. A slow filesystem
+        # must reduce checkpoint frequency rather than cause catch-up writes.
+        self.last_write = time.monotonic()
+
+    def finalize(self, **updates: Any) -> RunManifest | ScenarioManifest:
+        """Persist the exact terminal state, regardless of checkpoint cadence."""
+
+        stamp = now_dubai_iso()
+        final = {
+            self.count_field: self.count,
+            "partial": self.count < self.planned_count,
+            "ended_at": stamp,
+            "updated_at": stamp,
+            **updates,
+        }
+        next_manifest = self.manifest.model_copy(update=final)
+        update_manifest(next_manifest, self.path)
+        self.manifest = next_manifest
+        self.last_write = time.monotonic()
+        return self.manifest
+
+    @property
+    def durable_count(self) -> int:
+        """Progress stored in the last manifest whose fsync completed."""
+
+        return int(getattr(self.manifest, self.count_field))
 
 
 @dataclass
@@ -495,6 +590,8 @@ class Orchestrator:
         on_progress: ProgressCallback | None = None,
         on_event: EventCallback | None = None,
         run_id: str | None = None,
+        *,
+        _reset_stop: bool = True,
     ) -> RunResult:
         # Generated once here so every surface shares one id: the CLI prints it,
         # the manifest records it, the web runner passes its handle id in so the
@@ -513,56 +610,30 @@ class Orchestrator:
         send = want_send and request.collector is not None
         file_path = request.to_file
 
-        self.reset()
+        # Direct callers reuse an orchestrator and therefore need a clean stop
+        # event for each run. The web runner resets before publishing its handle
+        # as stoppable, then passes False so an acknowledged early Stop cannot be
+        # erased between thread.start() and worker entry.
+        if _reset_stop:
+            self.reset()
         self.last_send_stats = None
         plan = self.build_plan(request)
 
         target, transport = self._describe_target(request, send)
-        eps_cap = request.rate_override or self.settings.eps_cap
+        eps_cap = self._effective_eps_cap(request.rate_override)
         pace = self._resolve_pace(request.pace, request.speed, sending=send)
         marker_on, marker_attestation = self._resolve_marker(send=send, collector=request.collector)
 
         started_at = now_dubai_iso()
-        # The manifest is written whichever way this ends, including the ways that
-        # raise. A transport failure used to exit before the record existed, so a
-        # run could reach a collector part-way and leave nothing durable behind
-        # saying what was attempted or how far it got. Safety rule 5 says every
-        # run writes a manifest, and the failure path is the one that needs it.
-        count = 0
-        stopped = False
-        failure: BaseException | None = None
-        try:
-            # F-08. The eps cap is enforced by this loop, so it is per process:
-            # two sending processes deliver twice the cap and neither is doing
-            # anything wrong. The supported scope is one sending run per host,
-            # and this is where that is enforced rather than merely stated. Held
-            # across the whole emit, and only when a collector is actually in
-            # play: --no-send and --to-file cannot exceed anything.
-            with ExitStack() as guard:
-                if send:
-                    guard.enter_context(sending_lock())
-                count, stopped = self._emit(
-                    plan.events,
-                    send=send,
-                    collector=request.collector,
-                    to_file=file_path,
-                    eps_cap=eps_cap,
-                    pace=pace,
-                    speed=request.speed,
-                    on_event=on_event,
-                    on_progress=on_progress,
-                    run_id=run_id,
-                    mark=marker_on,
-                )
-        except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
-            failure = exc
-        ended_at = now_dubai_iso()
-
         warmup = plan.warmup_note
         if plan.truncated:
             note = f"event stream truncated at engine max_events={self.engine.max_events}"
             warmup = f"{warmup}; {note}" if warmup else note
 
+        # Establish the complete intent durably before opening a collector or a
+        # destination file. A process/power failure after output begins therefore
+        # leaves a discoverable ``running`` record with the planned count, rather
+        # than making an already-sent synthetic run disappear from the audit trail.
         manifest = RunManifest(
             replicant_version=__version__,
             run_id=run_id,
@@ -576,22 +647,92 @@ class Orchestrator:
             target=target,
             transport=transport,
             accepted_as=self.accepted_as,
-            event_count=count,
+            event_count=0,
+            planned_event_count=len(plan.events),
             started_at=started_at,
-            ended_at=ended_at,
+            ended_at=None,
             anchor_epoch=plan.anchor_epoch,
             warmup_note=warmup,
             pace=pace,
             speed=request.speed,
             vendor=self.settings.vendor,
             duration=request.duration,
-            rate=eps_cap,
-            send_stats=self.last_send_stats,
+            rate=eps_cap if send else None,
+            send_stats=None,
             marker_attestation=marker_attestation,
-            status=_run_status(failure, stopped),
-            error=describe_error(failure) if failure is not None else None,
+            status="running",
+            partial=bool(plan.events),
+            updated_at=started_at,
+            error=None,
         )
+        # Deliberately outside the emission try block: if this preflight write or
+        # its fsync fails, no connect/send/file-open may occur.
         manifest_path = write_manifest(manifest, self.settings.manifest_dir)
+        checkpoint = _ManifestCheckpoint(
+            manifest=manifest,
+            path=manifest_path,
+            count_field="event_count",
+            planned_count=len(plan.events),
+            last_write=time.monotonic(),
+        )
+
+        stopped = False
+        failure: BaseException | None = None
+        try:
+            # F-08. The eps cap is enforced by this loop, so it is per process:
+            # two sending processes deliver twice the cap and neither is doing
+            # anything wrong. The supported scope is one sending run per host,
+            # and this is where that is enforced rather than merely stated. Held
+            # across the whole emit, and only when a collector is actually in
+            # play: --no-send and file-only runs cannot exceed anything. A live
+            # send mirrored with --to-file still holds the lock.
+            with ExitStack() as guard:
+                if send:
+                    guard.enter_context(sending_lock())
+                count, stopped = self._emit(
+                    plan.events,
+                    send=send,
+                    collector=request.collector,
+                    to_file=file_path,
+                    eps_cap=eps_cap,
+                    pace=pace,
+                    speed=request.speed,
+                    on_event=on_event,
+                    on_progress=on_progress,
+                    on_checkpoint=checkpoint.observe,
+                    on_checkpoint_wait=checkpoint.flush_before_wait,
+                    run_id=run_id,
+                    mark=marker_on,
+                )
+                # Compatibility with injected/test emitters that return a count
+                # but predate the per-event checkpoint callback.
+                checkpoint.count = count
+        except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
+            failure = exc
+        try:
+            finalized = checkpoint.finalize(
+                status=_run_status(failure, stopped),
+                error=describe_error(failure) if failure is not None else None,
+                send_stats=self.last_send_stats,
+            )
+        except BaseException as finalization_error:  # noqa: BLE001 - audit I/O can fail
+            original = failure or finalization_error
+            attach_run_record(
+                original,
+                checkpoint.manifest.model_dump(),
+                str(manifest_path),
+                checkpoint.count,
+                durable_event_count=checkpoint.durable_count,
+            )
+            if failure is not None:
+                failure.add_note(
+                    "manifest finalization also failed: " + describe_error(finalization_error)
+                )
+                raise failure from finalization_error
+            raise
+        assert isinstance(finalized, RunManifest)
+        manifest = finalized
+        count = checkpoint.count
         if failure is not None:
             # Recorded, then raised unchanged. The caller still sees the original
             # exception and its traceback; the manifest is a side effect, not a
@@ -603,7 +744,13 @@ class Orchestrator:
             # The web runner reported manifest=None and event_count=0 on failure
             # while a complete partial manifest sat on disk, which quietly undid
             # half of what F-02 was for.
-            attach_run_record(failure, manifest.model_dump(), str(manifest_path), count)
+            attach_run_record(
+                failure,
+                manifest.model_dump(),
+                str(manifest_path),
+                count,
+                durable_event_count=count,
+            )
             raise failure
         # Roadmap item 7: a copy-pasteable analyst card beside the manifest, so an
         # ad-hoc run does not leave the pivot, window and expected rule to be
@@ -646,6 +793,8 @@ class Orchestrator:
         speed: float = 1.0,
         on_event: EventCallback | None = None,
         on_progress: ProgressCallback | None = None,
+        on_checkpoint: ManifestCheckpointCallback | None = None,
+        on_checkpoint_wait: ManifestCheckpointWaitCallback | None = None,
         run_id: str | None = None,
         mark: bool = False,
     ) -> tuple[int, bool]:
@@ -792,7 +941,12 @@ class Orchestrator:
                         # minutes long and the kill switch has to be able to end it
                         # rather than being noticed whenever the sleep happens to
                         # finish.
-                        if self._stop.wait(due - now):
+                        if on_checkpoint_wait is not None:
+                            on_checkpoint_wait(due - now)
+                        remaining = due - time.monotonic()
+                        # Even if the fsync consumed the whole remaining gap,
+                        # wait(0) must still sample a stop requested during it.
+                        if self._stop.wait(max(0.0, remaining)):
                             stopped = True
                             break
                         now = time.monotonic()
@@ -810,6 +964,14 @@ class Orchestrator:
                         started = now - offsets[index]
                 header, extension = self.profile.render(event)
                 line = to_cef(header, self._mark(extension, run_id, on=mark))
+                count += 1
+                # The manifest contract counts rendered CEF records. Record that
+                # fact before any optional destination observes the line: an SSE
+                # callback, file mirror, or collector can fail independently after
+                # rendering succeeds. The callback coalesces durable writes, so
+                # this does not imply one fsync per event.
+                if on_checkpoint is not None:
+                    on_checkpoint(count, total)
                 if on_event is not None:
                     on_event(line, event)
                 if sink is not None:
@@ -835,7 +997,6 @@ class Orchestrator:
                             total_sends,
                             total_bytes,
                         )
-                count += 1
                 if on_progress is not None and count % 100 == 0:
                     on_progress(count, total)
         except KeyboardInterrupt:
@@ -923,8 +1084,11 @@ class Orchestrator:
         sending: bool,
     ) -> PacingPreview:
         resolved = self._resolve_pace(pace, speed, sending=sending)
-        eps_cap = rate_override or self.settings.eps_cap
-        interval = 1.0 / eps_cap if eps_cap > 0 else 0.0
+        eps_cap = self._effective_eps_cap(rate_override)
+        # The cap protects a collector and `_emit` waits only when an emitter is
+        # present. A file/dry preview must not price a limiter that the run will
+        # never apply.
+        interval = 1.0 / eps_cap if sending and eps_cap > 0 else 0.0
         compressed = compress_timeline(events, speed)
         # Burst reads only the count, so compression cannot change its figure.
         by_pace = {
@@ -957,6 +1121,18 @@ class Orchestrator:
         if resolved == "burst" and speed != 1.0:
             raise RuntimeError(SPEED_WITHOUT_PLAN)
         return resolved
+
+    def _effective_eps_cap(self, rate_override: int | None) -> int:
+        """Resolve a per-run slowdown without letting it raise the safety ceiling."""
+
+        configured = self.settings.eps_cap
+        if rate_override is not None and rate_override > configured:
+            raise RuntimeError(
+                f"requested rate of {rate_override} events/s exceeds the configured eps cap "
+                f"of {configured} events/s; a per-run rate may lower this safety ceiling, "
+                "not raise it"
+            )
+        return rate_override or configured
 
     def _describe_target(
         self, request: RunRequest | ScenarioRunRequest, send: bool
@@ -1013,43 +1189,11 @@ class Orchestrator:
             duration_s=parse_duration(request.duration) if request.duration else None,
         )
         target, transport = self._describe_target(request, send)
-        eps_cap = request.rate_override or self.settings.eps_cap
+        eps_cap = self._effective_eps_cap(request.rate_override)
         pace = self._resolve_pace(request.pace, request.speed, sending=send)
         marker_on, marker_attestation = self._resolve_marker(send=send, collector=request.collector)
 
         started_at = now_dubai_iso()
-        # See run(): the manifest is written on every exit path, raising ones
-        # included, and the exception is re-raised unchanged afterwards.
-        count = 0
-        stopped = False
-        failure: BaseException | None = None
-        try:
-            # F-08, same as run(): a scenario that reaches a collector holds the
-            # host's single sending slot for the whole emit. Without this a
-            # `scenario run` sent unlocked, so a concurrent `replicant run` found
-            # the slot free and both streamed up to eps_cap at once, which is the
-            # 2x the cap the lock exists to prevent. --no-send/--to-file never
-            # acquire it.
-            with ExitStack() as guard:
-                if send:
-                    guard.enter_context(sending_lock())
-                count, stopped = self._emit(
-                    composed.events,
-                    send=send,
-                    collector=request.collector,
-                    to_file=request.to_file,
-                    eps_cap=eps_cap,
-                    pace=pace,
-                    speed=request.speed,
-                    on_event=on_event,
-                    on_progress=on_progress,
-                    run_id=run_id,
-                    mark=marker_on,
-                )
-        except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
-            failure = exc
-        ended_at = now_dubai_iso()
-
         advisory_text, coverage = build_advisory(scenario, composed, self.catalog)
         manifest = ScenarioManifest(
             replicant_version=__version__,
@@ -1063,7 +1207,8 @@ class Orchestrator:
             transport=transport,
             vendor=self.settings.vendor,
             accepted_as=self.accepted_as,
-            total_event_count=count,
+            total_event_count=0,
+            planned_event_count=len(composed.events),
             stages=[
                 ScenarioStageRecord(
                     index=s.index,
@@ -1083,7 +1228,7 @@ class Orchestrator:
                 for s in composed.stages
             ],
             started_at=started_at,
-            ended_at=ended_at,
+            ended_at=None,
             anchor_epoch=composed.anchor_epoch,
             warmup_note=self._scenario_note(composed),
             coverage=coverage,
@@ -1091,11 +1236,83 @@ class Orchestrator:
             pace=pace,
             speed=request.speed,
             duration=request.duration,
-            status=_run_status(failure, stopped),
-            error=describe_error(failure) if failure is not None else None,
+            rate=eps_cap if send else None,
+            status="running",
+            partial=bool(composed.events),
+            updated_at=started_at,
+            error=None,
         )
+        # As in run(), this must succeed before any output side effect begins.
         manifest_path = write_scenario_manifest(manifest, self.settings.manifest_dir)
-        advisory_path = write_advisory(advisory_text, manifest_path)
+        checkpoint = _ManifestCheckpoint(
+            manifest=manifest,
+            path=manifest_path,
+            count_field="total_event_count",
+            planned_count=len(composed.events),
+            last_write=time.monotonic(),
+        )
+
+        stopped = False
+        failure: BaseException | None = None
+        try:
+            # F-08, same as run(): a scenario that reaches a collector holds the
+            # host's single sending slot for the whole emit. Without this a
+            # `scenario run` sent unlocked, so a concurrent `replicant run` found
+            # the slot free and both streamed up to eps_cap at once, which is the
+            # 2x the cap the lock exists to prevent. --no-send and file-only
+            # scenarios never acquire it; a live send mirrored to a file does.
+            with ExitStack() as guard:
+                if send:
+                    guard.enter_context(sending_lock())
+                count, stopped = self._emit(
+                    composed.events,
+                    send=send,
+                    collector=request.collector,
+                    to_file=request.to_file,
+                    eps_cap=eps_cap,
+                    pace=pace,
+                    speed=request.speed,
+                    on_event=on_event,
+                    on_progress=on_progress,
+                    on_checkpoint=checkpoint.observe,
+                    on_checkpoint_wait=checkpoint.flush_before_wait,
+                    run_id=run_id,
+                    mark=marker_on,
+                )
+                checkpoint.count = count
+        except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised unchanged
+            failure = exc
+        try:
+            finalized = checkpoint.finalize(
+                status=_run_status(failure, stopped),
+                error=describe_error(failure) if failure is not None else None,
+            )
+        except BaseException as finalization_error:  # noqa: BLE001 - audit I/O can fail
+            original = failure or finalization_error
+            attach_run_record(
+                original,
+                checkpoint.manifest.model_dump(),
+                str(manifest_path),
+                checkpoint.count,
+                durable_event_count=checkpoint.durable_count,
+            )
+            if failure is not None:
+                failure.add_note(
+                    "manifest finalization also failed: " + describe_error(finalization_error)
+                )
+                raise failure from finalization_error
+            raise
+        assert isinstance(finalized, ScenarioManifest)
+        manifest = finalized
+        count = checkpoint.count
         if failure is not None:
+            attach_run_record(
+                failure,
+                manifest.model_dump(),
+                str(manifest_path),
+                count,
+                durable_event_count=count,
+            )
             raise failure
+        advisory_path = write_advisory(advisory_text, manifest_path)
         return ScenarioRunResult(manifest, manifest_path, advisory_path, count, composed, stopped)

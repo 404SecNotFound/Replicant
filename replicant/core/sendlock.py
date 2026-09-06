@@ -34,8 +34,8 @@ lease it is one the code can actually keep.
 ## What this covers, and what it does not
 
 Covered: any run that opens a socket to a collector, from the CLI, the Rich menu
-or the web UI, on this host. `--no-send` and `--to-file` runs never acquire it,
-because they cannot reach a collector and so cannot exceed anything.
+or the web UI, on this host. No-send and file-only runs never acquire it because
+they cannot reach a collector; a live send mirrored with `--to-file` does.
 
 Not covered, deliberately and stated rather than implied:
 
@@ -99,7 +99,8 @@ def sending_lock() -> Iterator[None]:
                 f"another Replicant process on this host is already sending (pid {holder}). "
                 "The events-per-second cap is enforced per process, so a second sending run "
                 "would deliver twice the cap to your collector. Wait for that run to finish, "
-                "or use --no-send/--to-file, which never reach a collector."
+                "or add --no-send (with --to-file for file output), which never reaches "
+                "a collector."
             ) from None
         os.ftruncate(handle, 0)
         os.write(handle, str(os.getpid()).encode())

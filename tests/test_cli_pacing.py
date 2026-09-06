@@ -109,6 +109,29 @@ def test_burst_is_projected_at_the_rate_cap_not_the_plan(tmp_path: Path) -> None
     assert preview.projected_s == pytest.approx(48 * 0.005, abs=0.01)
 
 
+def test_rate_override_cannot_raise_the_configured_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """``--rate`` is a per-run slowdown, never an escape hatch from the
+    collector-protection ceiling in configuration."""
+
+    monkeypatch.setattr(
+        "replicant.cli.app.load_settings",
+        lambda: Settings(eps_cap=10, manifest_dir=str(tmp_path / "manifests")),
+    )
+
+    rc = main(["run", "REP-001", "--no-send", "--rate", "11"])
+
+    captured = capsys.readouterr()
+    error = " ".join(captured.err.split())
+    assert rc == 1
+    assert "11 events/s" in error
+    assert "configured eps cap of 10 events/s" in error
+    assert "traceback" not in error.lower()
+
+
 # -- the flags ---------------------------------------------------------------
 
 

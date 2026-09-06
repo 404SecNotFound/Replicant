@@ -24,8 +24,8 @@ const CATALOG = [
     name: "DNS tunneling",
     ndr_uc: "UC-003",
     attack: ["T1048.003"],
-    log_type: "dns",
-    subtype: "dns-query",
+    native_log_type: "dns",
+    native_subtype: "dns-query",
     tactics: ["TA0011 Command and Control", "TA0010 Exfiltration"],
   }),
   makeTechnique({
@@ -33,8 +33,8 @@ const CATALOG = [
     name: "VPN brute force",
     ndr_uc: "UC-007",
     attack: ["T1110"],
-    log_type: "event",
-    subtype: "vpn",
+    native_log_type: "event",
+    native_subtype: "vpn",
     tactics: ["TA0006 Credential Access"],
   }),
 ];

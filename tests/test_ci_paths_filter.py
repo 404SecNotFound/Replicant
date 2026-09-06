@@ -21,11 +21,12 @@ by accident.
 
 The first is `docs/`. It looks like pure prose and mostly is, but three files in
 it are executable in practice: the vendor CEF references are the golden-line
-oracle that `tests/test_*_golden.py` parse, so a typo in one fails the suite. Two
-more are asserted to exist on disk by `tests/test_web_docs.py`. All five are
-therefore re-included, and `test_every_served_doc_page_triggers` derives its list
-from `DOC_PAGES` rather than repeating it, so adding a Docs tab page fails here
-until the workflow re-includes it too.
+oracle that `tests/test_*_golden.py` parse, so a typo in one fails the suite.
+Three more are asserted to exist on disk by `tests/test_web_docs.py`. README and
+the detection specs are also parsed by catalog-sync tests. These paths are
+therefore re-included, and the guard derives the variable lists from disk or
+`DOC_PAGES` so adding another executable document fails here until the workflow
+re-includes it too.
 
 The second is drift between the `push` and `pull_request` filters, which would
 gate a commit on one leg and not the other.
@@ -59,6 +60,7 @@ pytestmark = pytest.mark.skipif(
 # Changing any of these must run the full gate.
 LOAD_BEARING = [
     ".github/workflows/ci.yml",
+    "README.md",
     "pyproject.toml",
     "replicant/cef/serializer.py",
     "replicant/web/server.py",
@@ -76,7 +78,6 @@ LOAD_BEARING = [
 
 # Prose. Nothing reads these, so a change to one need not spend ten runners.
 PROSE_ONLY = [
-    "README.md",
     "CHANGELOG.md",
     "CLAUDE.md",
     "LICENSE",
@@ -177,3 +178,16 @@ def test_every_served_doc_page_triggers_a_run(event: str) -> None:
         assert _triggers(
             patterns, f"docs/{page.filename}"
         ), f"docs/{page.filename} is served by the Docs tab and would skip CI"
+
+
+@pytest.mark.parametrize("event", ["push", "pull_request"])
+def test_every_detection_spec_triggers_a_run(event: str) -> None:
+    """Detection-spec tests parse both the index and every REP markdown file."""
+    spec_dir = DOCS_DIR / "detection-specs"
+    specs = sorted(spec_dir.glob("*.md"))
+    assert specs, "expected maintained detection specifications"
+
+    patterns = _paths_for(event)
+    for spec in specs:
+        path = f"docs/detection-specs/{spec.name}"
+        assert _triggers(patterns, path), f"{path} is test input and would skip CI"

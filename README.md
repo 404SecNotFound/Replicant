@@ -200,7 +200,11 @@ replicant scenario run SCEN-001 --seed 1337 --to-file ./out/s1.log --no-send
 replicant scenario run SCEN-003 --duration 2h --anchor now --pace plan --host 10.20.0.50
 ```
 
-Every scenario run writes an advisory coverage document beside its manifest: it maps the chain to ATT&CK tactics, names the cross-stage correlation key, and flags uncovered tactics. The advisory is context only; you author the detection design.
+On normal completion or a handled stop, every scenario run writes an advisory
+coverage document beside its manifest: it maps the chain to ATT&CK tactics, names
+the cross-stage correlation key, and flags uncovered tactics. An emission error
+retains its finalized error manifest without an advisory. The advisory is context
+only; you author the detection design.
 
 ## What the output looks like
 
@@ -210,11 +214,22 @@ Each vendor profile renders the same technique into its own CEF dialect. Taking 
 CEF:0|Fortinet|Fortigate|v7.4.3|00013|traffic:forward accept|3|deviceExternalId=FGVMSYNTH0000001 FTNTFGTlogid=0000000013 cat=traffic:forward FTNTFGTsubtype=forward FTNTFGTlevel=notice FTNTFGTvd=root FTNTFGTeventtime=1752661924 src=10.20.30.40 spt=51544 deviceInboundInterface=port2 dst=203.0.113.25 dpt=443 deviceOutboundInterface=port1 proto=6 act=accept FTNTFGTpolicyid=7 FTNTFGTservice=HTTPS app=HTTPS FTNTFGTtrandisp=snat externalId=48213 FTNTFGTduration=122 out=8421 in=61325 FTNTFGTsentpkt=64 FTNTFGTrcvdpkt=58
 ```
 
-The field order, escaping rules, and signature IDs are pinned to the seven constructed sample lines in [`docs/fortigate-cef-reference.md`](docs/fortigate-cef-reference.md). Those lines are the correctness oracle: a test reproduces each of them byte-for-byte from the profile and serializer.
+The field order, escaping rules, and signature IDs are pinned to the eight constructed sample lines in [`docs/fortigate-cef-reference.md`](docs/fortigate-cef-reference.md). Those lines are the correctness oracle: a test reproduces each of them byte-for-byte from the profile and serializer.
 
 ## Technique catalog
 
 The catalog is the single source of truth for the menu, the CLI, and the engine. Each entry names the detection use case it exercises and its MITRE ATT&CK techniques. Signature IDs marked unverified must be confirmed on a live FortiOS build before customer use.
+
+Detection metadata has two deliberate layers. The catalog's existing `log_type`,
+`subtype`, `signature_id`, `action`, and `cef_fields_*` API fields remain the
+primary logical/FortiGate compatibility contract. Selecting a vendor adds
+`native_*` identifiers and translated native field names from that profile.
+`logical_families` names every family emitted by a mixed plan, and
+`native_cef_fields_by_logical_family` is the exact per-family source of truth;
+the aggregate native field lists are unions and must not be used to assume a
+field exists in every family. REP-017 and REP-018 are the current mixed-family
+examples. PAN-OS and Check Point mappings retain their `[Unverified]` live-appliance
+status.
 
 | ID | Technique | FortiGate log | Use case | ATT&CK | Status |
 |----|-----------|---------------|----------|--------|--------|
@@ -297,13 +312,46 @@ To reach it from another machine on the segment, bind an address that machine ca
 replicant web --host 0.0.0.0 --no-browser
 ```
 
-The access token is printed on startup, persists in `~/.config/replicant/web-token` so the URL survives a restart, and is exchanged for an httpOnly `SameSite=Strict` session cookie on first load, so it does not stay in the address bar. Rotate it with `--rotate-token`. Add a hostname the UI should answer to with `--allowed-host`, repeatable.
+The launch token is printed on startup, persists in `~/.config/replicant/web-token` so the URL survives a restart, and is exchanged for an httpOnly `SameSite=Strict` session cookie by a server-side redirect before the SPA loads. The cookie contains a random session id, not the launch token, expires after 12 hours, and is invalidated by a server restart or `POST /api/session/logout`. Rotate the persistent launch token with `--rotate-token`. Add a hostname the UI should answer to with `--allowed-host`, repeatable.
 
 The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser. Because it is a real PTY, it is **off by default** whenever the bind address is not loopback; `--enable-terminal` turns it back on. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
 
 At 24 techniques the left rail is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, and ATT&CK technique id at the same time, so whichever identifier your detection backlog happens to use will find the entry. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
 
-The **Docs** tab renders the reference material in `docs/` in the browser: the three vendor CEF references and the two catalog expansion research notes. Those files ship with the repository rather than the installed package, so the tab is populated from a git checkout or an editable install and says so plainly if they are absent.
+The vendor selector is locked from the moment run admission is requested and
+while a locally started or server-reported run is active. Navigation also stays
+on the Emitter during admission, so the component receiving the response cannot
+be detached. Before the potentially expensive plan preview, the browser submits
+a client-generated idempotency key to `POST /api/run-admissions` and waits for
+the server to acknowledge a `reserved` owner. `POST /api/runs` claims that same
+identity as `admitting`, then promotes the same handle to `running` without an
+unowned gap. The UI identifies `reserved` as an unclaimed request awaiting
+start, while only `admitting` means the server is preparing the plan. A lost
+reservation response is retried with the same key; a lost
+start response is resolved through the admission status instead of a timer or a
+guess from repeated empty active-run probes. The backend returns the resolved
+vendor and admission identity with start, active-run, status, and conflict
+responses. If that exact admission is already terminal, the UI retrieves its
+run status so a fast completed run still displays its final count and manifest.
+On reload, the UI aligns the selected profile and native catalog
+metadata to that owner before presenting the restored run, and initial ownership
+discovery fails closed if the server cannot answer. This keeps the live SSE
+stream, Stop control, catalog, and terminal manifest attached to the profile that
+started the run. The selector unlocks when the run reaches a terminal state and
+the backend confirms no successor owns the active slot; a successor handoff
+carries its vendor without an unlocked or mislabeled gap. A restored panel polls
+that authoritative state through natural completion or a requested stop and
+displays the latest rendered count and final manifest reported by the run. If a
+local stream disconnects and its bounded status record is later evicted, the UI
+keeps the previous owner locked while it reconciles the current active owner.
+An early Stop cannot be cleared between worker scheduling and entry, and an SSE
+stream remains open until its terminal item has been published to that reader.
+
+The **Docs** tab renders the maintained reference material in `docs/` in the
+browser: the run-manifest contract, three vendor CEF references, and two catalog
+expansion research notes. Those files ship with the repository rather than the
+installed package, so the tab is populated from a git checkout or an editable
+install and says so plainly if they are absent.
 
 <img src="docs/images/webui-docs.png" alt="The Docs tab rendering the FortiGate CEF reference in the browser, with its heading structure, the CEF header format code block, and the field reference table" width="900" />
 
@@ -322,7 +370,7 @@ The banner prints the token only when it is attached to a terminal. Under system
 
 > **Keeping it loopback-only.** That is still the default: plain `replicant web` binds 127.0.0.1 and nothing else. To reach a loopback-only instance from your workstation, tunnel it rather than rebinding: `ssh -N -L 9787:127.0.0.1:9787 operator@sensor`.
 
-A run streams live CEF while it emits, plots the emission rate, and writes its manifest when it finishes. The readout says `uncapped` here because this run has no collector: the events-per-second cap governs sending, so a dry run or a file-only run is not throttled and the rate goes as fast as the machine allows. Point the same run at a collector and the readout shows `cap 2000` instead.
+A run streams live CEF while it emits, plots the emission rate, and updates a manifest that was written before emission began. The readout says `uncapped` here because this run has no collector: the events-per-second cap governs sending, so a dry run or a file-only run is not throttled and the rate goes as fast as the machine allows. Point the same run at a collector and the readout shows `cap 2000` instead.
 
 <img src="docs/images/webui-run.png" alt="A finished run in the web UI's war-room frame: metric tiles showing 108,000 of 108,000 events emitted, the uncapped emission rate with an instrumented sparkline, elapsed time, and the full progress track" width="900" />
 
@@ -336,6 +384,21 @@ Below 1024px the fixed-viewport shell becomes an ordinary scrolling page and the
 
 The frontend is React, Vite, TypeScript, and Tailwind with shadcn-style components.
 
+For frontend development, run the backend and point Vite at it:
+
+```bash
+replicant web --port 9787 --no-browser
+(cd webui && VITE_PROXY=http://127.0.0.1:9787 npm run dev)
+```
+
+Open the tokenized URL at Vite's port, for example
+`http://127.0.0.1:5173/?token=<printed-launch-token>`. Vite proxies that one
+bootstrap navigation to the backend for the cookie exchange, then serves the
+clean redirect itself. `/api` and `/ws` remain proxied. The proxy deliberately
+preserves the browser-facing `Host` header (`changeOrigin: false`) because
+cookie-authenticated writes and terminal websockets require `Origin` and `Host`
+to agree.
+
 ## Safety model
 
 Safety is a design constraint, not a disclaimer. The guarantees below are enforced in code and covered by tests.
@@ -343,15 +406,15 @@ Safety is a design constraint, not a disclaimer. The guarantees below are enforc
 | Guarantee | How it is enforced |
 |-----------|--------------------|
 | Single destination | A run sends only to the collector the operator configures. There is no other socket target, and sends fail closed when no collector is set. |
-| Synthetic entities only | Address pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). A configuration that reaches outside these ranges is rejected at build time. DNS parents are drawn from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761). Replicant never resolves them, and never emits a real domain. |
+| Synthetic entities only | Address pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). A configuration that reaches outside these ranges is rejected at build time. DNS parents are drawn from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761). Replicant never resolves them and never emits an operator-owned or production domain. |
 | No real behavior | The engine performs no I/O and issues no attack. It produces log strings; byte counts and attack names are field values. |
-| Rate limits | A configurable events-per-second cap protects the operator's own collector. No two sends are ever closer than `1/cap`, and that floor is measured against the previous **actual** send rather than against a schedule, so it holds even when the host runs late. It composes with `--pace` rather than competing: pacing sets the shape of the run, the cap sets the floor on spacing. **The cap is applied by one process's emit loop, so the supported scope is one sending run per host**, and that is enforced rather than assumed: a second sending run is refused while the first holds the slot, naming the pid that has it. `--no-send` and `--to-file` never acquire it, because they cannot reach a collector. Two *hosts* pointed at one collector are still two caps; nothing on this machine can see that. |
-| Audit trail | Every run writes a manifest recording seed, technique, parameters, entity pools, target, event count, and start and end times in UTC+04:00. |
+| Rate limits | A configurable events-per-second cap protects the operator's own collector. A per-run `--rate` may lower that ceiling but cannot raise it. No two sends are ever closer than `1/cap`, and that floor is measured against the previous **actual** send rather than against a schedule, so it holds even when the host runs late. It composes with `--pace` rather than competing: pacing sets the shape of the run, the cap sets the floor on spacing. **The cap is applied by one process's emit loop, so the supported scope is one sending run per host**, and that is enforced rather than assumed: a second sending run is refused while the first holds the slot, naming the pid that has it. `--no-send` and file-only runs do not acquire the slot. A live collector send mirrored with `--to-file` does acquire it. Two *hosts* pointed at one collector are still two caps; nothing on this machine can see that. |
+| Audit trail | Before any output opens, every run durably writes a `running` manifest recording its intent and planned count. It checkpoints the rendered-event count about once per second and atomically finalizes that same file with the terminal status and start/end times in UTC+04:00. An interruption before terminal finalization leaves the last durable non-terminal record; `partial` is true exactly when its durable rendered count is below `planned_event_count`. If the initial write fails, no telemetry is sent or written. A platform or filesystem without directory-entry `fsync` support is refused at preflight rather than silently weakening this power-loss guarantee. See [the run-manifest contract](docs/run-manifest.md). |
 | Synthetic marker | On a non-loopback send, every line is stamped `flexString1Label=ReplicantSynthetic` (carrying the run id) by default, so lab data stays separable from production on a shared collector. It is off for a loopback or file-only (`--to-file --no-send`) run, where the golden line is the format oracle; `--no-marker` removes it and logs the override on a live send. `flexString1` is a flex slot none of the three vendor profiles use, so marking corrupts no field a detection reads. The manifest's `marker_attestation` records the decision. |
 
-Replicant is a detection-lab tool, not a production SIEM component. Before sending to any shared collector, keep it on the lab side of the [deployment boundary](docs/deployment-boundary.md) and treat the run manifest, marker on, as the authorization record.
+Replicant is a detection-lab tool, not a production SIEM component. Before sending to any shared collector, keep it on the lab side of the [deployment boundary](docs/deployment-boundary.md) and pre-authorize the destination, technique, entities, and window out of band. Preserve the run manifest and marker attestation as the durable execution and audit record.
 
-The web server adds its own controls. It binds to loopback by default, and requires a token on every API and websocket call, accepted as an `Authorization: Bearer` header, an `X-Replicant-Token` header, a query parameter, or an httpOnly `SameSite=Strict` session cookie. It rejects any request whose `Host` is neither the bind address, nor loopback, nor a name passed to `--allowed-host`. Because the cookie is the one credential a browser attaches on its own, a state-changing request authenticated by the cookie must also carry a matching `Origin`; the websocket repeats those checks itself, since websocket scopes do not traverse HTTP middleware.
+The web server adds its own controls. It binds to loopback by default, and requires a credential on every protected API and websocket call: an explicit `Authorization: Bearer` header, `X-Replicant-Token` header, or `token` query parameter for programmatic clients, or an httpOnly `SameSite=Strict` session cookie for the browser. `/api/health` is intentionally public, and `/api/session/logout` is callable without a credential so a browser can clear or revoke any session it still presents. The launch URL's query token is used once to issue the cookie, then the server redirects to a clean URL before it serves any SPA JavaScript. Post-bootstrap browser traffic is cookie-only; the frontend never retains or replays the launch token. The server rejects any request whose `Host` is neither the bind address, nor loopback, nor a name passed to `--allowed-host`. Because the cookie is the one credential a browser attaches on its own, a state-changing request authenticated by the cookie must also carry a matching `Origin`; the websocket repeats those checks itself, since websocket scopes do not traverse HTTP middleware.
 
 Binding to a routable address is supported and turns the embedded terminal tab off by default. `--no-auth` is refused outright on a non-loopback bind unless `--i-understand-this-is-unauthenticated` is also passed. The server speaks plain HTTP, so the token and the traffic are readable on the wire: put it on a management segment, or behind a TLS-terminating proxy named with `--allowed-host`.
 
@@ -395,7 +458,7 @@ replicant run REP-001 --anchor now --pace burst --host 10.20.0.50  # all at once
 - **`burst`** is the old behaviour: as fast as `--rate` allows, plan timeline ignored. The default for `--to-file`, where the wall clock means nothing.
 - **`--speed N`** compresses the timeline **including the event times**, so the payload never claims a spread it did not deliver. The tradeoff is real and worth stating: compression preserves *relative* timing and changes *absolute* intervals, so a rule keyed on five minute gaps will not match a run compressed 60x. Use real time to validate a rule, a compressed run for a smoke test.
 
-`--rate` is unrelated and unchanged. It is the events-per-second flood guard protecting your collector, and it acts as a floor on how close two sends can ever be, under either pace. Pacing sets the shape; rate sets the ceiling.
+`--rate` is separate from pacing. It can lower the configured events-per-second flood guard for one run, but it cannot raise that collector-protection ceiling. The effective rate acts as a floor on how close two sends can ever be under either pace. Pacing sets the shape; rate sets the ceiling.
 
 ### Duration: how much of the behaviour to emulate
 
@@ -421,13 +484,15 @@ One thing deliberately resists scaling. A stage pinned to an absolute window ans
 
 The run form carries the same choice as a **Pacing** control, with both options priced from your actual plan (`Plan time 3h 58m` beside `Burst 0.2s`) and the consequence written underneath, so the duration is visible before you commit rather than discovered by watching a prompt not come back.
 
-The suite covers CEF golden lines, the FortiGate profile, scenario determinism and distribution bounds, loopback UDP, TCP, and TLS transport, catalog validation, the orchestrator end-to-end, and the web API.
+The suite covers CEF golden lines and render paths for all three vendor profiles,
+scenario determinism and distribution bounds, loopback UDP, TCP, and TLS
+transport, catalog validation, the orchestrator end-to-end, and the web API.
 
 ```bash
-./.venv/bin/pytest          # 952 tests
-(cd webui && npm test)      # 136 frontend tests
-./.venv/bin/black --check replicant tests
-./.venv/bin/ruff check replicant tests
+./.venv/bin/pytest          # 1,244 tests
+(cd webui && npm test)      # 219 frontend tests
+./.venv/bin/black --check .
+./.venv/bin/ruff check .
 ./.venv/bin/mypy replicant
 ```
 

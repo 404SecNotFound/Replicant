@@ -27,7 +27,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from replicant.core.models import CefHeader, EventRecord
-from replicant.profiles.base import VendorProfile, require
+from replicant.profiles.base import (
+    DetectionMetadata,
+    VendorProfile,
+    mapped_detection_field,
+    require,
+)
 
 # PAN-OS log level -> CEF severity. Unlike FortiOS this is not reversed; severity
 # rises with seriousness (reference s2.3).
@@ -44,6 +49,105 @@ _LEVEL_TO_SEVERITY: dict[str, int] = {
 }
 
 _PROTO: dict[int, str] = {6: "tcp", 17: "udp", 1: "icmp"}
+
+# Exhaustive mapping for the catalog's current 21-field signal vocabulary.
+# ``None`` records a real loss in the PAN-OS templates; absence from this dict is
+# a schema error, not permission to advertise the source field unchanged.
+_DETECTION_FIELDS: dict[str, str | None] = {
+    "FTNTFGTattack": "PanOSThreatName",
+    "FTNTFGTattackid": "PanOSThreatID",
+    "FTNTFGTduration": None,
+    "FTNTFGTqname": "PanOSDNSQuery",
+    "FTNTFGTqtype": "PanOSDNSType",
+    "FTNTFGTrcode": "PanOSDNSResponseCode",
+    "FTNTFGTreason": "reason",
+    "FTNTFGTseverity": "cs2",
+    "FTNTFGTsrccountry": "cs4",
+    "FTNTFGTxid": None,
+    "act": "act",
+    "cnt": "cnt",
+    "dpt": "dpt",
+    "dst": "dst",
+    "duser": "duser",
+    "externalId": "cn1",
+    "in": "in",
+    "out": "out",
+    "proto": "proto",
+    "rt": "rt",
+    "src": "src",
+}
+
+_DETECTION_FIELDS_BY_FAMILY: dict[tuple[str, str], frozenset[str]] = {
+    ("traffic", "forward"): frozenset(
+        {
+            "act",
+            "cnt",
+            "dpt",
+            "dst",
+            "externalId",
+            "in",
+            "out",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("dns", "dns-query"): frozenset(
+        {
+            "FTNTFGTqname",
+            "FTNTFGTqtype",
+            "act",
+            "cnt",
+            "dpt",
+            "dst",
+            "externalId",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("dns", "dns-response"): frozenset(
+        {
+            "FTNTFGTqname",
+            "FTNTFGTqtype",
+            "FTNTFGTrcode",
+            "act",
+            "cnt",
+            "dpt",
+            "dst",
+            "externalId",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("utm", "ips"): frozenset(
+        {
+            "FTNTFGTattack",
+            "FTNTFGTattackid",
+            "FTNTFGTseverity",
+            "act",
+            "cnt",
+            "dpt",
+            "dst",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("event", "vpn"): frozenset(
+        {
+            "FTNTFGTreason",
+            "FTNTFGTsrccountry",
+            "act",
+            "duser",
+            "externalId",
+            "rt",
+            "src",
+        }
+    ),
+    ("event", "system"): frozenset({"FTNTFGTreason", "act", "duser", "rt", "src"}),
+}
 
 
 def _proto(proto: int | None) -> str:
@@ -106,6 +210,76 @@ class PaloAltoProfile(VendorProfile):
         if key == ("event", "system"):
             return self._system(event)
         raise ValueError(f"unsupported PAN-OS log type '{event.log_type}:{event.subtype}'")
+
+    def detection_metadata(
+        self,
+        log_type: str,
+        subtype: str,
+        signature_id: str,
+        action: str | None,
+    ) -> DetectionMetadata:
+        """Describe the stable CEF fields emitted by the matching PAN-OS template."""
+
+        key = (log_type, subtype)
+        if key == ("traffic", "forward"):
+            accepted = action == "accept"
+            event_id = "end" if accepted else "deny"
+            return DetectionMetadata(
+                "TRAFFIC",
+                event_id,
+                event_id,
+                "allow" if accepted else "deny",
+                "Primary PAN-OS CEF name and signature ID",
+            )
+        if key in {("dns", "dns-query"), ("dns", "dns-response")}:
+            return DetectionMetadata(
+                "TRAFFIC",
+                "end",
+                "end",
+                "allow",
+                "Primary PAN-OS CEF name and signature ID",
+            )
+        if key == ("utm", "ips"):
+            return DetectionMetadata(
+                "THREAT",
+                "vulnerability",
+                "vulnerability",
+                "reset-both",
+                "Primary PAN-OS CEF name and signature ID",
+            )
+        if key == ("event", "vpn"):
+            native_action = "deny" if action == "ssl-login-fail" else "allow"
+            return DetectionMetadata(
+                "GLOBALPROTECT",
+                "globalprotect",
+                "globalprotect",
+                native_action,
+                "Primary PAN-OS CEF name and signature ID",
+            )
+        if key == ("event", "system"):
+            return DetectionMetadata(
+                "SYSTEM",
+                "general",
+                "general",
+                action,
+                "Primary PAN-OS CEF name and signature ID",
+            )
+        raise ValueError(f"unsupported PAN-OS log type '{log_type}:{subtype}'")
+
+    def detection_field_name(
+        self,
+        field: str,
+        *,
+        log_type: str,
+        subtype: str,
+    ) -> str | None:
+        native = mapped_detection_field(_DETECTION_FIELDS, field)
+        family = (log_type, subtype)
+        try:
+            supported = _DETECTION_FIELDS_BY_FAMILY[family]
+        except KeyError as exc:
+            raise ValueError(f"unsupported PAN-OS log type '{log_type}:{subtype}'") from exc
+        return native if field in supported else None
 
     # -- helpers ---------------------------------------------------------------
 

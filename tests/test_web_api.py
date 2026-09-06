@@ -75,6 +75,65 @@ def test_catalog_exposes_detail_fields(client: TestClient) -> None:
     assert set(rep001["params"]) <= {"low", "medium", "high"}
 
 
+def test_catalog_detection_metadata_honors_selected_vendor(client: TestClient) -> None:
+    response = client.get("/api/catalog", headers=HEADERS, params={"vendor": "paloalto"})
+
+    assert response.status_code == 200
+    body = response.json()
+    rep001 = next(t for t in body["techniques"] if t["id"] == "REP-001")
+    assert body["vendor_profile"] == "paloalto"
+    assert rep001["log_type"] == "traffic"
+    assert rep001["subtype"] == "forward"
+    assert rep001["signature_id"] == "00013"
+    assert rep001["action"] == "accept"
+    assert rep001["logical_log_type"] == "traffic"
+    assert rep001["logical_subtype"] == "forward"
+    assert rep001["logical_families"] == ["traffic:forward"]
+    assert rep001["native_log_type"] == "TRAFFIC"
+    assert rep001["native_subtype"] == "end"
+    assert rep001["native_signature_id"] == "end"
+    assert rep001["native_action"] == "allow"
+    assert rep001["native_metadata_scope"] == "primary"
+    assert rep001["native_metadata_semantics"].startswith("Primary PAN-OS")
+
+    rep004 = next(t for t in body["techniques"] if t["id"] == "REP-004")
+    assert "FTNTFGTqname" in rep004["cef_fields_varied"]
+    assert "PanOSDNSQuery" in rep004["native_cef_fields_varied"]
+    assert "PanOSDNSType" in rep004["native_cef_fields_varied"]
+    assert rep004["native_cef_fields_unavailable"]["varied"] == ["FTNTFGTxid"]
+
+    rep018 = next(t for t in body["techniques"] if t["id"] == "REP-018")
+    assert rep018["logical_families"] == [
+        "event:vpn",
+        "event:system",
+        "traffic:forward",
+    ]
+    family_fields = rep018["native_cef_fields_by_logical_family"]
+    assert "dst" not in family_fields["event:vpn"]["varied"]
+    assert "dst" in family_fields["event:vpn"]["unavailable"]["varied"]
+    assert "dst" in family_fields["traffic:forward"]["varied"]
+
+
+def test_catalog_names_checkpoint_field_gaps_instead_of_showing_fortigate_keys(
+    client: TestClient,
+) -> None:
+    body = client.get("/api/catalog", headers=HEADERS, params={"vendor": "checkpoint"}).json()
+
+    rep004 = next(t for t in body["techniques"] if t["id"] == "REP-004")
+    assert rep004["log_type"] == "dns"
+    assert rep004["subtype"] == "dns-query"
+    assert rep004["action"] == "pass"
+    assert rep004["native_log_type"] == "VPN-1 & FireWall-1"
+    assert rep004["native_subtype"] == "Log"
+    assert rep004["native_action"] == "Accept"
+    assert "destinationDnsDomain" in rep004["native_cef_fields_varied"]
+    assert not any(field.startswith("FTNTFGT") for field in rep004["native_cef_fields_varied"])
+    assert rep004["native_cef_fields_unavailable"]["varied"] == [
+        "FTNTFGTqtype",
+        "FTNTFGTxid",
+    ]
+
+
 def test_technique_sample_renders_lines(client: TestClient) -> None:
     resp = client.get("/api/catalog/REP-001/sample", headers=HEADERS)
     assert resp.status_code == 200
@@ -91,6 +150,16 @@ def test_technique_sample_honors_vendor(client: TestClient) -> None:
     ).json()
     assert data["vendor"] == "paloalto"
     assert data["lines"][0].startswith("CEF:0|Palo Alto Networks|PAN-OS")
+    assert data["log_type"] == "traffic"
+    assert data["subtype"] == "forward"
+    assert data["signature_id"] == "00013"
+    assert data["logical_log_type"] == "traffic"
+    assert data["logical_families"] == ["traffic:forward"]
+    assert data["native_log_type"] == "TRAFFIC"
+    assert data["native_subtype"] == "end"
+    assert data["native_signature_id"] == "end"
+    assert data["native_metadata_scope"] == "primary"
+    assert data["native_metadata_semantics"] == "Primary PAN-OS CEF name and signature ID"
 
 
 def test_technique_sample_requires_token(client: TestClient) -> None:
@@ -489,7 +558,9 @@ def test_a_file_only_run_is_not_warned_about_its_anchor(client: TestClient) -> N
 def test_start_run_while_one_active_returns_409(client: TestClient, monkeypatch) -> None:
     from replicant.web import runner as runner_mod
 
-    def busy(self, request, settings=None, total=None):  # type: ignore[no-untyped-def]
+    def busy(  # type: ignore[no-untyped-def]
+        self, request, settings=None, total=None, admission=None
+    ):
         raise runner_mod.RunInProgressError("run-abc", "REP-007")
 
     monkeypatch.setattr(runner_mod.RunManager, "start", busy)

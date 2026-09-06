@@ -1,8 +1,17 @@
 # Phase 4: ATT&CK scenario composition (design spec)
 
-Status: approved in brainstorm 2026-07-19, ready for implementation planning.
+Historical status: approved in brainstorm 2026-07-19 and subsequently shipped.
 Author: DJR/RZA with Claude Code.
 Scope: the composition engine, emit path, advisory output, and CLI + Rich menu surfaces. Web UI is a deferred fast-follow.
+
+> **Implementation update, 2026-09-06.** This document preserves the original
+> Phase 4 design decisions, but the runtime lifecycle has since been hardened.
+> A scenario now durably creates a `status="running"` manifest before any output,
+> checkpoints its rendered-event count, and atomically finalizes the same path.
+> `Settings.eps_cap` is a hard collector ceiling and `--rate` may only lower it.
+> File-only and dry runs are unthrottled and record `rate=null`. The exact current
+> contract is in [`run-manifest.md`](run-manifest.md) and supersedes the original
+> sequencing and abbreviated schema below where they differ.
 
 ## 1. Goal
 
@@ -19,9 +28,10 @@ Replicant today emits one technique per run. Phase 4 composes the existing 11 te
 
 ## 3. Approach: one composed timeline (Approach C)
 
-Rejected: sequential wall-clock runs with real dwell sleeps (a realistic chain would take hours to emit).
+Rejected in the original Phase 4 design: making each stage a separate run with an
+uninterruptible wall-clock dwell between runs.
 
-Chosen: the composer reuses the existing per-technique engine to plan each stage, places each stage at its offset **along one deterministic timeline**, and merges all stages into one time-ordered CEF stream emitted through the existing orchestrator. The realistic inter-stage dwell lives in the event `eventtime` fields, not in wall-clock: so a multi-hour chain emits in seconds and `--to-file` is byte-identical per seed.
+Chosen: the composer reuses the existing per-technique engine to plan each stage, places each stage at its offset **along one deterministic timeline**, and merges all stages into one time-ordered CEF stream emitted through the existing orchestrator. `--pace plan` reproduces that timeline on the wall clock when sending, while `--pace burst` ignores its gaps. File-only output is unthrottled and remains byte-identical per seed.
 
 Two properties make it valuable for cross-stage detection:
 
@@ -108,8 +118,9 @@ Determinism: same scenario + seed → same pinned actors → same per-stage plan
 
 1. `composed = compose(scenario, self.catalog, self.engine, seed=req.seed, anchor=req.anchor_epoch or settings.anchor_epoch)`, passing `self.entities` base pools in.
 2. Fail-closed check identical to `run()`: send wanted + no collector + no `to_file` → `RuntimeError`.
-3. `count, stopped = self._emit(composed.events, ...)`: reuses eps cap, UDP/TCP/TLS transport, kill switch, and the selected `--vendor` profile unchanged.
-4. Write the `ScenarioManifest` + advisory doc, return a `ScenarioRunResult`.
+3. Durably create the initial `ScenarioManifest` with `status="running"`, a zero rendered count, and the completed plan count before opening any output.
+4. `count, stopped = self._emit(composed.events, ...)`: reuse UDP/TCP/TLS transport, the hard eps ceiling, kill switch, selected `--vendor` profile, and write-ahead checkpoint callbacks.
+5. Atomically finalize the same manifest as `done`, `stopped`, or `error`. Re-raise an emission error after recording it. Write the advisory and return `ScenarioRunResult` only when emission returns without an error, including a handled stop.
 
 ```python
 class ScenarioRunRequest(BaseModel):
@@ -118,16 +129,17 @@ class ScenarioRunRequest(BaseModel):
     intensity_override: Intensity | None = None   # optional: override every stage
     to_file: str | None = None
     no_send: bool = False
-    rate_override: int | None = None
+    rate_override: int | None = Field(default=None, gt=0)  # may lower eps_cap only
     collector: CollectorProfile | None = None
     anchor_epoch: int | None = None
 ```
 
-The whole merged timeline emits as one stream, paced by the eps cap when sending (instant to file); the multi-hour dwell is in `eventtime`, so a scenario emits in seconds. The kill switch stops it mid-chain.
+The whole merged timeline emits as one stream. Collector sends are bounded by the effective eps ceiling and follow the selected pace. A plan-paced multi-hour scenario can therefore take multiple hours; burst ignores the plan gaps. File-only and dry runs are unthrottled. The kill switch stops either delivery shape mid-chain.
 
 ## 7. Scenario manifest + advisory doc
 
-**`ScenarioManifest`** (safety rule 5), written to `manifests/{scenario_id}-seed{seed}-{ts}.json`:
+**`ScenarioManifest`** (safety rule 5), written to a unique
+`manifests/{scenario_id}-seed{seed}-{timestamp}-{collision-token}.json` path:
 
 ```python
 class ScenarioStageRecord(BaseModel):
@@ -136,15 +148,26 @@ class ScenarioStageRecord(BaseModel):
     tactics: list[str]; techniques: list[str]
 
 class ScenarioManifest(BaseModel):
-    replicant_version: str; scenario_id: str; scenario_name: str; seed: int
+    replicant_version: str; run_id: str
+    scenario_id: str; scenario_name: str; seed: int
     entities: dict[str, Any]          # pinned through-line: victim host, adversary ip
     target: str; transport: str; vendor: str; accepted_as: str | None
-    total_event_count: int; stages: list[ScenarioStageRecord]
-    started_at: str; ended_at: str; anchor_epoch: int; warmup_note: str | None
+    total_event_count: int; planned_event_count: int | None
+    stages: list[ScenarioStageRecord]
+    started_at: str; ended_at: str | None; updated_at: str | None
+    status: Literal["running", "done", "stopped", "error"]
+    partial: bool; error: str | None; rate: int | None
+    anchor_epoch: int; warmup_note: str | None
     coverage: dict[str, Any]          # machine-readable mirror of the advisory
 ```
 
-**Advisory doc**: a deterministic markdown at `manifests/{scenario_id}-seed{seed}-{ts}.advisory.md`, generated from catalog metadata + the composed plan (no LLM). Five parts:
+`total_event_count` counts rendered CEF records, not successful collector sends.
+`partial` is true exactly when that count is below `planned_event_count`; it is
+independent of `status`. A crash can therefore leave a non-terminal `running`
+record with either value of `partial`. Scenario manifests do not currently carry
+individual-run `send_stats`.
+
+**Advisory doc**: a deterministic markdown beside the manifest, generated from catalog metadata + the composed plan (no LLM). It is written after emission and successful manifest finalization. An emission error therefore leaves no paired advisory for that run. Five parts:
 
 1. **Boundary header**: states plainly this is advisory context (coverage + correlation prompts); the human authors the detection/AIE rule design; no rule logic is generated.
 2. **Through-line**: the pinned victim host / adversary IP / user, "correlate on these."
@@ -166,7 +189,7 @@ replicant scenario show SCEN-001        # composed stage breakdown + coverage/ad
 replicant scenario run SCEN-001 --seed 1337 --vendor fortigate --to-file ./out/s1.log --no-send
 ```
 
-`scenario run` reuses the same collector/transport/TLS/`--no-send`/`--rate`/`--profile`/`--vendor` flags as `replicant run`. Per-stage intensity comes from the catalog; a single optional `--intensity` overrides all stages. `show` is a dry preview (the advisory rendered to the terminal without emitting).
+`scenario run` reuses the same collector/transport/TLS/`--no-send`/`--rate`/`--profile`/`--vendor` flags as `replicant run`. `--rate` is a positive per-run slowdown and cannot exceed the configured `eps_cap`. Per-stage intensity comes from the catalog; a single optional `--intensity` overrides all stages. `show` is a dry preview (the advisory rendered to the terminal without emitting).
 
 Rich menu: add `[a] attack scenario` to the prompt (`[1-11] technique · [a] scenario · [c] connection · [v] vendor · [s] seed · [q] quit`). `[a]` shows a numbered scenario picker; selecting one prints the `show` preview then runs it using the menu's existing connection/vendor/seed state.
 
@@ -186,6 +209,7 @@ SCEN-001/002 are clean single-host chains (correlate on `src`). SCEN-003 is a ri
 - **`test_scenario_composer.py`**: determinism (same scenario+seed → identical plan and byte-identical rendered lines); entity continuity (pinned victim `src` in every stage; C2+exfil share adversary IP); timeline non-decreasing by `eventtime`, each stage starts at `anchor+offset`; multi-target pools stay unpinned; a single-stage scenario composes identically to running that technique directly (zero engine drift).
 - **`test_scenario_advisory.py`**: deterministic content; contains through-line, kill-chain table, covered tactics, gap tactics with suggested catalog technique; boundary disclaimer present and no rule-design language emitted.
 - **`test_scenario_orchestrator.py`**: `run_scenario` to file byte-identical across runs; fail-closed with send-wanted+no-collector+no-file; loopback UDP send delivers all lines; `--vendor paloalto` renders PAN-OS headers; kill switch stops mid-chain; `ScenarioManifest` complete.
+- **`test_manifest_write_ahead.py`**: the initial scenario manifest exists before output, a preflight failure prevents output, partial failures record exact rendered progress, long waits flush dirty progress, and finalization preserves the original emission error.
 - **CLI/menu**: `scenario list/show/run` parsing and the menu `[a]` picker dispatch (mirrors `test_menu.py`).
 
 Key safety assertion: because the engine and profiles are untouched, the CEF golden tests stay green unchanged. The whole suite (185 + new) stays green; black/ruff/mypy clean.
@@ -195,8 +219,8 @@ Key safety assertion: because the engine and profiles are untouched, the CEF gol
 1. **Only egress is the collector, fail closed**: `run_scenario` uses the same fail-closed check and the same transport as `run()`.
 2. **Synthetic entities**: the composer pins the through-line *from* the synthetic pools; the narrowed `EntityModel` is re-validated synthetic; no catalog field can introduce a real entity.
 3. **No real attacks / strings only**: the shared `_emit` path renders `EventRecord`s to CEF strings; no new I/O or execution.
-4. **eps cap**: the shared `_emit` enforces the cap for the whole scenario stream; `--rate` overrides as today.
-5. **Manifest per run**: every `run_scenario` writes a `ScenarioManifest` (plus the advisory doc).
+4. **eps cap**: the shared `_emit` enforces the configured cap for the whole collector-bound scenario stream; `--rate` may lower that ceiling but cannot raise it. File-only and dry runs are unthrottled.
+5. **Manifest per run**: every planned `run_scenario` durably writes its initial `ScenarioManifest` before output, checkpoints rendered progress, and atomically finalizes it on handled exits. An advisory is paired only when emission returns without an error.
 
 ## 12. New and changed files
 

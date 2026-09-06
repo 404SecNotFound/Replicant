@@ -68,6 +68,8 @@ interface Props {
   vendor: string;
   vendors: string[];
   onVendorChange: (v: string) => void;
+  vendorChangeDisabled?: boolean;
+  vendorChangeDisabledReason?: string;
 }
 
 export function ConnectionCard({
@@ -77,6 +79,8 @@ export function ConnectionCard({
   vendor,
   vendors,
   onVendorChange,
+  vendorChangeDisabled = false,
+  vendorChangeDisabledReason,
 }: Props) {
   const [host, setHost] = useState(collector?.host ?? "10.20.0.50");
   const [port, setPort] = useState(String(collector?.port ?? 514));
@@ -144,6 +148,8 @@ export function ConnectionCard({
       <div
         role="radiogroup"
         aria-label="Vendor profile"
+        aria-disabled={vendorChangeDisabled || undefined}
+        aria-describedby={vendorChangeDisabled ? "vendor-profile-lock-reason" : undefined}
         className="flex w-max max-w-full overflow-hidden rounded-btn border"
       >
         {vendors.map((v) => (
@@ -151,18 +157,29 @@ export function ConnectionCard({
             key={v}
             role="radio"
             aria-checked={v === vendor}
+            disabled={vendorChangeDisabled}
             onClick={() => onVendorChange(v)}
             className={cn(
-              "whitespace-nowrap border-r px-2.5 py-2 font-mono text-label uppercase tracking-[-0.24px] transition-colors last:border-r-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              "whitespace-nowrap border-r px-2.5 py-2 font-mono text-label uppercase tracking-[-0.24px] transition-colors last:border-r-0 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               v === vendor
                 ? "bg-background text-foreground"
-                : "text-text-4 hover:text-foreground",
+                : "text-text-4 enabled:hover:text-foreground",
             )}
           >
             {vendorShortLabel(v)}
           </button>
         ))}
       </div>
+      {vendorChangeDisabled && (
+        <p
+          id="vendor-profile-lock-reason"
+          role="status"
+          className="mt-2 text-body leading-relaxed text-text-3"
+        >
+          {vendorChangeDisabledReason
+            ?? "Vendor profile is locked while a run is active. Stop the active run before switching profiles."}
+        </p>
+      )}
 
       <div className="mt-3.5 grid grid-cols-[1fr_66px_78px] gap-2">
         <div>

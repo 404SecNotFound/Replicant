@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// API client. The token arrives in the page URL (?token=...) from the `replicant
-// web` launcher and is attached to every request.
-//
-// It is read once, at module load, and then stripped from the address bar by
-// main.tsx. The server sets an httpOnly session cookie on that first load, so a
-// later reload still authenticates even though the URL no longer carries the
-// token: TOKEN is "" then, the header goes out empty, and the cookie carries the
-// request instead.
+// Browser API client. The launch URL's persistent token authenticates the HTML
+// navigation, and the server exchanges it for an httpOnly session cookie before
+// this bundle runs. Never copy that token into JavaScript state or an API header:
+// doing so would let every request keep authenticating with the master credential
+// after the browser session expired or was logged out.
 
 import type { PaceChoice, PlanPreview } from "./pacing";
 
-export const TOKEN = new URLSearchParams(window.location.search).get("token") || "";
+export interface NativeFieldCoverage {
+  held: string[];
+  varied: string[];
+  unavailable: { held: string[]; varied: string[] };
+}
 
 /** Return `href` without its `token` parameter, or null if it had none. */
 export function urlWithoutToken(href: string): string | null {
@@ -40,17 +41,36 @@ export interface Technique {
   ndr_uc: string;
   /** What running this technique is meant to establish. One sentence. */
   objective: string;
+  /** Vendor-neutral builder dispatch family. */
+  logical_log_type: string;
+  logical_subtype: string;
+  /** Every vendor-neutral family emitted by the plan; the pair above is primary. */
+  logical_families: string[];
+  /** Compatibility aliases for the catalog's primary logical/FortiGate binding. */
   log_type: string;
   subtype: string;
+  signature_id: string;
+  action: string | null;
+  /** Selected-profile identifiers for the primary logical family only. */
+  native_log_type: string;
+  native_subtype: string;
+  native_signature_id: string;
+  native_action: string | null;
+  native_metadata_scope: "primary";
+  native_metadata_semantics: string;
   attack: string[];
   tactics: string[];
   intensities: string[];
   implemented: boolean;
   safety_notes: string | null;
-  signature_id: string;
-  action: string | null;
+  /** Compatibility signal vocabulary from the catalog. */
   cef_fields_held: string[];
   cef_fields_varied: string[];
+  /** Selected-profile signal keys across the whole plan. */
+  native_cef_fields_held: string[];
+  native_cef_fields_varied: string[];
+  native_cef_fields_unavailable: { held: string[]; varied: string[] };
+  native_cef_fields_by_logical_family: Record<string, NativeFieldCoverage>;
   params: Record<string, Record<string, unknown>>;
   distributions: Record<string, unknown>;
   benign_baseline: string | null;
@@ -118,10 +138,15 @@ export interface Manifest {
   target: string;
   transport: string;
   event_count: number;
+  planned_event_count?: number | null;
   started_at: string;
-  ended_at: string;
+  ended_at: string | null;
+  updated_at?: string | null;
   anchor_epoch: number;
   warmup_note: string | null;
+  status?: "running" | "done" | "stopped" | "error";
+  partial?: boolean;
+  error?: string | null;
   [key: string]: unknown;
 }
 
@@ -148,9 +173,12 @@ export class ApiError extends Error {
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(path, {
     ...init,
+    // This is the browser contract: same-origin, cookie-authenticated requests.
+    // Scripts and CLI clients still use the server's Bearer/X-Replicant-Token
+    // contract directly; the SPA must never possess or replay that credential.
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
-      "X-Replicant-Token": TOKEN,
       ...(init?.headers || {}),
     },
   });
@@ -167,8 +195,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export interface ActiveRun {
+  admission_id?: string | null;
   run_id: string | null;
   technique_id: string | null;
+  vendor: string | null;
   status: string | null;
   event_count?: number;
   total?: number;
@@ -177,7 +207,10 @@ export interface ActiveRun {
 /** Which run holds the single-run lock. Server state, so only the server knows. */
 export const getActiveRun = () => api<ActiveRun>("/api/runs/active");
 
-export const getCatalog = () => api<CatalogResponse>("/api/catalog");
+export const getCatalog = (vendor?: string) =>
+  api<CatalogResponse>(
+    `/api/catalog${vendor ? `?vendor=${encodeURIComponent(vendor)}` : ""}`,
+  );
 export const getConfig = () => api<ConfigResponse>("/api/config");
 
 export interface DocPage {
@@ -232,11 +265,24 @@ export interface TechniqueSample {
   technique_id: string;
   vendor: string;
   intensity: string;
+  logical_log_type: string;
+  logical_subtype: string;
+  logical_families: string[];
   log_type: string;
   subtype: string;
   signature_id: string;
+  native_log_type: string;
+  native_subtype: string;
+  native_signature_id: string;
+  native_action: string | null;
+  native_metadata_scope: "primary";
+  native_metadata_semantics: string;
   cef_fields_held: string[];
   cef_fields_varied: string[];
+  native_cef_fields_held: string[];
+  native_cef_fields_varied: string[];
+  native_cef_fields_unavailable: { held: string[]; varied: string[] };
+  native_cef_fields_by_logical_family: Record<string, NativeFieldCoverage>;
   lines: string[];
 }
 
@@ -301,8 +347,10 @@ export interface RunBody {
   no_send: boolean;
   collector?: Collector | null;
   vendor?: string | null;
+  /** Idempotent identity acknowledged by POST /api/run-admissions. */
+  admission_id?: string | null;
   anchor?: string | null;
-  /** Events per second. Null uses the configured cap. */
+  /** Per-run slowdown. Null uses, and a value cannot exceed, the configured cap. */
   rate?: number | null;
   /** Delivery shape. Null lets the server pick from the destination. */
   pace?: PaceChoice | null;
@@ -310,9 +358,41 @@ export interface RunBody {
   speed?: number;
 }
 
+export interface RunAdmissionState {
+  admission_id: string;
+  run_id: string;
+  technique_id: string;
+  vendor: string;
+  status: string; // reserved | admitting | running | done | stopped | error
+  event_count: number;
+  total: number;
+}
+
+/**
+ * Reserve the single-run owner before the potentially slow plan preparation.
+ *
+ * `admission_id` is generated by the browser and makes this call safe to retry
+ * after a lost response. The returned run id stays stable through execution.
+ */
+export const reserveRun = (body: {
+  admission_id: string;
+  technique_id: string;
+  vendor: string;
+}) =>
+  api<RunAdmissionState>("/api/run-admissions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+/** Resolve one known admission after the start response was unavailable. */
+export const getRunAdmission = (admissionId: string) =>
+  api<RunAdmissionState>(`/api/run-admissions/${encodeURIComponent(admissionId)}`);
+
 export const startRun = (body: RunBody) =>
   api<{
+    admission_id: string;
     run_id: string;
+    vendor: string;
     total: number;
     pace: PaceChoice;
     speed: number;
@@ -336,8 +416,10 @@ export const stopRun = (runId: string) =>
   api<{ ok: boolean }>(`/api/runs/${runId}/stop`, { method: "POST" });
 
 export interface RunStatus {
+  admission_id?: string | null;
   run_id: string;
-  status: string; // running | done | stopped | error
+  vendor: string;
+  status: string; // reserved | admitting | running | done | stopped | error
   total: number;
   event_count: number;
   dropped: number;

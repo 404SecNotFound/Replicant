@@ -18,15 +18,6 @@
 
 import type { Technique } from "@/lib/api";
 
-/** The render paths the catalog actually uses, in rough order of how common they are. */
-export const LOG_TYPES = [
-  "traffic:forward",
-  "dns:dns-query",
-  "dns:dns-response",
-  "event:vpn",
-  "utm:ips",
-] as const;
-
 // ATT&CK Enterprise tactic order. This is the kill chain, and it is neither
 // alphabetical nor numeric: Reconnaissance (TA0043) and Resource Development
 // (TA0042) come first while carrying the highest numbers, and Exfiltration
@@ -62,7 +53,12 @@ export interface CatalogFilter {
 }
 
 export function logTypeOf(technique: Technique): string {
-  return `${technique.log_type}:${technique.subtype}`;
+  return `${technique.native_log_type}:${technique.native_subtype}`;
+}
+
+/** The selected vendor's stable event families, in catalog order. */
+export function logTypesOf(techniques: Technique[]): string[] {
+  return Array.from(new Set(techniques.map(logTypeOf)));
 }
 
 function rank(tactic: string): number {

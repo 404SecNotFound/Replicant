@@ -89,6 +89,26 @@ describe("pollRunUntilTerminal", () => {
     expect(onTerminal).toHaveBeenCalledTimes(1);
   });
 
+  it("stops status polling when the caller starts authoritative reconciliation", async () => {
+    const missing = new Error("status snapshot was evicted");
+    const getStatus = vi.fn(() => Promise.reject(missing));
+    const onFetchError = vi.fn(() => "stop" as const);
+    const sleep = vi.fn(noSleep);
+
+    await pollRunUntilTerminal({
+      getStatus,
+      onProgress: () => undefined,
+      onTerminal: () => undefined,
+      sleep,
+      isCancelled: () => false,
+      onFetchError,
+    });
+
+    expect(getStatus).toHaveBeenCalledTimes(1);
+    expect(onFetchError).toHaveBeenCalledWith(missing);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it("stops immediately when cancelled before the first poll", async () => {
     const getStatus = vi.fn(() => Promise.resolve({ status: "running", event_count: 0, manifest: null }));
     await pollRunUntilTerminal({

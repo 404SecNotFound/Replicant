@@ -51,11 +51,11 @@ Do not market Replicant as "first" or "the only." Market it on firewall fidelity
 ## 4. Safety model (read before writing any emitter)
 
 1. Single destination. Replicant sends only to the collector IP and port the operator enters in the connection wizard. There is no other socket target. A hard guard rejects sends when no collector is configured.
-2. Synthetic entities only. Default IP pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parent domains are non-resolvable synthetic names. Usernames come from a synthetic directory. No real domains, no real malware names beyond signature labels.
-3. Rate limits. A global max events-per-second cap (default configurable, for example 2000 eps) protects the operator's own collector. The wizard states the cap.
+2. Synthetic entities only. Default IP pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parent strings use IANA documentation domains or the reserved `.invalid` TLD. Documentation domains such as `example.net` can resolve; Replicant resolves neither kind and never contacts the named host. Usernames come from a synthetic directory. No operator-owned or production domain is generated, and no real malware name appears beyond signature labels.
+3. Rate limits. `Settings.eps_cap` is a positive, configurable hard ceiling on collector sends (for example 2000 eps). A per-run `--rate` may lower that ceiling but cannot raise it. Dry renders and file-only runs are unthrottled and record `rate=null`, because no collector is being protected. The cap is enforced for one sending run per host and user; `replicant/core/sendlock.py` refuses a concurrent run that would open a collector socket. A live send mirrored with `--to-file` still acquires that slot.
 4. Kill switch. Any run can be stopped immediately (menu stop, Ctrl-C, or a stop flag in headless mode). Partial runs end cleanly and print a summary.
-5. Audit trail. Every run writes a run manifest: seed, technique, params, entity pools used, start and end time, event count, and the collector target. This lets the analyst line up telemetry with detections.
-6. Clear labeling option. A config switch can stamp a benign marker field (for example a custom CEF label) so lab data is separable from production if the collector is shared. Off by default to preserve fidelity, documented prominently.
+5. Audit trail. Before opening a collector or output file, every individual or scenario run durably publishes a unique `status=running` manifest containing its intent and planned event count. It checkpoints the rendered-event count about once per second and before a long plan-paced wait, then atomically replaces the same path with its terminal state. `event_count` and `total_event_count` count CEF records rendered, not successful sends; an individual run's `send_stats` records what the socket accepted. `partial` means the rendered count is below `planned_event_count`, independently of `status`. A crash before terminal finalization leaves the last durable non-terminal record, and a failed initial write prevents output. File and directory entries are fsynced; a platform or filesystem that reports directory fsync as unsupported fails preflight. See the [run manifest contract](run-manifest.md) for the field and lifecycle details.
+6. Clear labeling. A non-loopback send stamps the `ReplicantSynthetic` marker and run id by default so lab data is separable from production on a shared collector. Loopback and file-only runs leave it off for byte fidelity. `--mark-synthetic` forces it on, while `--no-marker` forces it off and logs an override on a live non-loopback send. The manifest records the decision in `marker_attestation`.
 7. Ethics and scope note in README. Replicant is for environments the operator owns or is authorized to test. State it plainly.
 
 ## 5. Architecture
@@ -105,7 +105,7 @@ Cross-cutting: Entity/Asset Model, Config/State, Logging/Audit, Seeded RNG.
 Each module is a package under `replicant/`. Key responsibilities and the main types:
 
 - `cli/` Presentation. `menu.py` (Rich screens: startup, connection wizard, main TTP menu, technique params, run view). `app.py` (argparse or typer entry, headless verbs). Both call the Orchestrator only.
-- `core/orchestrator.py` `Orchestrator` resolves a `RunRequest` (technique id, intensity, overrides, collector profile) into a `Run`, drives the Scenario Engine, feeds records to the Emitter, writes the manifest, honors the kill switch.
+- `core/orchestrator.py` `Orchestrator` resolves a `RunRequest` (technique id, intensity, overrides, collector profile) into a `Run`, drives the Scenario Engine, durably creates and checkpoints the manifest around emission, atomically finalizes it, and honors the kill switch.
 - `core/models.py` Pydantic v2 models: `Technique`, `RunRequest`, `RunManifest`, `CollectorProfile`, `Entity`, `EventRecord` (vendor-neutral intermediate event before serialization).
 - `core/pacing.py` when each event is allowed to leave the host. `send_offsets` turns a planned timeline plus the rate cap into one list of send offsets; `compress_timeline` rescales event times for `--speed`. Pure, no clock and no sockets: the Orchestrator owns the waiting, this owns the arithmetic, so the schedule can be asserted exactly rather than measured.
 - `scenario/engine.py` `ScenarioEngine.plan(technique, params, entities, seed) -> Iterator[PlannedEvent]`. Turns one technique into a time-ordered sequence with per-event field values. Pure, deterministic, no I/O.
@@ -117,7 +117,7 @@ Each module is a package under `replicant/`. Key responsibilities and the main t
 - `transport/filesink.py` mirrors every emitted line to a `.log` file for offline review and CI.
 - `entities/model.py` `EntityModel` builds and holds coherent pools: internal subnets, host pool, user pool, benign external pool, synthetic-adversary external pool, GeoIP country tags, service and port maps. Shared across events so a scenario is coherent.
 - `config/settings.py` load and save YAML/TOML config and saved collector profiles. Seed management.
-- `audit/manifest.py` writes the per-run manifest and the human run summary.
+- `audit/manifest.py` exclusively creates unique, fsynced manifests and atomically replaces checkpoints and terminal records without exposing partial JSON. It also writes the human run summary.
 
 ## 7. Menu UX flow (exactly as specified)
 
@@ -154,8 +154,8 @@ Replicant  |  collector 10.20.0.50:514/udp  |  seed 1337
   [c] Connection settings   [s] Seed   [q] Quit
 ```
 
-6. On selection, show technique params: intensity (low/medium/high), duration, rate override, entity pool choices, and a "dry run to file only" toggle. Show the estimated event count and duration before starting.
-7. Run view: live counters (events sent, elapsed, eps, target), a progress indication, and a Stop control. On stop or completion, print the run summary and manifest path.
+6. On selection, show technique params: intensity (low/medium/high), duration, a positive rate override no greater than the configured `eps_cap`, entity pool choices, and a "dry run to file only" toggle. Show the estimated event count and duration before starting.
+7. Run view: live counters (events rendered, elapsed, eps, target), a progress indication, and a Stop control. On stop or completion, print the run summary and manifest path. Socket handoff and collector receipt must not be inferred from the rendered count.
 
 Headless equivalent (for Claude Code and CI):
 

@@ -6,15 +6,15 @@ Persistent context for Claude Code working in this repository. Read this first, 
 
 Replicant generates safe, synthetic firewall and network security telemetry in CEF, streams it over syslog to a SIEM (LogRhythm first), and is driven by a MITRE ATT&CK grounded technique catalog. A detection engineer picks a technique from a menu and Replicant emits realistic firewall logs that exercise the matching detection.
 
-Full design is in `docs/blueprint.md`. The FortiGate log schema and golden sample lines are in `docs/fortigate-cef-reference.md`. Prior art and licensing constraints are in `docs/prior-art-and-licensing.md`. The technique catalog is `replicant/data/technique-catalog.yaml`. Runtime data lives INSIDE the package so it ships in a wheel; see `replicant/resources.py`.
+Full design is in `docs/blueprint.md`. The run-manifest lifecycle and field semantics are in `docs/run-manifest.md`. The FortiGate log schema and golden sample lines are in `docs/fortigate-cef-reference.md`. Prior art and licensing constraints are in `docs/prior-art-and-licensing.md`. The technique catalog is `replicant/data/technique-catalog.yaml`. Runtime data lives INSIDE the package so it ships in a wheel; see `replicant/resources.py`.
 
 ## Non-negotiable safety rules
 
 1. The only network egress is to the operator-configured collector. Never open a socket to anything else. If no collector is configured, sends must fail closed.
-2. All entities are synthetic. Default IPs are RFC1918 and documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parents come from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761); note example.net does resolve, .invalid does not, and Replicant resolves neither. No real domains, no real malware, no real C2.
+2. All entities are synthetic. Default IPs are RFC1918 and documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parents come from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761); note example.net does resolve, .invalid does not, and Replicant resolves neither. No operator-owned or production domains, no real malware, no real C2.
 3. No real attacks. Replicant writes log strings. It never executes commands, scans, or moves data. Attack names and byte counts are fields, nothing more.
-4. Respect the events-per-second cap. Default configurable, protect the operator's own collector. The cap is applied by one process's emit loop, so **the supported scope is one sending run per host and it is enforced**, not assumed: a second run that would open a socket to a collector is refused (`replicant/core/sendlock.py`). Two hosts pointed at one collector are still two caps, and nothing on a single machine can see that.
-5. Every run writes a manifest (seed, technique, params, entities, target, counts, times).
+4. Respect the events-per-second cap. Default configurable, protect the operator's own collector. A per-run rate may lower `Settings.eps_cap`, never raise it; a non-sending run is unthrottled and records `rate=null`. The cap is applied by one process's emit loop, so **the supported scope is one sending run per host and it is enforced**, not assumed: a second run that would open a socket to a collector is refused (`replicant/core/sendlock.py`). `--no-send` and file-only runs do not acquire the slot; a live collector send mirrored with `--to-file` does. Two hosts pointed at one collector are still two caps, and nothing on a single machine can see that.
+5. Every run durably writes a `running` manifest before opening any output, checkpoints the rendered-event count during emission, and atomically finalizes the same file (seed, technique, params, entities, target, planned/rendered counts, times, status, partial state). A preflight manifest failure prevents output; an interruption before terminal finalization leaves the last durable non-terminal record. `partial` is true exactly when that record's rendered count is below `planned_event_count`. Platforms or filesystems without directory-entry `fsync` support fail that preflight rather than silently weakening the guarantee. The complete contract is `docs/run-manifest.md`.
 6. The synthetic marker is destination-conditional (roadmap 2026-09 item 3, `Orchestrator._resolve_marker`): ON by default for a non-loopback send (stamps `flexString1`, an unused flex slot, with the run id, so lab data stays separable on a shared collector), OFF for a loopback or file-only (`--to-file --no-send`) run where the golden line is the oracle, `--no-marker` to override with a logged warning. The manifest records the decision in `marker_attestation`. Replicant is a detection-lab tool, not a production SIEM component: see `docs/deployment-boundary.md`.
 
 ## Licensing guardrails
@@ -74,7 +74,7 @@ Output convention: command results go to stdout, operator-facing errors go to st
 - Phase 1.5 (complete): web UI and embedded terminal over the same Orchestrator.
 - Phase 2 (complete): first full catalog (REP-001..011), entity hardening, TLS transport, REP-008 warm-up baseline, manifests. The catalog is now 24 entries; see the v0.2.0 note below.
 - Phase 3 (complete): Palo Alto and Check Point profiles both done. `replicant/profiles/paloalto.py` + `docs/paloalto-cef-reference.md` and `replicant/profiles/checkpoint.py` + `docs/checkpoint-cef-reference.md` (eight golden lines each, all [Unverified]). Vendor selectable with `--vendor {fortigate,paloalto,checkpoint}`, the Rich menu `[v]` picker, and the web UI selector (canonical id list in `settings.VENDORS`). Check Point emits string CEF severity (Unknown/Low/Medium/High/Very-High), so `CefHeader.severity` is `int | str`.
-- Phase 4 (complete): ATT&CK scenario composition. Three curated chains (SCEN-001/002/003) in `replicant/data/scenario-catalog.yaml` compose techniques into one deterministic multi-stage timeline; each run writes a paired manifest and advisory. Driven from `replicant scenario list|show|run` and the Rich menu `[a]`. The advisory is coverage and correlation context only, derived from the composed events with no model involved; humans author the detection design. Web UI scenario support is deliberately deferred. The deferral is checked by a manual UAT row (`tasks/uat-plan.md`, CHAIN-16), not by a pytest test; do not describe it as one.
+- Phase 4 (complete): ATT&CK scenario composition. Three curated chains (SCEN-001/002/003) in `replicant/data/scenario-catalog.yaml` compose techniques into one deterministic multi-stage timeline. Normal completion and handled stops write a paired manifest and advisory; an emission error finalizes its error manifest without an advisory. Driven from `replicant scenario list|show|run` and the Rich menu `[a]`. The advisory is coverage and correlation context only, derived from the composed events with no model involved; humans author the detection design. Web UI scenario support is deliberately deferred. The deferral is checked by a manual UAT row (`tasks/uat-plan.md`, CHAIN-16), not by a pytest test; do not describe it as one.
 
 - v0.2.0 (catalog expansion): 11 techniques to 24 (REP-012..REP-024). Every new entry is anchored to a peer-reviewed paper with measured results. Design record and rejected ideas are in `docs/technique-catalog-expansion-research.md` and `docs/technique-catalog-expansion-research-round2.md`; the per-technique summary is in the CHANGELOG. Added the `dns:dns-response` render path on all three vendors (FortiGate signature 54802 is confirmed, the extension key names are [Unverified]) plus a `scanner_external` entity pool on 192.0.2.0/24 for inbound scanning.
 
@@ -230,7 +230,8 @@ Output convention: command results go to stdout, operator-facing errors go to st
   **F-08, the eps cap is per process.** Decision: **documented and enforced single-process
   scope**, not a host-level lease. `replicant/core/sendlock.py` takes an advisory `flock` for any
   run that opens a socket to a collector; a second sending run on the host is refused and the
-  message names the holding pid. `--no-send` and `--to-file` never acquire it. The lease was
+  message names the holding pid. `--no-send` and file-only runs never acquire it; a collector
+  send mirrored with `--to-file` does. The lease was
   declined because expiry, clock drift and orphaned leases are worse failure modes than the one
   being fixed, and `flock` is released by the kernel on exit including `kill -9`. **Scope stated
   rather than implied: per host and per user, never across hosts.** Its guard spawns a real
@@ -285,6 +286,13 @@ Vendor licensing position (trademarks, the `[Constructed]` golden lines, the fie
 ## Definition of done for any change
 
 Tests pass (including CEF golden tests and loopback transport). Types clean. New source has the Apache header. Any new technique is a catalog entry with a unique `ndr_uc`. The safety rules above still hold.
+
+Documentation ships in the same PR as the behavior it describes, never as
+release-end cleanup. Update every maintained operator, API, safety, design, and
+runbook contract affected by the change, plus `CHANGELOG.md`. Preserve historical
+decision records by adding a dated implementation note rather than silently
+rewriting their original context. If a surface is unaffected, say why in the PR's
+documentation-impact section.
 
 Two testing rules this project has paid for more than once:
 

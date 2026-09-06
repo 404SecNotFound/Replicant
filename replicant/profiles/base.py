@@ -23,8 +23,29 @@ this boundary.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 
 from replicant.core.models import CefHeader, EventRecord
+
+
+@dataclass(frozen=True)
+class DetectionMetadata:
+    """Stable vendor-native identifiers, with the concepts they represent named."""
+
+    log_type: str
+    subtype: str
+    signature_id: str
+    action: str | None
+    semantics: str
+
+
+@dataclass(frozen=True)
+class DetectionFieldCoverage:
+    """Rendered native keys plus logical signal fields this profile cannot carry."""
+
+    available: tuple[str, ...]
+    unavailable: tuple[str, ...]
 
 
 def require(value: object, field: str) -> str:
@@ -33,6 +54,23 @@ def require(value: object, field: str) -> str:
     if value is None:
         raise ValueError(f"event is missing required field '{field}'")
     return str(value)
+
+
+def mapped_detection_field(
+    mapping: Mapping[str, str | None],
+    field: str,
+) -> str | None:
+    """Look up one explicitly supported catalog field.
+
+    ``None`` is a deliberate profile gap. A missing key is different: it means
+    the catalog vocabulary grew without anyone proving what the selected
+    renderer emits, so fail closed instead of advertising the source key.
+    """
+
+    try:
+        return mapping[field]
+    except KeyError as exc:
+        raise ValueError(f"unknown catalog detection field: {field!r}") from exc
 
 
 class VendorProfile(ABC):
@@ -66,6 +104,57 @@ class VendorProfile(ABC):
     @abstractmethod
     def render(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
         """Build the CEF header and ordered extension for one event."""
+
+    def detection_metadata(
+        self,
+        log_type: str,
+        subtype: str,
+        signature_id: str,
+        action: str | None,
+    ) -> DetectionMetadata:
+        """Map a catalog event family to the profile's native detection fields.
+
+        Catalog dispatch uses vendor-neutral ``log_type`` and ``subtype`` values,
+        while a SIEM rule sees the CEF header and native ``act`` value. Keeping
+        this mapping beside ``render`` prevents the UI from describing every
+        profile with FortiGate identifiers.
+        """
+
+        raise NotImplementedError(f"profile {self.name!r} has no detection metadata mapping")
+
+    def detection_field_name(
+        self,
+        field: str,
+        *,
+        log_type: str,
+        subtype: str,
+    ) -> str | None:
+        """Return an explicitly mapped emitted key, or ``None`` if absent."""
+
+        raise ValueError(f"unknown catalog detection field for profile {self.name!r}: {field!r}")
+
+    def detection_fields(
+        self,
+        fields: Iterable[str],
+        *,
+        log_type: str,
+        subtype: str,
+    ) -> DetectionFieldCoverage:
+        """Translate logical/FortiGate catalog signals without hiding profile gaps."""
+
+        available: list[str] = []
+        unavailable: list[str] = []
+        for field in fields:
+            native = self.detection_field_name(
+                field,
+                log_type=log_type,
+                subtype=subtype,
+            )
+            if native is None:
+                unavailable.append(field)
+            elif native not in available:
+                available.append(native)
+        return DetectionFieldCoverage(tuple(available), tuple(unavailable))
 
     @abstractmethod
     def severity(self, level: str) -> int | str:

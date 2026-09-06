@@ -232,7 +232,11 @@ def build_parser() -> argparse.ArgumentParser:
         "default on a non-loopback send (so lab data stays separable on a shared "
         "collector), overriding it on a live send is logged",
     )
-    run.add_argument("--rate", type=int, help="events-per-second cap override")
+    run.add_argument(
+        "--rate",
+        type=int,
+        help="per-run events-per-second slowdown; cannot exceed the configured eps_cap",
+    )
     run.add_argument(
         "--pace",
         choices=["burst", "plan"],
@@ -284,7 +288,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scen_run.add_argument("--to-file", dest="to_file")
     scen_run.add_argument("--no-send", dest="no_send", action="store_true")
-    scen_run.add_argument("--rate", type=int)
+    scen_run.add_argument(
+        "--rate",
+        type=int,
+        help="per-run events-per-second slowdown; cannot exceed the configured eps_cap",
+    )
     scen_run.add_argument(
         "--duration",
         help="how long the whole chain should take, e.g. 2h. Scales stage offsets "

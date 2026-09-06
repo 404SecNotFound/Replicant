@@ -151,8 +151,8 @@ def test_a_scenario_send_is_refused_while_a_holder_holds_the_lock(config_home: P
 
 
 def test_a_scenario_dry_run_does_not_take_the_lock(config_home: Path) -> None:
-    """The control on the test above: --no-send/--to-file must not be blocked,
-    because they cannot reach a collector and so cannot exceed the cap."""
+    """The control above: a no-send file-only run must not be blocked,
+    because it cannot reach a collector and therefore cannot exceed the cap."""
 
     from replicant.config.settings import Settings
     from replicant.core.models import ScenarioRunRequest, load_catalog, load_scenario_catalog

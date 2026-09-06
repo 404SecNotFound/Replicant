@@ -32,7 +32,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from replicant.core.models import CefHeader, EventRecord
-from replicant.profiles.base import VendorProfile, require
+from replicant.profiles.base import (
+    DetectionMetadata,
+    VendorProfile,
+    mapped_detection_field,
+    require,
+)
 
 # Neutral log level -> Check Point CEF severity string. Not reversed; rises with
 # seriousness (reference s2.3). Used for event failures; plain connection logs and
@@ -58,6 +63,88 @@ _IPS_SEVERITY: dict[str, str] = {
 }
 
 _SEV_UNKNOWN = "Unknown"
+
+# Exhaustive mapping for the catalog's current 21-field signal vocabulary.
+# An explicit ``None`` is surfaced as unavailable; an unknown key fails closed.
+_DETECTION_FIELDS: dict[str, str | None] = {
+    "FTNTFGTattack": "cs4",
+    "FTNTFGTattackid": "cs2",
+    "FTNTFGTduration": "cn1",
+    "FTNTFGTqname": "destinationDnsDomain",
+    "FTNTFGTqtype": None,
+    "FTNTFGTrcode": "dns_rcode",
+    "FTNTFGTreason": "reason",
+    "FTNTFGTseverity": "cp_severity",
+    "FTNTFGTsrccountry": "cs4",
+    "FTNTFGTxid": None,
+    "act": "act",
+    "cnt": None,
+    "dpt": "dpt",
+    "dst": "dst",
+    "duser": "duser",
+    "externalId": None,
+    "in": "in",
+    "out": "out",
+    "proto": "proto",
+    "rt": "rt",
+    "src": "src",
+}
+
+_DETECTION_FIELDS_BY_FAMILY: dict[tuple[str, str], frozenset[str]] = {
+    ("traffic", "forward"): frozenset(
+        {
+            "FTNTFGTduration",
+            "act",
+            "dpt",
+            "dst",
+            "in",
+            "out",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("dns", "dns-query"): frozenset({"FTNTFGTqname", "act", "dpt", "dst", "proto", "rt", "src"}),
+    ("dns", "dns-response"): frozenset(
+        {
+            "FTNTFGTqname",
+            "FTNTFGTrcode",
+            "act",
+            "dpt",
+            "dst",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("utm", "ips"): frozenset(
+        {
+            "FTNTFGTattack",
+            "FTNTFGTattackid",
+            "FTNTFGTseverity",
+            "act",
+            "dpt",
+            "dst",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("event", "vpn"): frozenset(
+        {
+            "FTNTFGTreason",
+            "FTNTFGTseverity",
+            "FTNTFGTsrccountry",
+            "act",
+            "duser",
+            "rt",
+            "src",
+        }
+    ),
+    ("event", "system"): frozenset(
+        {"FTNTFGTreason", "FTNTFGTseverity", "act", "duser", "rt", "src"}
+    ),
+}
 
 
 def _is_internal(ip: str) -> bool:
@@ -129,6 +216,76 @@ class CheckPointProfile(VendorProfile):
         if key == ("event", "system"):
             return self._system(event)
         raise ValueError(f"unsupported Check Point log type '{event.log_type}:{event.subtype}'")
+
+    def detection_metadata(
+        self,
+        log_type: str,
+        subtype: str,
+        signature_id: str,
+        action: str | None,
+    ) -> DetectionMetadata:
+        """Describe stable Check Point product, signature, and action fields."""
+
+        key = (log_type, subtype)
+        if key == ("traffic", "forward"):
+            native_action = "Accept" if action == "accept" else "Drop"
+            return DetectionMetadata(
+                self.device.product_fw,
+                "Log",
+                "Log",
+                native_action,
+                "Primary Check Point CEF product and signature ID",
+            )
+        if key in {("dns", "dns-query"), ("dns", "dns-response")}:
+            return DetectionMetadata(
+                self.device.product_fw,
+                "Log",
+                "Log",
+                "Accept",
+                "Primary Check Point CEF product and signature ID",
+            )
+        if key == ("utm", "ips"):
+            return DetectionMetadata(
+                self.device.product_ips,
+                "IPS",
+                "IPS",
+                "Prevent",
+                "Primary Check Point CEF product and signature ID",
+            )
+        if key == ("event", "vpn"):
+            native_action = "Reject" if action == "ssl-login-fail" else "Accept"
+            return DetectionMetadata(
+                self.device.product_vpn,
+                "Log",
+                "Log",
+                native_action,
+                "Primary Check Point CEF product and signature ID",
+            )
+        if key == ("event", "system"):
+            native_action = "Reject" if action == "ssl-login-fail" else "Accept"
+            return DetectionMetadata(
+                self.device.product_sys,
+                "Log",
+                "Log",
+                native_action,
+                "Primary Check Point CEF product and signature ID",
+            )
+        raise ValueError(f"unsupported Check Point log type '{log_type}:{subtype}'")
+
+    def detection_field_name(
+        self,
+        field: str,
+        *,
+        log_type: str,
+        subtype: str,
+    ) -> str | None:
+        native = mapped_detection_field(_DETECTION_FIELDS, field)
+        family = (log_type, subtype)
+        try:
+            supported = _DETECTION_FIELDS_BY_FAMILY[family]
+        except KeyError as exc:
+            raise ValueError(f"unsupported Check Point log type '{log_type}:{subtype}'") from exc
+        return native if field in supported else None
 
     # -- helpers ---------------------------------------------------------------
 

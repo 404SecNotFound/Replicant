@@ -16,10 +16,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import { tokenBootstrapProxy } from "./src/lib/bootstrapProxy.ts";
 
 // Dev proxy target: run the backend and point VITE_PROXY at its printed URL.
 const proxyTarget = process.env.VITE_PROXY || "http://127.0.0.1:8000";
-
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -46,14 +46,17 @@ export default defineConfig({
     // between "this tree" and "any path on the machine" is worth keeping.
     fs: { allow: [path.resolve(__dirname, "..")] },
     proxy: {
-      "/api": { target: proxyTarget, changeOrigin: true },
-      "/ws": { target: proxyTarget, ws: true, changeOrigin: true },
+      // Preserve the browser-facing Host. Cookie-authenticated writes and the
+      // terminal compare Origin with Host; rewriting only Host to the backend
+      // target makes a legitimate localhost:5173 request look cross-origin.
+      [tokenBootstrapProxy]: { target: proxyTarget, changeOrigin: false },
+      "/api": { target: proxyTarget, changeOrigin: false },
+      "/ws": { target: proxyTarget, ws: true, changeOrigin: false },
     },
   },
   test: {
-    // jsdom, not happy-dom: src/lib/api.ts reads window.location.search at module
-    // load time to pick up the session token, so the environment has to provide a
-    // real Location before the import runs.
+    // jsdom, not happy-dom: URL cleanup and browser-facing components rely on a
+    // real Location, History, and storage implementation.
     environment: "jsdom",
     // Without this, vitest stubs every CSS import to an empty module, INCLUDING
     // `index.css?raw`, and theme.test.ts would assert against "" and pass on

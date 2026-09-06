@@ -6,6 +6,89 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Added
+
+- **Crash-safe write-ahead run manifests.** Individual and scenario runs now
+  publish a durable `running` manifest before opening any output, checkpoint
+  the rendered-event count about once per second, and atomically finalize the
+  same file. An interruption before terminal finalization leaves the last
+  durable non-terminal record; `partial` is true exactly when that count is below
+  `planned_event_count`. A failed preflight manifest write prevents any output.
+- **A maintained run-manifest contract.** `docs/run-manifest.md` documents the
+  initial, checkpoint, and terminal states; rendered-versus-delivered count
+  semantics; nullable rate; and the directory-`fsync` portability boundary. It
+  is also available from the web UI's Docs tab in a repository checkout.
+  Scenario advisories are written after successful manifest finalization on
+  normal completion or handled stop; an emission error retains its finalized
+  error manifest without an advisory.
+
+### Changed
+
+- **`--rate` can only lower the configured `eps_cap`.** CLI, API, pacing preview,
+  and web form now reject a per-run value above the collector-protection
+  ceiling instead of replacing it with a larger limit.
+- **Catalog detection metadata follows the selected vendor profile.** The web UI
+  now separates the logical event family from the profile's native match,
+  translates signal-field names to keys that profile emits, and names catalog
+  fields the profile cannot carry instead of displaying FortiGate identifiers
+  for every vendor. Existing catalog API keys retain their compatibility
+  meanings; additive `logical_*`, `native_*`, and per-family coverage fields
+  make mixed REP-017/018 plans explicit.
+
+### Fixed
+
+- **The synthetic-DNS safety wording no longer calls every documentation domain
+  non-resolvable.** `example.net` is reserved for examples but does resolve.
+  Maintained requirements and lab instructions now state the real invariant:
+  emitted names stay under IANA documentation domains or `.invalid`, and
+  Replicant performs no DNS lookup or connection to either. Historical run
+  records retain their original text with a dated correction beside it.
+- **The browser no longer receives, retains, or replays the persistent launch
+  token in JavaScript.** The server exchanges the tokenized bootstrap navigation
+  for an httpOnly session cookie and redirects to a clean URL before serving the
+  SPA. Subsequent requests use only that revocable session. Explicit Bearer and
+  `X-Replicant-Token` API clients remain supported. The Vite development proxy
+  preserves the browser-facing Host so cookie write and websocket origin checks
+  continue to work during source development.
+- **Browser-session lifecycle operations are thread-safe.** Concurrent expiry,
+  validation, logout, and issuance can no longer race on the session store.
+- **An active run can no longer be detached by switching vendor profiles.** The
+  selector and tab navigation are locked during run admission. The browser now
+  reserves a client-generated, idempotent admission identity before plan
+  preview, then starts under that same server-visible owner as it moves through
+  `reserved`, `admitting`, and `running`. Lost reservation responses retry the
+  same identity, while lost start responses reconcile against that admission
+  record rather than an elapsed-time heuristic. A terminal admission retrieves
+  its exact run status, count, and final manifest before ownership is released.
+  The selector
+  stays locked for local and server-reported runs until they reach a terminal
+  state and the server confirms active ownership, preserving the SSE stream,
+  Stop control, and final manifest. Restored panels follow natural
+  completion and requested stops without duplicate watchers, transient status
+  failures do not release the lock, and local SSE or fallback-poll completion
+  uses the same owner confirmation. An evicted status record after a local SSE
+  disconnect also reconciles through active ownership instead of retrying 404
+  forever. Restored terminal snapshots retain their final manifest. The UI
+  distinguishes an unclaimed `reserved` request from an `admitting` plan being
+  prepared. Ownership transfers directly to a successor run. Each handle
+  retains its resolved vendor; start, active, status, and 409
+  responses expose that identity, and a restored UI aligns its selected profile
+  and catalog before presenting the run. Bootstrap ownership survives transient
+  duplicate probes and React development effect replay. A successful start
+  supersedes any older ownership probe, while a late or unmounted start response
+  cannot attach a stream. Worker stop state is reset before a handle becomes
+  externally stoppable, so a Stop between thread scheduling and worker entry is
+  not erased. SSE completion waits for the terminal item publication barrier,
+  including reservation cancellation, admission failure, and thread-start
+  failure paths, so a drained reader cannot close in the status-to-item gap.
+  Both active/status endpoints also advance the latest rendered count on every
+  line without increasing the SSE progress-message cadence. Definitive client
+  errors leave ambiguous retry: a known reservation
+  is cancelled when the session permits it, or retained as a visible owner when
+  the browser can no longer authorize cancellation. An evicted status handle
+  reconciles through the active owner, and an initial active-owner discovery
+  failure leaves the controls fail-closed.
+
 ## [0.10.0] - 2026-09-01
 
 Execution of the 2026-09 five-persona roadmap (`docs/roadmap-2026-09.md`): all 13
@@ -205,8 +288,9 @@ it. One sending run per host is the supported configuration, and a second is now
 refused rather than allowed to double the rate, with the holding pid named in
 the refusal because "another process" is not actionable.
 
-`--no-send` and `--to-file` never acquire the slot, because they cannot reach a
-collector and so cannot exceed anything. The lock is advisory and released by the
+`--no-send` and file-only runs never acquire the slot, because they cannot reach a
+collector and so cannot exceed anything. A live collector send mirrored with
+`--to-file` does acquire it. The lock is advisory and released by the
 kernel when the holder exits, kill -9 included, so there is nothing stale to
 clean up. What it does not cover is stated rather than implied: two hosts pointed
 at one collector are two caps, and nothing on this machine can see that.
@@ -1366,6 +1450,12 @@ Each run writes an advisory document beside its manifest, mapping the chain to A
 **Transports.** UDP, TCP, and TLS syslog, with a loopback connectivity test.
 
 **Safety model.** Five non-negotiable rules, verified behaviorally rather than only by inspection: single-collector egress that fails closed when no collector is configured; synthetic entities only (RFC1918 plus the documentation ranges, non-resolvable DNS parents); log strings only, with no command execution, scanning, or data movement; an events-per-second cap; and a manifest written for every run.
+
+**Correction, 2026-09-06.** The preceding historical release text called every
+DNS parent non-resolvable. `example.net` is an IANA documentation domain but can
+resolve. The maintained invariant is that emitted names stay below IANA
+documentation domains or `.invalid`, while Replicant performs no DNS lookup or
+connection to them.
 
 **Determinism.** Same seed plus technique plus parameters yields byte-identical output. Verified across 181,071-line scenario runs, advisories included.
 

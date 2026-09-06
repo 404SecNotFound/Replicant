@@ -281,7 +281,7 @@ be blind.
       parent_domain: "one synthetic parent, stable across the whole run"
     benign_baseline: "a benign parent domain with comparable total query count but low unique-label cardinality, so rate alone cannot separate them"
     references: ["Nadler, Aminov, Shabtai, Computers & Security 80 (2019) 36-53"]
-    safety_notes: "parent domains stay non-resolvable synthetic; run durations are long, so document the duration in the run summary"
+    safety_notes: "parent strings stay under IANA documentation domains or .invalid and Replicant performs no DNS resolution; run durations are long, so document the duration in the run summary"
 ```
 
 Note the duration. `duration_h: 72` is far longer than anything currently in the

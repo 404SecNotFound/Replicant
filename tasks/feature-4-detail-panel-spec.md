@@ -61,6 +61,27 @@ respects `prefers-reduced-motion` (global rule kills the subtle live-dot pulse).
 - `Orchestrator.render_line(event)` helper serializes one planned event to CEF.
 - Tests: 6 added to `tests/test_web_api.py` (expanded fields + the sample endpoint).
 
+### 2026-09 vendor-selected metadata addendum
+
+The catalog and sample endpoints now accept an optional `vendor` query parameter. The
+catalog response echoes the resolved choice in `vendor_profile`; the sample response
+echoes it in `vendor`. The response contract is additive:
+
+| Field group | Contract |
+|---|---|
+| `log_type`, `subtype`, `signature_id`, `action`, `cef_fields_held`, `cef_fields_varied` | Compatibility fields. They keep their original catalog and FortiGate meanings even when another vendor is selected. The sample response omits legacy `action`, as it did before this addendum. |
+| `logical_log_type`, `logical_subtype` | The catalog's primary vendor-neutral dispatch family. |
+| `logical_families` | Every vendor-neutral family the plan emits, primary first. REP-017 and REP-018 are mixed-family plans, so the primary pair alone is not exhaustive. |
+| `native_log_type`, `native_subtype`, `native_signature_id`, `native_action` | The selected profile's identifiers for the primary logical family. `native_metadata_scope` is therefore `primary`, and `native_metadata_semantics` names what those values mean for that profile. |
+| `native_cef_fields_held`, `native_cef_fields_varied` | Deduplicated unions of selected-profile keys available in at least one declared logical family. An aggregate key is not a claim that every family carries it. |
+| `native_cef_fields_unavailable` | Source catalog fields that the selected profile cannot carry in any declared family, split into held and varied roles. |
+| `native_cef_fields_by_logical_family` | Exact held, varied, and unavailable fields for each family. Detection work on a mixed plan must use this map rather than infer family coverage from the aggregate union. |
+
+Existing clients can keep reading the compatibility fields unchanged. New clients that
+describe the selected renderer must read the `native_*` fields, and clients that need the
+whole plan must combine `logical_families` with
+`native_cef_fields_by_logical_family`.
+
 ## Defects folded in (from the UAT recon)
 
 - **DEF-002 (fixed)** — `RunPanel` eps waveform cap now comes from `config.eps_cap` (was hardcoded

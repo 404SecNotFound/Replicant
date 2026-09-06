@@ -33,7 +33,9 @@ unfixed code and observed to fail.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -117,18 +119,73 @@ class TestSessionStore:
 
         assert len(store) < 100
 
+    def test_expired_validation_and_logout_are_safe_when_concurrent(self) -> None:
+        """FastAPI runs sync dependencies/endpoints in worker threads.
+
+        Pin the exact check-then-delete race: validation has read the expiry while
+        logout revokes the same id. Neither caller may see a KeyError.
+        """
+
+        store = SessionStore(ttl_s=1, clock=lambda: 0.0)
+        sid = store.issue()
+        validation_read_expiry = Event()
+        release_validation = Event()
+
+        def expired_clock() -> float:
+            validation_read_expiry.set()
+            assert release_validation.wait(timeout=2)
+            return 2.0
+
+        store._clock = expired_clock
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            validation = pool.submit(store.validate, sid)
+            assert validation_read_expiry.wait(timeout=2)
+            logout = pool.submit(store.revoke, sid)
+            release_validation.set()
+
+            assert validation.result(timeout=2) is False
+            assert logout.result(timeout=2) is None
+
 
 class TestExchange:
+    def test_browser_bootstrap_redirects_before_serving_any_javascript(
+        self, client: TestClient
+    ) -> None:
+        """The master token must be gone before the document can execute code."""
+
+        resp = client.get(
+            "/",
+            params={"view": "catalog", "token": TOKEN},
+            follow_redirects=False,
+        )
+
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/?view=catalog"
+        assert TOKEN not in resp.headers["location"]
+        assert SESSION_COOKIE in resp.headers.get("set-cookie", "")
+        assert resp.headers["cache-control"] == "no-store"
+        assert TOKEN not in resp.text
+        assert "<script" not in resp.text.lower()
+
+    def test_invalid_browser_token_is_also_removed_before_document_load(
+        self, client: TestClient
+    ) -> None:
+        resp = client.get("/", params={"token": "wrong"}, follow_redirects=False)
+
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/"
+        assert SESSION_COOKIE not in resp.headers.get("set-cookie", "")
+
     def test_the_cookie_is_not_the_launch_token(self, client: TestClient) -> None:
         """The defect, stated directly."""
-        resp = client.get("/api/health", params={"token": TOKEN})
+        resp = client.get("/", params={"token": TOKEN}, follow_redirects=False)
 
         cookie = resp.cookies.get(SESSION_COOKIE)
         assert cookie
         assert cookie != TOKEN
 
     def test_the_cookie_authenticates_on_its_own(self, client: TestClient) -> None:
-        client.get("/api/config", params={"token": TOKEN})
+        client.get("/", params={"token": TOKEN})
 
         # No token in this one: the cookie the client kept must carry it.
         assert client.get("/api/config").status_code == 200
@@ -145,12 +202,32 @@ class TestExchange:
         assert client.get("/api/config").status_code == 401
 
     def test_logging_out_revokes_the_session(self, client: TestClient) -> None:
-        client.get("/api/config", params={"token": TOKEN})
+        client.get("/", params={"token": TOKEN})
         assert client.get("/api/config").status_code == 200
 
         client.post("/api/session/logout")
 
         assert client.get("/api/config").status_code == 401
+
+    def test_logout_ends_browser_access_but_not_the_bearer_api_contract(
+        self, client: TestClient
+    ) -> None:
+        """The SPA must fall back to no credential, not replay the launch token.
+
+        The frontend regression test pins the absence of that header. This side
+        pins the server contract it exposes: revoking the cookie ends browser
+        access, while an explicit non-browser bearer remains independently valid.
+        """
+        client.get("/", params={"token": TOKEN})
+        assert client.get("/api/config").status_code == 200
+
+        client.post("/api/session/logout")
+
+        assert client.get("/api/config").status_code == 401
+        assert (
+            client.get("/api/config", headers={"Authorization": f"Bearer {TOKEN}"}).status_code
+            == 200
+        )
 
     def test_the_launch_token_still_works_for_a_non_browser_client(
         self, client: TestClient

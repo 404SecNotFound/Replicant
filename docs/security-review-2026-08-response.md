@@ -28,7 +28,7 @@ See their rows below.
 | F-13 | fixed (#48) |
 | F-15 | fixed (#54). PEP 639 SPDX metadata, verified in a built wheel |
 | **F-14** | **closed 2026-08-30.** Operator chose to drop EOL Node 18. vite 5 to 8 and vitest 2 to 4, `npm audit` now reports **0 vulnerabilities** where it reported 6 (1 critical, 2 high, 3 moderate). The installer floor is Node 20 and the CI matrix is 20 and 22. Node 18 left maintenance in April 2025, so the floor was already behind the platform it named |
-| **F-08** | **closed 2026-08-30.** Operator chose the documented and enforced single-process scope over a host-level lease. `replicant/core/sendlock.py` takes an advisory `flock` for the duration of any run that opens a socket to a collector, so a second sending run on the host is refused rather than allowed to deliver twice the cap, and the refusal names the holding pid. A lease keyed on collector destination was the alternative and was declined: expiry, clock drift and orphaned leases are worse failure modes than the one being fixed, and `flock` is released by the kernel on exit so there is nothing stale to clean up. Scope stated rather than implied: per host and per user, not across hosts. `--no-send` and `--to-file` never acquire it. Guarded by `tests/test_sendlock.py`, which spawns a real second process, because a same-process re-entry would pass against code that locked nothing |
+| **F-08** | **closed 2026-08-30.** Operator chose the documented and enforced single-process scope over a host-level lease. `replicant/core/sendlock.py` takes an advisory `flock` for the duration of any run that opens a socket to a collector, so a second sending run on the host is refused rather than allowed to deliver twice the cap, and the refusal names the holding pid. A lease keyed on collector destination was the alternative and was declined: expiry, clock drift and orphaned leases are worse failure modes than the one being fixed, and `flock` is released by the kernel on exit so there is nothing stale to clean up. Scope stated rather than implied: per host and per user, not across hosts. `--no-send` and file-only runs do not acquire it; a live collector send mirrored with `--to-file` does. Guarded by `tests/test_sendlock.py`, which spawns a real second process, because a same-process re-entry would pass against code that locked nothing |
 
 The original response follows.
 
@@ -89,6 +89,17 @@ attempted and handed-to-transport counts, transport statistics, catalog hash and
 profile version. Those belong with R-07 (content-addressed experiment bundles)
 and are deferred to it rather than half-built here. What ships now is the audit
 guarantee itself.
+
+**Follow-up, 2026-09-06.** The original fix wrote a terminal record on handled
+exit paths. The current implementation strengthens that into a durable
+write-ahead lifecycle: it publishes `status="running"` before any output,
+checkpoints about once per second and before long plan-paced waits, then
+atomically finalizes the same path. It now records planned and rendered counts;
+`partial` means rendered is below planned and is independent of `status`.
+Individual-run `send_stats` records handoff to the socket, while scenario
+manifests still do not carry transport statistics. Attempted-event counts,
+catalog hashes, and profile versions remain in the R-07 scope. See
+[`run-manifest.md`](run-manifest.md) for the exact current contract.
 
 ### F-03 Repository Markdown can execute same-origin code — **P1, fixed**
 

@@ -18,10 +18,9 @@ import App from "./App";
 import { urlWithoutToken } from "@/lib/api";
 import "./index.css";
 
-// Drop the token from the address bar once the page has it. Order matters and is
-// guaranteed: imports are evaluated before this body runs, so api.ts has already
-// captured TOKEN, and the server has already set the session cookie on the
-// document response that delivered this script.
+// Defense in depth for a directly served/static build. The normal backend path
+// exchanges the bootstrap token and redirects here without it before serving any
+// JavaScript; no frontend module extracts, retains, or replays the credential.
 const cleaned = urlWithoutToken(window.location.href);
 if (cleaned) window.history.replaceState(null, "", cleaned);
 

@@ -24,8 +24,9 @@ a credential: either the persistent launch token (a Bearer header, an
 ``SameSite=Strict`` session cookie the server issues in exchange for it. The cookie
 holds a short-lived random id from :class:`SessionStore`, never the launch token
 itself, so it expires, can be revoked one browser at a time, and is worth nothing
-once it lapses. The browser therefore never puts a credential in a URL, which is
-what kept the launch token out of server logs, history and Referer. A middleware
+once it lapses. The initial bootstrap navigation carries the launch token only
+until the server exchanges it and redirects to a clean URL, before any SPA code
+is served. Subsequent API, SSE, and WebSocket requests rely only on the cookie. A middleware
 rejects any Host that is not the bind address, loopback, or an explicitly allowed
 name (the DNS-rebinding guard). Because the cookie is the only credential a browser
 attaches by itself, a cookie-authenticated write must also carry a matching Origin.
@@ -54,10 +55,12 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
+from uuid import UUID
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from starlette.requests import HTTPConnection
@@ -74,14 +77,22 @@ from replicant.config.settings import (
     stale_anchor_warning,
     web_token_path,
 )
-from replicant.core.models import Catalog, CollectorProfile, Intensity, RunRequest, Transport
+from replicant.core.models import (
+    Catalog,
+    CollectorProfile,
+    Intensity,
+    RunRequest,
+    Technique,
+    Transport,
+)
 from replicant.core.orchestrator import Orchestrator, PacingPreview, effective_identity
 from replicant.core.pacing import MAX_SPEED, SPEED_WITHOUT_PLAN, Pace
 from replicant.obs import log as obs_log
+from replicant.profiles.base import VendorProfile
 from replicant.scenario.engine import implemented_technique_ids
 from replicant.transport.syslog import probe_collector
 from replicant.web.pty_bridge import bridge_terminal
-from replicant.web.runner import RunInProgressError, RunManager
+from replicant.web.runner import RunAdmissionError, RunHandle, RunInProgressError, RunManager
 
 FRONTEND_DIST = _resources.FRONTEND_DIST
 DOCS_DIR = _resources.DOCS_DIR
@@ -104,6 +115,7 @@ class DocPage:
 # into the package would guarantee the two copies drift. A wheel install therefore
 # has no reference docs, and these endpoints say so rather than failing.
 DOC_PAGES: tuple[DocPage, ...] = (
+    DocPage("run-manifest", "Run manifest contract", "run-manifest.md"),
     DocPage("fortigate-cef", "FortiGate CEF reference", "fortigate-cef-reference.md"),
     DocPage("paloalto-cef", "Palo Alto PAN-OS CEF reference", "paloalto-cef-reference.md"),
     DocPage("checkpoint-cef", "Check Point CEF reference", "checkpoint-cef-reference.md"),
@@ -123,8 +135,8 @@ _DOC_BY_ID = {page.id: page for page in DOC_PAGES}
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _WILDCARD_BINDS = frozenset({"0.0.0.0", "::"})
 
-# Set on the first authenticated load so the token does not have to live in the
-# URL bar for the rest of the session.
+# Issued by the tokenized bootstrap redirect before the first SPA document loads,
+# so the launch token is absent from browser JavaScript and later requests.
 SESSION_COOKIE = "replicant_session"
 
 #: How long a browser session is good for. Long enough that an operator running a
@@ -145,46 +157,56 @@ class SessionStore:
     not. The launch token remains the bootstrap and the only thing a non-browser
     client needs, because a script cannot run a cookie jar.
 
-    No lock: every caller is a coroutine on one event loop.
+    FastAPI executes synchronous dependencies and endpoints in worker threads, so
+    every dictionary lifecycle operation is serialized. Session issuance is rare
+    enough that a single small lock is simpler and safer than split read/write
+    locking or relying on individual dict operations being atomic.
     """
 
     def __init__(self, ttl_s: int = SESSION_TTL_S, clock: Any = None) -> None:
         self.ttl_s = ttl_s
         self._clock = clock or time.monotonic
         self._expiry: dict[str, float] = {}
+        self._lock = threading.RLock()
 
     def __len__(self) -> int:
-        return len(self._expiry)
+        with self._lock:
+            return len(self._expiry)
 
     def _sweep(self) -> None:
         """Drop expired ids. Called on issue, so a reconnect loop cannot grow this
         without bound on a long-lived server."""
-        now = self._clock()
-        for sid in [s for s, exp in self._expiry.items() if exp <= now]:
-            del self._expiry[sid]
+        with self._lock:
+            now = self._clock()
+            for sid in [s for s, exp in self._expiry.items() if exp <= now]:
+                self._expiry.pop(sid, None)
 
     def issue(self) -> str:
-        self._sweep()
-        sid = secrets.token_urlsafe(32)
-        self._expiry[sid] = self._clock() + self.ttl_s
-        return sid
+        with self._lock:
+            self._sweep()
+            sid = secrets.token_urlsafe(32)
+            self._expiry[sid] = self._clock() + self.ttl_s
+            return sid
 
     def validate(self, sid: str) -> bool:
         if not sid:
             return False
-        expiry = self._expiry.get(sid)
-        if expiry is None:
-            return False
-        if expiry <= self._clock():
-            del self._expiry[sid]
-            return False
-        return True
+        with self._lock:
+            expiry = self._expiry.get(sid)
+            if expiry is None:
+                return False
+            if expiry <= self._clock():
+                self._expiry.pop(sid, None)
+                return False
+            return True
 
     def revoke(self, sid: str) -> None:
-        self._expiry.pop(sid, None)
+        with self._lock:
+            self._expiry.pop(sid, None)
 
     def revoke_all(self) -> None:
-        self._expiry.clear()
+        with self._lock:
+            self._expiry.clear()
 
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -409,6 +431,9 @@ class RunBody(BaseModel):
     no_send: bool = False
     collector: CollectorBody | None = None
     vendor: str | None = None  # override settings.vendor for this run
+    # Optional browser-created idempotency key from POST /api/run-admissions.
+    # Older API callers can omit it and retain the one-call start contract.
+    admission_id: UUID | None = None
     # "now", "fixed", an epoch, or an ISO-8601 timestamp. None and "fixed" both mean
     # the deterministic default; everything else goes through the same parse_anchor
     # the CLI uses, so the two surfaces cannot drift.
@@ -416,7 +441,7 @@ class RunBody(BaseModel):
     # Events per second. The CLI has had `--rate` since Phase 1; the form had no
     # equivalent, so an operator whose collector could not digest the default had
     # no way to slow it down without dropping to a terminal. None means the
-    # configured eps cap.
+    # configured eps cap; an explicit value may lower that ceiling, never raise it.
     rate: int | None = Field(default=None, gt=0)
     # Delivery shape. None lets the server decide from the destination, which is
     # the same rule the CLI follows, resolved in one place so the two surfaces
@@ -431,9 +456,92 @@ class RunBody(BaseModel):
         return self
 
 
-def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
+class RunAdmissionBody(BaseModel):
+    """Small first phase of browser run admission, before plan construction."""
+
+    technique_id: str
+    vendor: str | None = None
+    # crypto.randomUUID() lets a browser safely retry when the reserve response
+    # is lost. The server's manifest/run id remains in its documented format.
+    admission_id: UUID | None = None
+
+
+def _native_field_coverage(technique: Technique, profile: VendorProfile) -> dict[str, Any]:
+    """Describe plan-wide and per-family native field coverage.
+
+    A mixed plan cannot use one family's extension keys to validate another
+    family's metadata. The aggregate is useful for rule authoring, while the
+    bounded per-family map states exactly where each signal is available.
+    """
+
+    source_fields = {
+        "held": technique.cef_fields_held,
+        "varied": technique.cef_fields_varied,
+    }
+    families = technique.logical_families()
+    mapped: dict[tuple[str, str], dict[str, str | None]] = {}
+    by_family: dict[str, dict[str, Any]] = {}
+    all_sources = dict.fromkeys((*technique.cef_fields_held, *technique.cef_fields_varied))
+
+    for log_type, subtype in families:
+        family = (log_type, subtype)
+        field_map = {
+            source: profile.detection_field_name(
+                source,
+                log_type=log_type,
+                subtype=subtype,
+            )
+            for source in all_sources
+        }
+        mapped[family] = field_map
+        family_json: dict[str, Any] = {"unavailable": {}}
+        for role, fields in source_fields.items():
+            family_available: list[str] = []
+            for field in fields:
+                native = field_map[field]
+                if native is not None and native not in family_available:
+                    family_available.append(native)
+            family_json[role] = family_available
+            family_json["unavailable"][role] = [
+                field for field in fields if field_map[field] is None
+            ]
+        by_family[f"{log_type}:{subtype}"] = family_json
+
+    aggregate: dict[str, list[str]] = {}
+    aggregate_unavailable: dict[str, list[str]] = {}
+    for role, fields in source_fields.items():
+        aggregate_available: list[str] = []
+        unavailable: list[str] = []
+        for field in fields:
+            native_names = [mapped[family][field] for family in families]
+            emitted_names = [name for name in native_names if name is not None]
+            if not emitted_names:
+                unavailable.append(field)
+            for name in emitted_names:
+                if name not in aggregate_available:
+                    aggregate_available.append(name)
+        aggregate[role] = aggregate_available
+        aggregate_unavailable[role] = unavailable
+
+    return {
+        "native_cef_fields_held": aggregate["held"],
+        "native_cef_fields_varied": aggregate["varied"],
+        "native_cef_fields_unavailable": aggregate_unavailable,
+        "native_cef_fields_by_logical_family": by_family,
+    }
+
+
+def _technique_json(catalog: Catalog, profile: VendorProfile) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for technique in catalog.techniques:
+        binding = technique.fortigate
+        metadata = profile.detection_metadata(
+            binding.log_type,
+            binding.subtype,
+            binding.signature_id,
+            binding.action,
+        )
+        field_coverage = _native_field_coverage(technique, profile)
         out.append(
             {
                 "id": technique.id,
@@ -444,17 +552,32 @@ def _technique_json(catalog: Catalog) -> list[dict[str, Any]]:
                 # sentence from log_type and rule id, which read as specific and
                 # was identical in meaning for all 24 entries.
                 "objective": technique.objective,
-                "log_type": technique.fortigate.log_type,
-                "subtype": technique.fortigate.subtype,
+                "logical_log_type": binding.log_type,
+                "logical_subtype": binding.subtype,
+                "logical_families": [
+                    f"{log_type}:{subtype}" for log_type, subtype in technique.logical_families()
+                ],
+                # Compatibility fields retain their catalog/FortiGate meanings.
+                # Selected-profile identifiers are explicit below, never silent
+                # semantic replacements for an existing API key.
+                "log_type": binding.log_type,
+                "subtype": binding.subtype,
+                "native_log_type": metadata.log_type,
+                "native_subtype": metadata.subtype,
+                "native_metadata_scope": "primary",
+                "native_metadata_semantics": metadata.semantics,
                 "attack": technique.attack.techniques,
                 "tactics": technique.attack.tactics,
                 "intensities": sorted(technique.params.keys()),
                 "implemented": technique.id in implemented_technique_ids(),
                 "safety_notes": technique.safety_notes,
-                "signature_id": technique.fortigate.signature_id,
-                "action": technique.fortigate.action,
+                "signature_id": binding.signature_id,
+                "action": binding.action,
+                "native_signature_id": metadata.signature_id,
+                "native_action": metadata.action,
                 "cef_fields_held": technique.cef_fields_held,
                 "cef_fields_varied": technique.cef_fields_varied,
+                **field_coverage,
                 "params": technique.params,
                 "distributions": technique.distributions,
                 "benign_baseline": technique.benign_baseline,
@@ -580,39 +703,54 @@ def create_app(
             if not _origin_ok(request, required=True):
                 raise HTTPException(status_code=403, detail="cross-origin write rejected")
 
+    def _set_session_cookie(response: Any, request: Request) -> None:
+        response.set_cookie(
+            SESSION_COOKIE,
+            # A fresh short-lived id, not the launch token. See SessionStore.
+            sessions.issue(),
+            httponly=True,
+            samesite="strict",
+            path="/",
+            max_age=sessions.ttl_s,
+            # Only over https, where it means anything. Setting it on the
+            # loopback http the tool serves by default would stop the cookie
+            # being sent at all, which is a worse outcome than not setting it.
+            secure=request.url.scheme == "https",
+        )
+
     @app.middleware("http")
     async def _session_cookie(request: Request, call_next: Any) -> Any:
-        """Promote a URL-token navigation to a session cookie once it has worked.
+        """Exchange a browser launch token before serving the SPA document.
 
-        This lives in middleware rather than a route because ``StaticFiles`` is
-        mounted at ``/``: the page the operator actually opens is served by the
-        mount, so no handler in this module ever sees it.
+        ``StaticFiles`` owns ``/``, so middleware is the only place that can
+        intercept the printed launch URL. Redirecting first means neither the SPA
+        nor any dependency in its module graph ever executes while the persistent
+        token remains readable from ``window.location``. Explicit query tokens on
+        ``/api`` remain a programmatic authentication source and mint no sessions.
         """
+
         source = _authenticated_source(request)
-        response = await call_next(request)
-        # Only the query-token source is promoted to a cookie. That is the browser
-        # navigation path: the operator opens the printed `/?token=...` URL, the
-        # SPA reads the token, strips it (F-04), and relies on the cookie from
-        # then on. The header source is the programmatic API contract, where the
-        # client manages its own credential and does not use the cookie, so
-        # minting one per request just grew SessionStore for the full TTL with
-        # sessions no client would ever present. A header-token monitoring poll
-        # now mints nothing.
-        if source == "query" and response.status_code < 400:
-            response.set_cookie(
-                SESSION_COOKIE,
-                # A fresh short-lived id, not the launch token. See SessionStore.
-                sessions.issue(),
-                httponly=True,
-                samesite="strict",
-                path="/",
-                max_age=sessions.ttl_s,
-                # Only over https, where it means anything. Setting it on the
-                # loopback http the tool serves by default would stop the cookie
-                # being sent at all, which is a worse outcome than not setting it.
-                secure=request.url.scheme == "https",
-            )
-        return response
+        path = request.url.path
+        is_browser_surface = not path.startswith("/api/") and path != "/api"
+        if request.method == "GET" and is_browser_surface and "token" in request.query_params:
+            clean_items = [
+                (key, value) for key, value in request.query_params.multi_items() if key != "token"
+            ]
+            clean_query = urlencode(clean_items, doseq=True)
+            # Keep this a same-host path even if an unusual request target began
+            # with ``//`` (which a browser would interpret as a scheme-relative
+            # redirect to another host).
+            clean_path = "/" + path.lstrip("/")
+            destination = clean_path + (f"?{clean_query}" if clean_query else "")
+            response = RedirectResponse(destination, status_code=303)
+            response.headers["Cache-Control"] = "no-store"
+            # A valid query credential is exchanged exactly once. An invalid token
+            # is still removed before document load, but earns no session.
+            if source == "query":
+                _set_session_cookie(response, request)
+            return response
+
+        return await call_next(request)
 
     @app.middleware("http")
     async def _host_guard(request: Request, call_next: Any) -> Any:
@@ -627,11 +765,13 @@ def create_app(
         return {"status": "ok", "version": __version__, "vendor": catalog.vendor_profile}
 
     @app.get("/api/catalog", dependencies=[Depends(require_token)])
-    def get_catalog() -> dict[str, Any]:
+    def get_catalog(vendor: str | None = Query(default=None)) -> dict[str, Any]:
+        resolved = _resolve_vendor(vendor)
+        orch = _orchestrator_for(resolved)
         return {
-            "vendor_profile": catalog.vendor_profile,
+            "vendor_profile": resolved,
             "timezone": catalog.timezone,
-            "techniques": _technique_json(catalog),
+            "techniques": _technique_json(catalog, orch.profile),
         }
 
     # Sample lines, cached by what determines them.
@@ -684,15 +824,35 @@ def create_app(
             no_send=True,
         )
         lines = _sample_lines(orch, request, _resolve_vendor(vendor))
+        binding = technique.fortigate
+        metadata = orch.profile.detection_metadata(
+            binding.log_type,
+            binding.subtype,
+            binding.signature_id,
+            binding.action,
+        )
+        field_coverage = _native_field_coverage(technique, orch.profile)
         return {
             "technique_id": technique.id,
             "vendor": _resolve_vendor(vendor),
             "intensity": request.intensity,
-            "log_type": technique.fortigate.log_type,
-            "subtype": technique.fortigate.subtype,
-            "signature_id": technique.fortigate.signature_id,
+            "logical_log_type": binding.log_type,
+            "logical_subtype": binding.subtype,
+            "logical_families": [
+                f"{log_type}:{subtype}" for log_type, subtype in technique.logical_families()
+            ],
+            "log_type": binding.log_type,
+            "subtype": binding.subtype,
+            "native_log_type": metadata.log_type,
+            "native_subtype": metadata.subtype,
+            "signature_id": binding.signature_id,
+            "native_signature_id": metadata.signature_id,
+            "native_action": metadata.action,
+            "native_metadata_scope": "primary",
+            "native_metadata_semantics": metadata.semantics,
             "cef_fields_held": technique.cef_fields_held,
             "cef_fields_varied": technique.cef_fields_varied,
+            **field_coverage,
             "lines": lines,
         }
 
@@ -852,6 +1012,89 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return request, sending, preview
 
+    def _validate_run_identity(technique_id: str, vendor: str | None) -> str:
+        """Validate the cheap identity fields before reserving active ownership."""
+
+        try:
+            catalog.by_id(technique_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return _resolve_vendor(vendor)
+
+    def _active_conflict(exc: RunInProgressError) -> HTTPException:
+        active = manager.get(exc.active_run_id)
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "run_in_progress",
+                "authoritative": True,
+                "message": str(exc),
+                "admission_id": active.admission_id if active is not None else None,
+                "run_id": exc.active_run_id,
+                "technique_id": exc.technique_id,
+                "vendor": exc.vendor,
+                "status": active.status if active is not None else None,
+            },
+        )
+
+    def _admission_conflict(exc: RunAdmissionError) -> HTTPException:
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code,
+                "authoritative": True,
+                "message": str(exc),
+                "admission_id": exc.admission_id,
+                "admission_run_id": exc.admission_run_id,
+                "run_id": exc.active_run_id,
+                "technique_id": exc.active_technique_id,
+                "vendor": exc.active_vendor,
+                "status": exc.active_status,
+            },
+        )
+
+    def _admission_json(handle: RunHandle) -> dict[str, Any]:
+        return {
+            "admission_id": handle.admission_id,
+            "run_id": handle.run_id,
+            "technique_id": handle.technique_id,
+            "vendor": handle.vendor,
+            "status": handle.status,
+            "event_count": handle.event_count,
+            "total": handle.total,
+        }
+
+    @app.post("/api/run-admissions", dependencies=[Depends(require_token)])
+    def reserve_run(body: RunAdmissionBody) -> dict[str, Any]:
+        """Reserve run ownership before the browser asks for a plan and start.
+
+        The client supplies the idempotency key, so it can retry this exact call
+        after a lost response. Once this response is observed, a later active
+        probe cannot overtake reservation creation and incorrectly report null.
+        """
+
+        vendor = _validate_run_identity(body.technique_id, body.vendor)
+        try:
+            handle = manager.reserve(
+                body.technique_id,
+                vendor,
+                str(body.admission_id) if body.admission_id is not None else None,
+            )
+        except RunInProgressError as exc:
+            raise _active_conflict(exc) from exc
+        except RunAdmissionError as exc:
+            raise _admission_conflict(exc) from exc
+        return _admission_json(handle)
+
+    @app.get("/api/run-admissions/{admission_id}", dependencies=[Depends(require_token)])
+    def run_admission(admission_id: UUID) -> dict[str, Any]:
+        """Resolve a client-known admission id after an ambiguous response."""
+
+        handle = manager.get_admission(str(admission_id))
+        if handle is None:
+            raise HTTPException(status_code=404, detail="unknown run admission")
+        return _admission_json(handle)
+
     @app.post("/api/plan", dependencies=[Depends(require_token)])
     def preview_plan(body: RunBody) -> dict[str, Any]:
         """How long this run would take, without starting it.
@@ -875,32 +1118,51 @@ def create_app(
 
     @app.post("/api/runs", dependencies=[Depends(require_token)])
     def start_run(body: RunBody) -> dict[str, Any]:
-        request, sending, preview = _preview(body)
-        anchor = request.anchor_epoch or settings.anchor_epoch
+        vendor = _validate_run_identity(body.technique_id, body.vendor)
         try:
+            if body.admission_id is not None:
+                admission = manager.claim(str(body.admission_id), body.technique_id, vendor)
+            else:
+                # Backwards compatibility for scripts using the original one-call
+                # endpoint. Browser clients use the acknowledged reservation
+                # phase above so their ownership probes cannot overtake this call.
+                admission = manager.reserve(body.technique_id, vendor)
+                admission = manager.claim(admission.admission_id, body.technique_id, vendor)
+        except RunInProgressError as exc:
+            raise _active_conflict(exc) from exc
+        except RunAdmissionError as exc:
+            raise _admission_conflict(exc) from exc
+
+        try:
+            request, sending, preview = _preview(body)
+            anchor = request.anchor_epoch or settings.anchor_epoch
             handle = manager.start(
                 request,
-                settings=_settings_for(body.vendor),
+                settings=_settings_for(vendor),
                 # The preview just built this plan; REP-004 high is 180,000 events
                 # and 1.6 seconds, so it is not worth building twice.
                 total=preview.event_count,
+                admission=admission,
             )
         except RunInProgressError as exc:
-            # Structured, not a sentence. The client has to name the technique
-            # holding the lock and offer to stop that specific run; parsing a hex
-            # id back out of prose is not a contract worth having.
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": str(exc),
-                    "run_id": exc.active_run_id,
-                    "technique_id": exc.technique_id,
-                },
-            ) from exc
+            manager.fail_admission(admission, str(exc))
+            raise _active_conflict(exc) from exc
+        except RunAdmissionError as exc:
+            manager.fail_admission(admission, str(exc))
+            raise _admission_conflict(exc) from exc
+        except HTTPException as exc:
+            manager.fail_admission(admission, str(exc.detail))
+            raise
         except (RuntimeError, NotImplementedError) as exc:
+            manager.fail_admission(admission, str(exc))
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            manager.fail_admission(admission, str(exc))
+            raise
         return {
+            "admission_id": handle.admission_id,
             "run_id": handle.run_id,
+            "vendor": handle.vendor,
             "total": handle.total,
             "anchor_epoch": anchor,
             "anchor_warning": stale_anchor_warning(anchor, sending=sending),
@@ -963,10 +1225,18 @@ def create_app(
         """
         handle = manager.active()
         if handle is None:
-            return {"run_id": None, "technique_id": None, "status": None}
+            return {
+                "admission_id": None,
+                "run_id": None,
+                "technique_id": None,
+                "vendor": None,
+                "status": None,
+            }
         return {
+            "admission_id": handle.admission_id,
             "run_id": handle.run_id,
             "technique_id": handle.technique_id,
+            "vendor": handle.vendor,
             "status": handle.status,
             "event_count": handle.event_count,
             "total": handle.total,
@@ -978,7 +1248,9 @@ def create_app(
         if handle is None:
             raise HTTPException(status_code=404, detail="unknown run")
         return {
+            "admission_id": handle.admission_id,
             "run_id": handle.run_id,
+            "vendor": handle.vendor,
             "status": handle.status,
             "total": handle.total,
             "event_count": handle.event_count,
@@ -1009,7 +1281,7 @@ def create_app(
                     try:
                         item = await loop.run_in_executor(None, getter)
                     except queue.Empty:
-                        if handle.status != "running" and subscriber.empty():
+                        if handle.stream_complete(subscriber):
                             break
                         yield ": keepalive\n\n"
                         continue
