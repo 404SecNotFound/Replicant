@@ -16,18 +16,21 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { ConnectionCard } from "@/components/ConnectionCard";
 import { CatalogTable } from "@/components/CatalogTable";
-import { RunPanel } from "@/components/RunPanel";
+import { RunPanel, type RunAdmission } from "@/components/RunPanel";
 import { TechniqueDetail } from "@/components/TechniqueDetail";
 import { cn } from "@/lib/utils";
 import {
+  getActiveRun,
   getCatalog,
   getConfig,
+  vendorShortLabel,
   type ActiveRun,
   type CatalogResponse,
   type Collector,
   type ConfigResponse,
   type Technique,
 } from "@/lib/api";
+import { isTerminalStatus } from "@/lib/runLifecycle";
 
 // Lazy-loaded so xterm.js (the terminal's heavy dependency) is fetched only when
 // the operator opens the Terminal tab, not on first paint of the Emitter view.
@@ -48,6 +51,7 @@ const LogsView = lazy(() =>
 );
 
 type Tab = "emitter" | "docs" | "logs" | "terminal";
+const ACTIVE_DISCOVERY_RETRY_MS = 1000;
 
 export default function App() {
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
@@ -56,6 +60,8 @@ export default function App() {
   const [collector, setCollector] = useState<Collector | null>(null);
   const [vendor, setVendor] = useState("fortigate");
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
+  const [activeRunDiscoveryPending, setActiveRunDiscoveryPending] = useState(true);
+  const [runAdmission, setRunAdmission] = useState<RunAdmission | null>(null);
   const [selected, setSelected] = useState<Technique | null>(null);
   const [tab, setTab] = useState<Tab>("emitter");
   // Below the lg breakpoint the left rail is a disclosure rather than a column.
@@ -64,13 +70,55 @@ export default function App() {
   const [railOpen, setRailOpen] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const discoverActiveOwner = (cfg: ConfigResponse) => {
+      getActiveRun()
+        .then((restored) => {
+          if (cancelled) return;
+          const restoredRun = restored.run_id ? restored : null;
+          setConfig(cfg);
+          setActiveRun(restoredRun);
+          // A known owner is already fail-closed. A successful null bootstrap
+          // stays discovery-pending until RunPanel's fresh probe closes the gap
+          // between bootstrap and its mounted controls.
+          setActiveRunDiscoveryPending(restoredRun === null);
+          // The run was rendered with this canonical profile. Load that catalog
+          // first, so a restored PAN-OS run is never presented with FortiGate
+          // metadata while RunPanel performs its own lifecycle probe.
+          setVendor(restoredRun?.vendor ?? cfg.vendor);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          // Unknown ownership is not an idle server. Keep the application on
+          // its loading surface and retry without loading a possibly wrong
+          // vendor catalog or exposing an enabled Run control.
+          retryTimer = setTimeout(
+            () => discoverActiveOwner(cfg),
+            ACTIVE_DISCOVERY_RETRY_MS,
+          );
+        });
+    };
+
     getConfig()
       .then((cfg) => {
-        setConfig(cfg);
-        setVendor(cfg.vendor);
+        if (cancelled) return;
+        discoverActiveOwner(cfg);
       })
-      .catch((err) => setLoadError((err as Error).message));
+      .catch((err) => {
+        if (!cancelled) setLoadError((err as Error).message);
+      });
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+    };
   }, []);
+
+  useEffect(() => {
+    const ownerVendor = activeRun?.run_id ? (activeRun.vendor ?? null) : null;
+    if (ownerVendor && ownerVendor !== vendor) setVendor(ownerVendor);
+  }, [activeRun?.run_id, activeRun?.vendor, vendor]);
 
   useEffect(() => {
     if (!config) return;
@@ -102,14 +150,20 @@ export default function App() {
           <p className="text-sm text-muted-foreground">{loadError}</p>
           <p className="text-sm text-muted-foreground">
             Open the URL printed by <code className="font-mono">replicant web</code>, which includes
-            the session token.
+            the persistent launch token.
           </p>
         </div>
       </div>
     );
   }
 
-  if (!catalog || !config || catalog.vendor_profile !== vendor) {
+  const ownerVendor = activeRun?.run_id ? (activeRun.vendor ?? null) : null;
+  if (
+    !catalog
+    || !config
+    || catalog.vendor_profile !== vendor
+    || (ownerVendor !== null && ownerVendor !== vendor)
+  ) {
     return (
       <div className="flex h-screen items-center justify-center font-mono text-sm text-muted-foreground">
         Loading Replicant…
@@ -117,22 +171,35 @@ export default function App() {
     );
   }
 
+  const activeRunIsTerminal = Boolean(
+    activeRun?.status && isTerminalStatus(activeRun.status),
+  );
+
   // The machine voice for navigation: mono, uppercase, weight 400. The active
   // tab is a one-pixel hairline in the text color, not a bolder weight; the
   // Factory system never reaches for bold.
-  const navItem = (id: Tab, label: string) => (
-    <button
-      onClick={() => setTab(id)}
-      className={cn(
-        "flex h-full items-center border-b font-mono text-label uppercase tracking-[-0.24px] transition-colors",
-        tab === id
-          ? "border-foreground text-foreground"
-          : "border-transparent text-text-4 hover:text-foreground",
-      )}
-    >
-      {label}
-    </button>
-  );
+  const navItem = (id: Tab, label: string) => {
+    const disabledForAdmission = Boolean(runAdmission) && id !== "emitter";
+    return (
+      <button
+        onClick={() => setTab(id)}
+        disabled={disabledForAdmission}
+        title={
+          disabledForAdmission
+            ? "Wait for the pending run admission before leaving the Emitter."
+            : undefined
+        }
+        className={cn(
+          "flex h-full items-center border-b font-mono text-label uppercase tracking-[-0.24px] transition-colors disabled:cursor-wait disabled:opacity-40",
+          tab === id
+            ? "border-foreground text-foreground"
+            : "border-transparent text-text-4 enabled:hover:text-foreground",
+        )}
+      >
+        {label}
+      </button>
+    );
+  };
 
   return (
     // Below lg this is an ordinary scrolling page. The fixed-viewport shell with
@@ -222,11 +289,21 @@ export default function App() {
               vendor={vendor}
               vendors={config.vendors}
               onVendorChange={setVendor}
-              vendorChangeDisabled={Boolean(activeRun?.run_id)}
+              vendorChangeDisabled={Boolean(
+                activeRun?.run_id || runAdmission || activeRunDiscoveryPending
+              )}
               vendorChangeDisabledReason={
                 activeRun?.run_id
-                  ? `Vendor profile is locked while ${activeRun.technique_id ?? "a run"} is running. Stop the active run before switching profiles.`
-                  : undefined
+                  ? activeRunIsTerminal
+                    ? `Vendor profile remains locked while Replicant confirms the active owner after ${activeRun.technique_id ?? "the run"} reached ${activeRun.status}.`
+                    : activeRun.status === "reserved" || activeRun.status === "admitting"
+                      ? `Vendor profile is locked while ${activeRun.technique_id ?? "a run"} holds run admission under ${vendorShortLabel(activeRun.vendor ?? vendor)}. Cancel that admission before switching profiles.`
+                      : `Vendor profile is locked while ${activeRun.technique_id ?? "a run"} is running under ${vendorShortLabel(activeRun.vendor ?? vendor)}. Stop the active run before switching profiles.`
+                  : runAdmission
+                    ? `Vendor profile is locked while Replicant requests admission for ${runAdmission.technique_id} under ${vendorShortLabel(runAdmission.vendor)}.`
+                    : activeRunDiscoveryPending
+                      ? "Vendor profile is locked while Replicant confirms active run ownership with the backend."
+                      : undefined
               }
             />
             <CatalogTable
@@ -245,7 +322,10 @@ export default function App() {
               vendor={vendor}
               epsCap={config.eps_cap}
               anchorEpoch={config.anchor_epoch}
+              initialActiveRun={activeRun}
               onActiveRunChange={setActiveRun}
+              onActiveRunDiscoveryChange={setActiveRunDiscoveryPending}
+              onRunAdmissionChange={setRunAdmission}
             />
           </main>
         </div>

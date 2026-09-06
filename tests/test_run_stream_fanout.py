@@ -31,6 +31,7 @@ on a finished run.
 from __future__ import annotations
 
 import queue
+import threading
 from pathlib import Path
 
 import pytest
@@ -108,6 +109,69 @@ class TestFanOut:
         while not fast.empty():
             seen.append(fast.get_nowait())
         assert any(i.get("data") == "important" for i in seen)
+
+    def test_terminal_status_cannot_close_a_stream_before_terminal_publish(self) -> None:
+        """Status is terminal first, but stream completion waits for its item."""
+        handle = _handle()
+        subscriber = handle.subscribe()
+        publish_entered = threading.Event()
+        release_publish = threading.Event()
+
+        def delayed_terminal_publish() -> None:
+            publish_entered.set()
+            assert release_publish.wait(timeout=5.0), "test did not release terminal publish"
+            handle.publish({"type": "done", "count": 3})
+
+        handle.status = "done"
+        publisher = threading.Thread(target=delayed_terminal_publish)
+        publisher.start()
+        try:
+            assert publish_entered.wait(timeout=5.0), "publisher thread did not start"
+            assert not handle.stream_complete(subscriber)
+        finally:
+            release_publish.set()
+            publisher.join(timeout=5.0)
+
+        assert not publisher.is_alive()
+        assert subscriber.get_nowait()["type"] == "done"
+        assert handle.stream_complete(subscriber)
+
+    def test_a_full_reader_drops_an_old_item_instead_of_the_terminal_item(self) -> None:
+        handle = RunHandle(
+            run_id="r1",
+            orchestrator=Orchestrator(CATALOG, Settings()),
+            queue=queue.Queue(maxsize=1),
+            total=1,
+        )
+        handle.queue.put_nowait({"type": "line", "data": "old"})
+
+        handle.publish({"type": "done", "count": 1})
+
+        assert handle.queue.get_nowait()["type"] == "done"
+        assert handle.stream_complete(handle.queue)
+
+    def test_worker_thread_start_failure_publishes_terminal_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from replicant.web.runner import RunManager
+
+        manager = RunManager(CATALOG, Settings())
+        handle = manager.reserve("REP-001", "fortigate")
+        manager.claim(handle.admission_id, "REP-001", "fortigate")
+
+        def fail_start(_thread: threading.Thread) -> None:
+            raise RuntimeError("thread start failed")
+
+        monkeypatch.setattr(threading.Thread, "start", fail_start)
+        with pytest.raises(RuntimeError, match="thread start failed"):
+            manager.start(
+                RunRequest(technique_id="REP-001", intensity="low", no_send=True),
+                admission=handle,
+            )
+
+        assert handle.status == "error"
+        assert handle.queue.get_nowait()["type"] == "error"
+        assert handle.stream_complete(handle.queue)
 
     def test_subscribing_during_a_publish_storm_loses_no_item(self) -> None:
         """The fan-out race: a tab subscribing at the instant of a publish could

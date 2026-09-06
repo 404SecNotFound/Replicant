@@ -17,13 +17,88 @@ heading. Reconciled against the tree on 2026-07-30, so a box now means what it s
   it had never been called by a builder, and a helper kept alive only by a backlog line is dead
   code with an alibi. Four lines, in git history, trivially re-added if the feature is ever
   actually scheduled. `docs/blueprint.md` still mentions it as historical design.
-- **Plan-twice cost in `RunManager.start`.** `replicant/web/runner.py:113` builds the plan
-  once to get an event total, and the run then builds it again. Minor, measurable only on
-  large plans. (Safety hardening)
+- **Plan-twice cost in the web start path.** `replicant/web/server.py` builds a
+  preview plan for pacing and the worker's Orchestrator builds the execution
+  plan. `RunManager.start(total=...)` already skips its own count-only build.
+  Minor, measurable only on large plans. (Safety hardening)
 
 Everything else here is done. The v0.1.1 deferred list is fully closed, and there is no open
 engineering backlog: what remains on the project needs DJR at a terminal, a LogRhythm lab, or
 real vendor appliances. Live UAT status belongs in `tasks/uat-plan.md`, not here.
+
+---
+
+# Validation trust foundations: web authentication and run identity (PR #101, 2026-09-06)
+
+This entry supersedes the current-behavior parts of the v0.3.0 access record
+below without rewriting what that earlier release actually did.
+
+- [x] **Bootstrap is server-side and precedes the SPA.** A tokenized browser
+      navigation receives a `303` to the same URL without `token`, with
+      `Cache-Control: no-store`. A valid token also receives a fresh httpOnly
+      `SameSite=Strict` session cookie; an invalid token is stripped but receives
+      no session. No SPA code or dependency executes while the launch token is
+      present.
+- [x] **The browser is cookie-only after bootstrap.** The API client no longer
+      reads or replays the persistent launch token in a header, EventSource URL,
+      or WebSocket URL. Bearer, `X-Replicant-Token`, and query-token API clients
+      remain supported and do not create browser sessions.
+- [x] **Session lifecycle is thread-safe.** Session ids live in memory for 12
+      hours and one browser can revoke its id with `POST /api/session/logout`.
+      Issuance, validation, expiry cleanup, and revocation are serialized because
+      FastAPI may run synchronous work in multiple worker threads.
+- [x] **Vite development preserves the browser authority.** A tokenized root
+      request is proxied once for the server exchange, then the clean redirect
+      returns to the Vite UI. The bootstrap, `/api`, and `/ws` rules all keep
+      `changeOrigin: false`, so the backend sees the same `Host` authority that
+      the browser sent in `Origin`. Setting it true breaks authenticated writes
+      and terminal WebSockets in development.
+- [x] **The vendor profile cannot change during admission or an active run.**
+      Admission disables both the vendor selector and tab navigation. The
+      browser creates an idempotent server-visible reservation before the slow
+      plan preview, then claims and promotes that same owner through `reserved`,
+      `admitting`, and `running`. A lost reservation response retries the same
+      identity; a lost start response reads that admission record rather than
+      relying on a fixed null-probe window.
+      A locally started run and one discovered through `/api/runs/active` both
+      disable the vendor selector with an explicit reason. A stop request for the discovered
+      run becomes a visible, duplicate-proof stopping state. One watcher follows
+      natural completion or the stop, retains the lock across transient failures,
+      and carries the latest rendered count. Terminal ownership transfers directly
+      to a successor or unlocks only after the active endpoint reports no owner.
+      Each handle stores its effective vendor, and start, active, status, and 409
+      responses return it. A restored page aligns its selector and catalog to
+      that owner before presenting the run. This keeps the live stream, catalog
+      metadata, rendered output, and manifest on one vendor identity.
+- [x] **Engineering verification for the stop race.** The regression feeds a
+      running status after the stop request and proves the active-run callback
+      still carries the same run and updated count, then feeds `stopped` and
+      proves authoritative release. Natural completion, transient failures,
+      duplicate-watcher prevention, unmount cancellation, and direct run-A to
+      run-B handoff for restored, local-SSE, and dropped-SSE paths have their own
+      cases. Stale probes cannot overwrite a successor or regress the same owner
+      from terminal to running with an older count. Bootstrap ownership survives
+      failed duplicate probes and React StrictMode replay; successful start
+      admission supersedes a stale pre-start owner, and unmounted responses do
+      not attach an EventSource. Initial owner discovery is fail-closed,
+      definitive client errors do not retry forever, and an evicted status
+      handle reconciles through `/api/runs/active` after restoration or a local
+      SSE disconnect. Restored terminal snapshots retain their final manifest,
+      a fast terminal admission retrieves its exact final evidence, and
+      reserved/admitting banners describe their distinct server states. Early
+      Stop survives worker scheduling, and every terminal producer publishes
+      its SSE item before a drained stream may close. The old immediate
+      `setLockedBy(null)` path fails before the first stop assertion. Focused
+      RunPanel tests: 43 passed. Full frontend: 219 passed; TypeScript and the
+      production Vite build passed. A backend regression also pauses a real
+      sub-100-event, plan-paced worker after its first rendered line and before
+      any coalesced SSE progress callback; `/api/runs/active` and
+      `/api/runs/{id}` both report exactly one while status remains running. It
+      failed at zero before the per-render handle update.
+- [ ] **Round 4 UAT is authored, not executed.** The automated cases are
+      WEB-07..15 and the manual browser cases are UI-07..08 in
+      `tasks/uat-plan.md`; every Result cell remains empty until that UAT round
+      is run and recorded.
 
 ---
 
@@ -148,6 +223,9 @@ an Origin check on cookie-authenticated non-GET requests; `marked` lazy-loaded f
       source decides whether the CSRF rule applies. 6 tests.
 - [x] A4. **Cookie set by middleware, not a route.** DONE. Confirmed necessary: a test
       asserts the SPA document (served by the `StaticFiles` mount) sets it. 3 tests.
+      **Superseded by PR #101:** middleware now sets it on a `303` response and
+      redirects before `StaticFiles` serves the SPA; the document response itself
+      no longer performs the exchange.
 - [x] A5. **CSRF check scoped to cookie auth.** DONE. Cookie-authenticated non-GET needs
       a matching `Origin`; a missing `Origin` is refused. Header/query auth exempt so
       curl and the CLI keep working. 5 tests.
@@ -162,6 +240,9 @@ an Origin check on cookie-authenticated non-GET requests; `marked` lazy-loaded f
       `ValueError` reported on stderr and exit 1. 5 tests.
 - [x] A9. **Token leaves the URL bar.** DONE. `urlWithoutToken` + `history.replaceState`
       in `main.tsx`. Terminal tab hidden when the server disables it. 6 vitest tests.
+      **Superseded by PR #101:** the server redirect is the primary removal path,
+      before any JavaScript executes. `urlWithoutToken` remains defense in depth
+      for a directly served static build.
 - [x] A10. **Tests** (spec item 12). DONE. `tests/test_web_access.py`, 53 tests. The two
       `_require_loopback` tests were rewritten to `is_loopback` as the predicate the new
       defaults key off, exactly as the plan predicted.
@@ -179,6 +260,11 @@ an Origin check on cookie-authenticated non-GET requests; `marked` lazy-loaded f
 
 496 Python tests (443 before), 23 frontend (17 before), black/ruff/mypy clean,
 `npm run build` clean with xterm still code-split.
+
+This is historical evidence for v0.3.0, not the current exchange contract. In
+PR #101, neither a protected API response nor the SPA document mints a session;
+only the tokenized browser redirect does. The current cases are recorded above
+and in UAT revision 4.
 
 Live runs against a real server, not the TestClient:
 - 12/12 checks on a loopback bind: 401 with no credential, 200 on Bearer, `Set-Cookie`

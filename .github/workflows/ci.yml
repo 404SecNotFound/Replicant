@@ -38,11 +38,14 @@ on:
       - "!tasks/**"
       - "!LICENSE"
       - "!NOTICE"
-      # Except the reference docs that are executable in practice. The three CEF
-      # references are the golden-line oracle that tests/test_*_golden.py parse,
-      # and tests/test_web_docs.py asserts all five exist on disk, so editing one
-      # can fail the suite. Later patterns win, which is what re-includes these.
+      # Except the reference docs that are executable in practice. Golden-line,
+      # README/catalog-sync, detection-spec, and served-doc tests parse these
+      # files, so editing one can fail the suite. Later patterns win, which is
+      # what re-includes them.
+      - "README.md"
+      - "docs/detection-specs/**"
       - "docs/fortigate-cef-reference.md"
+      - "docs/run-manifest.md"
       - "docs/paloalto-cef-reference.md"
       - "docs/checkpoint-cef-reference.md"
       - "docs/technique-catalog-expansion-research.md"
@@ -55,7 +58,10 @@ on:
       - "!tasks/**"
       - "!LICENSE"
       - "!NOTICE"
+      - "README.md"
+      - "docs/detection-specs/**"
       - "docs/fortigate-cef-reference.md"
+      - "docs/run-manifest.md"
       - "docs/paloalto-cef-reference.md"
       - "docs/checkpoint-cef-reference.md"
       - "docs/technique-catalog-expansion-research.md"

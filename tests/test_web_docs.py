@@ -45,6 +45,7 @@ def test_index_lists_the_allowlisted_pages(client: TestClient) -> None:
     pages = client.get("/api/docs", headers=HEADERS).json()["pages"]
 
     ids = [page["id"] for page in pages]
+    assert "run-manifest" in ids
     assert "fortigate-cef" in ids
     assert "paloalto-cef" in ids
     assert "checkpoint-cef" in ids
@@ -60,6 +61,13 @@ def test_a_page_comes_back_as_markdown(client: TestClient) -> None:
 
     assert data["id"] == "fortigate-cef"
     assert "CEF:" in data["markdown"], "expected the golden lines from the reference"
+
+
+def test_run_manifest_contract_is_available_in_the_docs_tab(client: TestClient) -> None:
+    data = client.get("/api/docs/run-manifest", headers=HEADERS).json()
+
+    assert data["id"] == "run-manifest"
+    assert 'status="running"' in data["markdown"]
 
 
 def test_page_requires_a_token(client: TestClient) -> None:

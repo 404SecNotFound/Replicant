@@ -176,7 +176,14 @@ System admin auth failure:
 
 - The same technique catalog and scenario engine drive this profile. Techniques emit vendor-neutral
   `(log_type, subtype)` categories; `CheckPointProfile.render` maps each to the Check Point layout above.
-  The FortiGate `signature_id` in the catalog is documentation only and is not read by any profile.
+  The catalog's FortiGate `signature_id` is not a Check Point render input. It remains legacy
+  FortiGate/catalog metadata for compatibility. `/api/catalog?vendor=checkpoint` and the sample
+  endpoint expose the selected Check Point primary match under `native_*`; the unchanged legacy
+  fields do not change meaning with the selected vendor.
+- `native_metadata_scope=primary` means the native product, signature, and action describe only the
+  primary logical family. For mixed plans, use `logical_families` and
+  `native_cef_fields_by_logical_family` for exact per-family field coverage; aggregate native field
+  lists are unions across the plan.
 - `event:vpn` with `srccountry` present (REP-011 geovelocity) is not represented in the eight golden
   lines; if added, a Source Region custom field would follow `auth_status`, matching how the FortiGate
   and PAN-OS profiles gate the same optional GeoIP tag.

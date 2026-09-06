@@ -56,6 +56,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+from uuid import UUID
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -91,7 +92,7 @@ from replicant.profiles.base import VendorProfile
 from replicant.scenario.engine import implemented_technique_ids
 from replicant.transport.syslog import probe_collector
 from replicant.web.pty_bridge import bridge_terminal
-from replicant.web.runner import RunInProgressError, RunManager
+from replicant.web.runner import RunAdmissionError, RunHandle, RunInProgressError, RunManager
 
 FRONTEND_DIST = _resources.FRONTEND_DIST
 DOCS_DIR = _resources.DOCS_DIR
@@ -114,6 +115,7 @@ class DocPage:
 # into the package would guarantee the two copies drift. A wheel install therefore
 # has no reference docs, and these endpoints say so rather than failing.
 DOC_PAGES: tuple[DocPage, ...] = (
+    DocPage("run-manifest", "Run manifest contract", "run-manifest.md"),
     DocPage("fortigate-cef", "FortiGate CEF reference", "fortigate-cef-reference.md"),
     DocPage("paloalto-cef", "Palo Alto PAN-OS CEF reference", "paloalto-cef-reference.md"),
     DocPage("checkpoint-cef", "Check Point CEF reference", "checkpoint-cef-reference.md"),
@@ -133,8 +135,8 @@ _DOC_BY_ID = {page.id: page for page in DOC_PAGES}
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _WILDCARD_BINDS = frozenset({"0.0.0.0", "::"})
 
-# Set on the first authenticated load so the token does not have to live in the
-# URL bar for the rest of the session.
+# Issued by the tokenized bootstrap redirect before the first SPA document loads,
+# so the launch token is absent from browser JavaScript and later requests.
 SESSION_COOKIE = "replicant_session"
 
 #: How long a browser session is good for. Long enough that an operator running a
@@ -429,6 +431,9 @@ class RunBody(BaseModel):
     no_send: bool = False
     collector: CollectorBody | None = None
     vendor: str | None = None  # override settings.vendor for this run
+    # Optional browser-created idempotency key from POST /api/run-admissions.
+    # Older API callers can omit it and retain the one-call start contract.
+    admission_id: UUID | None = None
     # "now", "fixed", an epoch, or an ISO-8601 timestamp. None and "fixed" both mean
     # the deterministic default; everything else goes through the same parse_anchor
     # the CLI uses, so the two surfaces cannot drift.
@@ -449,6 +454,16 @@ class RunBody(BaseModel):
         if self.pace == "burst" and self.speed != 1.0:
             raise ValueError(SPEED_WITHOUT_PLAN)
         return self
+
+
+class RunAdmissionBody(BaseModel):
+    """Small first phase of browser run admission, before plan construction."""
+
+    technique_id: str
+    vendor: str | None = None
+    # crypto.randomUUID() lets a browser safely retry when the reserve response
+    # is lost. The server's manifest/run id remains in its documented format.
+    admission_id: UUID | None = None
 
 
 def _native_field_coverage(technique: Technique, profile: VendorProfile) -> dict[str, Any]:
@@ -997,6 +1012,89 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return request, sending, preview
 
+    def _validate_run_identity(technique_id: str, vendor: str | None) -> str:
+        """Validate the cheap identity fields before reserving active ownership."""
+
+        try:
+            catalog.by_id(technique_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return _resolve_vendor(vendor)
+
+    def _active_conflict(exc: RunInProgressError) -> HTTPException:
+        active = manager.get(exc.active_run_id)
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "run_in_progress",
+                "authoritative": True,
+                "message": str(exc),
+                "admission_id": active.admission_id if active is not None else None,
+                "run_id": exc.active_run_id,
+                "technique_id": exc.technique_id,
+                "vendor": exc.vendor,
+                "status": active.status if active is not None else None,
+            },
+        )
+
+    def _admission_conflict(exc: RunAdmissionError) -> HTTPException:
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code,
+                "authoritative": True,
+                "message": str(exc),
+                "admission_id": exc.admission_id,
+                "admission_run_id": exc.admission_run_id,
+                "run_id": exc.active_run_id,
+                "technique_id": exc.active_technique_id,
+                "vendor": exc.active_vendor,
+                "status": exc.active_status,
+            },
+        )
+
+    def _admission_json(handle: RunHandle) -> dict[str, Any]:
+        return {
+            "admission_id": handle.admission_id,
+            "run_id": handle.run_id,
+            "technique_id": handle.technique_id,
+            "vendor": handle.vendor,
+            "status": handle.status,
+            "event_count": handle.event_count,
+            "total": handle.total,
+        }
+
+    @app.post("/api/run-admissions", dependencies=[Depends(require_token)])
+    def reserve_run(body: RunAdmissionBody) -> dict[str, Any]:
+        """Reserve run ownership before the browser asks for a plan and start.
+
+        The client supplies the idempotency key, so it can retry this exact call
+        after a lost response. Once this response is observed, a later active
+        probe cannot overtake reservation creation and incorrectly report null.
+        """
+
+        vendor = _validate_run_identity(body.technique_id, body.vendor)
+        try:
+            handle = manager.reserve(
+                body.technique_id,
+                vendor,
+                str(body.admission_id) if body.admission_id is not None else None,
+            )
+        except RunInProgressError as exc:
+            raise _active_conflict(exc) from exc
+        except RunAdmissionError as exc:
+            raise _admission_conflict(exc) from exc
+        return _admission_json(handle)
+
+    @app.get("/api/run-admissions/{admission_id}", dependencies=[Depends(require_token)])
+    def run_admission(admission_id: UUID) -> dict[str, Any]:
+        """Resolve a client-known admission id after an ambiguous response."""
+
+        handle = manager.get_admission(str(admission_id))
+        if handle is None:
+            raise HTTPException(status_code=404, detail="unknown run admission")
+        return _admission_json(handle)
+
     @app.post("/api/plan", dependencies=[Depends(require_token)])
     def preview_plan(body: RunBody) -> dict[str, Any]:
         """How long this run would take, without starting it.
@@ -1020,32 +1118,51 @@ def create_app(
 
     @app.post("/api/runs", dependencies=[Depends(require_token)])
     def start_run(body: RunBody) -> dict[str, Any]:
-        request, sending, preview = _preview(body)
-        anchor = request.anchor_epoch or settings.anchor_epoch
+        vendor = _validate_run_identity(body.technique_id, body.vendor)
         try:
+            if body.admission_id is not None:
+                admission = manager.claim(str(body.admission_id), body.technique_id, vendor)
+            else:
+                # Backwards compatibility for scripts using the original one-call
+                # endpoint. Browser clients use the acknowledged reservation
+                # phase above so their ownership probes cannot overtake this call.
+                admission = manager.reserve(body.technique_id, vendor)
+                admission = manager.claim(admission.admission_id, body.technique_id, vendor)
+        except RunInProgressError as exc:
+            raise _active_conflict(exc) from exc
+        except RunAdmissionError as exc:
+            raise _admission_conflict(exc) from exc
+
+        try:
+            request, sending, preview = _preview(body)
+            anchor = request.anchor_epoch or settings.anchor_epoch
             handle = manager.start(
                 request,
-                settings=_settings_for(body.vendor),
+                settings=_settings_for(vendor),
                 # The preview just built this plan; REP-004 high is 180,000 events
                 # and 1.6 seconds, so it is not worth building twice.
                 total=preview.event_count,
+                admission=admission,
             )
         except RunInProgressError as exc:
-            # Structured, not a sentence. The client has to name the technique
-            # holding the lock and offer to stop that specific run; parsing a hex
-            # id back out of prose is not a contract worth having.
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": str(exc),
-                    "run_id": exc.active_run_id,
-                    "technique_id": exc.technique_id,
-                },
-            ) from exc
+            manager.fail_admission(admission, str(exc))
+            raise _active_conflict(exc) from exc
+        except RunAdmissionError as exc:
+            manager.fail_admission(admission, str(exc))
+            raise _admission_conflict(exc) from exc
+        except HTTPException as exc:
+            manager.fail_admission(admission, str(exc.detail))
+            raise
         except (RuntimeError, NotImplementedError) as exc:
+            manager.fail_admission(admission, str(exc))
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            manager.fail_admission(admission, str(exc))
+            raise
         return {
+            "admission_id": handle.admission_id,
             "run_id": handle.run_id,
+            "vendor": handle.vendor,
             "total": handle.total,
             "anchor_epoch": anchor,
             "anchor_warning": stale_anchor_warning(anchor, sending=sending),
@@ -1108,10 +1225,18 @@ def create_app(
         """
         handle = manager.active()
         if handle is None:
-            return {"run_id": None, "technique_id": None, "status": None}
+            return {
+                "admission_id": None,
+                "run_id": None,
+                "technique_id": None,
+                "vendor": None,
+                "status": None,
+            }
         return {
+            "admission_id": handle.admission_id,
             "run_id": handle.run_id,
             "technique_id": handle.technique_id,
+            "vendor": handle.vendor,
             "status": handle.status,
             "event_count": handle.event_count,
             "total": handle.total,
@@ -1123,7 +1248,9 @@ def create_app(
         if handle is None:
             raise HTTPException(status_code=404, detail="unknown run")
         return {
+            "admission_id": handle.admission_id,
             "run_id": handle.run_id,
+            "vendor": handle.vendor,
             "status": handle.status,
             "total": handle.total,
             "event_count": handle.event_count,
@@ -1154,7 +1281,7 @@ def create_app(
                     try:
                         item = await loop.run_in_executor(None, getter)
                     except queue.Empty:
-                        if handle.status != "running" and subscriber.empty():
+                        if handle.stream_complete(subscriber):
                             break
                         yield ": keepalive\n\n"
                         continue

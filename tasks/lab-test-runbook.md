@@ -69,6 +69,11 @@ interpretable.
 - Ability to search ingested events and inspect the assigned log source and MPE
   policy in the LogRhythm console.
 - `tcpdump` on the Replicant host for the safety and timing captures.
+- An operator-owned LogRhythm AIE rule or alarm corresponding to UC-001. The lab
+  owner authors or enables it from `docs/detection-specs/REP-001.md` before the
+  detection phases. Replicant does not generate, install, or tune AIE content. If
+  no matching rule is available, parsing can still be measured, but the detection
+  gate remains blocked.
 
 Set once, for every command below:
 
@@ -192,9 +197,11 @@ string.
 - **SIEM-01 / SIEM-13:** the count of events carrying this run id must equal the
   manifest's `event_count` for the window. A shortfall is loss (revisit Phase 5
   rate); an excess means the search caught something else.
-- **SIEM-12:** every matched event's src/dst must be RFC1918 or documentation
-  range (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24), and any domain under an
-  IANA documentation domain or `.invalid`. Nothing routable, nothing real.
+- **SIEM-12:** every matched event's src/dst must be RFC1918 or a documentation
+  range (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24), and every domain string
+  must stay under an IANA documentation domain or `.invalid`. Documentation
+  domains can resolve; Replicant must perform no DNS lookup or connection to
+  any emitted name.
 
 > If the FortiGate MPE does not map `flexString1` into a named, searchable field,
 > full-text search the raw log for the `RUN-` string instead. Whether the marker
@@ -206,7 +213,10 @@ string.
 
 Pick a technique whose `ndr_uc` maps to a rule that exists in your lab
 (`replicant list` prints the mapping; e.g. UC-001 for REP-001). This phase is the
-product's entire reason for existing.
+product's entire reason for existing. For the REP-001 pilot, the lab owner must
+have implemented or enabled the AIE rule from `docs/detection-specs/REP-001.md`
+before starting this phase. That rule remains lab-owned detection content, not an
+artifact Replicant generates or tunes.
 
 ### 4.1 The attack fires the rule  (SIEM-08)
 
@@ -278,7 +288,8 @@ replicant run REP-001 --intensity low --anchor now --pace plan --speed 60 --host
   clock offset of its ingestion time. No event is ever stamped in the future.
 - **TF-11 (the payoff):** an interval-keyed AIE rule fires on the plan-paced run
   (TF-02) and does **not** fire on the burst run (TF-01). This is the single case
-  that justifies plan-timed pacing.
+  that justifies plan-timed pacing. The lab owner supplies this rule from the
+  REP-001 reference spec; Replicant supplies only the synthetic telemetry.
 
 Full case list, expected values and the scenario-duration cases (TF-06..TF-10):
 `tasks/uat-plan.md` Suite I.

@@ -41,6 +41,11 @@ export interface PollRunDeps {
   sleep: (ms: number) => Promise<void>;
   /** True when the run was superseded or the view unmounted; stops polling. */
   isCancelled: () => boolean;
+  /**
+   * Classify a status fetch error. Return "stop" only when the caller has a
+   * separate authoritative reconciliation path; all other errors are retried.
+   */
+  onFetchError?: (error: unknown) => "retry" | "stop";
   intervalMs?: number;
 }
 
@@ -57,7 +62,8 @@ export async function pollRunUntilTerminal(deps: PollRunDeps): Promise<void> {
     let snapshot: RunStatusSnapshot;
     try {
       snapshot = await deps.getStatus();
-    } catch {
+    } catch (error) {
+      if (deps.onFetchError?.(error) === "stop") return;
       await deps.sleep(interval);
       continue;
     }

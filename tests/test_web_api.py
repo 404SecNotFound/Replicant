@@ -558,7 +558,9 @@ def test_a_file_only_run_is_not_warned_about_its_anchor(client: TestClient) -> N
 def test_start_run_while_one_active_returns_409(client: TestClient, monkeypatch) -> None:
     from replicant.web import runner as runner_mod
 
-    def busy(self, request, settings=None, total=None):  # type: ignore[no-untyped-def]
+    def busy(  # type: ignore[no-untyped-def]
+        self, request, settings=None, total=None, admission=None
+    ):
         raise runner_mod.RunInProgressError("run-abc", "REP-007")
 
     monkeypatch.setattr(runner_mod.RunManager, "start", busy)

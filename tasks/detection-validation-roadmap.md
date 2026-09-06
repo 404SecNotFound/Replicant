@@ -1,10 +1,18 @@
 # Roadmap: Replicant as a detection validation platform
 
-**Status:** proposed, not started. Authored 2026-08-31 against `main @ af5a9bd` (v0.8.0),
-Python suite green at 972 passed / 3 skipped.
+**Status:** historical execution plan, partially implemented. Authored 2026-08-31
+against `main @ af5a9bd` (v0.8.0), Python suite green at 972 passed / 3 skipped.
 **Analysis this executes:** `docs/detection-validation-platform-review.md`.
 **Prior decisions it respects:** `docs/10x-roadmap-triage.md`,
 `docs/round3-expansion-triage.md`, `docs/security-review-2026-08-response.md`.
+
+**2026-09 status addendum:** Run identity, synthetic marking, control selection,
+reference-spec scaffolding, and vendor-selected logical/native metadata have landed
+outside this milestone checklist. The checklist below remains the original decision
+record, not a claim that shipped work is still absent. The current external gate is
+the LogRhythm pilot. Its lab owner must author or enable the REP-001 AIE rule from
+`docs/detection-specs/REP-001.md`; Replicant still does not auto-author, install, or
+tune SIEM rules.
 
 The product shift in one line:
 
@@ -227,6 +235,12 @@ This milestone needs no SIEM, no collector and no socket. It is pure logic over 
       becomes load-bearing here because contracts have to name a telemetry class and the
       values are already vendor-neutral. Pydantic `AliasChoices` accepts both for one
       release. **Do it before writing 24 contracts, not after.**
+
+      **2026-09 deferral:** The vendor-selected metadata work deliberately kept
+      `Technique.fortigate` and every existing API field stable, then added explicit
+      `logical_*` and `native_*` views. A model rename remains deferred until a
+      versioned contract migration is scheduled. This addendum starts no deprecation
+      clock for private catalogs or API clients.
 
 - [ ] **M1.5 `Verdict` and `ValidationResult`.**
       New: `replicant/validation/verdict.py`.
@@ -475,6 +489,9 @@ Where Replicant stops being a tool you drive and becomes a gate that fails a bui
       **Not** a validation history dashboard yet: without verdicts flowing it can only
       list runs, which the manifest directory already is.
 
+      **2026-09 status:** The logical/native field view is now present as a foundation.
+      Detection contracts, validation verdicts, and `/api/validate` remain unbuilt.
+
 ---
 
 ## 10. The gate, and M6
@@ -521,7 +538,7 @@ Files: `CLAUDE.md`, `docs/blueprint.md`, `README.md`.
 | **K5** | Scope creep into multi-telemetry (Sysmon, Zeek, CloudTrail) | Rejected in `10x-roadmap-triage.md` at 13 pw as a change to what the project is. `telemetry.class` and the `(log_type, subtype)` dispatch key keep the door open. **Leave the door open, do not walk through it.** | all |
 | **K6** | Tier 2 gets built before the lab test to unblock a demo | R2. The gate is a gate. A verdict from an unobserved send path is the failure mode this product exists to prevent. | M6 |
 | **K7** | An aggregate "validation score" gets added because it demos well | Rejected: five of six rows in the proposed example need a live SIEM, and a single percentage is a weighting choice presented as a measurement. The verdict vector with visible `NOT RUN` rows replaces it. | M5 |
-| **K8** | 24 contracts get written before the `Technique.fortigate` rename | M1.4 is ordered before M1.8 for this reason. | M1 |
+| **K8** | Contracts bind permanently to the legacy `Technique.fortigate` name | The current API adds logical/native views without renaming the model. Revisit the rename only with a versioned contract migration, before bulk contract authoring; no deprecation clock is active. | M1 |
 
 ---
 
@@ -572,8 +589,12 @@ that genuinely need a SIEM, and they are behind the lab test rather than behind 
 
 ## 14. Immediate next step
 
-M0.1: `run_id` on `RunRequest`, `RunManifest` and `RunResult`, generated in
-`Orchestrator.run()`, printed by the CLI, present on all three exit paths. One commit, one
-guard, one positive control on the error path.
+Prepare and run the external LogRhythm pilot. The lab owner must configure the
+FortiGate log source and MPE policy, then author or enable a UC-001 AIE rule using
+`docs/detection-specs/REP-001.md` as the SIEM-neutral design. With that prerequisite
+in place, execute `tasks/lab-test-runbook.md` in order and record results in the UAT
+plan.
 
-It is a day of work and it unblocks the other fifteen weeks.
+This is lab preparation, not an auto-authoring feature. Replicant does not generate,
+install, or tune the AIE rule. If the deployment or rule is unavailable, the pilot
+remains blocked and no loopback result substitutes for it.

@@ -116,6 +116,50 @@ changes to these screens.
   UI claims delivery.
 - Live-run numbers derive from the same counters (rate, count, progress), so they
   cannot contradict each other.
+- A selected vendor is part of the run's identity, not a cosmetic catalog
+  filter. From the start-admission request through terminal owner confirmation,
+  the vendor segmented control is disabled and names the technique holding it.
+  Tab navigation cannot unmount the run panel during admission. The browser
+  generates an idempotency key and waits for `POST /api/run-admissions` to
+  acknowledge a `reserved` owner before the potentially slow plan preview.
+  `POST /api/runs` claims the same handle as `admitting`, then promotes it in
+  place to `running`. The status banner describes `reserved` as an unclaimed
+  request awaiting start and `admitting` as plan preparation. A lost reserve
+  response is retried with the same key, and
+  a lost start response is read from `GET /api/run-admissions/{id}`. Ownership
+  is therefore derived from a server state transition, not a fixed delay or a
+  sequence of null snapshots. If the admission is already terminal, the browser
+  retrieves `GET /api/runs/{run_id}` before ownership confirmation so a fast run
+  retains its final count and manifest.
+  The run handle stores the effective vendor, and start, active-run, status, and
+  conflict responses return it. A restored view must select that profile and
+  load its catalog before presenting the run; the page must never infer the
+  owner from the current form or the configured default. The bootstrap owner
+  seeds the lifecycle watcher, so a duplicate probe failure or React development
+  effect replay cannot discard identity. Conversely, a successful start is the
+  authoritative admission result and supersedes any older probe before its
+  stream is attached. Initial discovery remains fail-closed when the active
+  endpoint cannot answer.
+  One watcher follows a server-discovered run through natural completion or a
+  requested stop, keeps its latest rendered count visible, and retains the lock
+  across transient status failures. A definitive missing old status handle is
+  reconciled through the active endpoint, which transfers directly to a
+  successor or releases the stale owner. The same recovery applies when a local
+  SSE stream disconnected before its bounded status handle was evicted. A
+  restored terminal snapshot also populates the final manifest panel. A stop
+  request has a visible, disabled stopping state. Terminal status is followed by
+  an active-owner probe, so the selector either transfers directly to a
+  successor run and its vendor, or unlocks after the backend reports no owner.
+  Local SSE completion and its dropped-stream status fallback use that same
+  terminal handoff. The worker clears reusable stop state before the handle is
+  published as running, so an early Stop survives worker scheduling. The SSE
+  endpoint closes only after its terminal item is present in history and
+  subscriber queues. A profile switch must never remount or relabel an in-flight
+  stream, its native metadata, or its manifest.
+- The SPA never owns the persistent launch token. The server exchanges a
+  tokenized navigation for an httpOnly session cookie and returns a clean `303`
+  before serving JavaScript. Browser API, EventSource, and WebSocket requests are
+  cookie-only after that point; frontend URL cleanup is defense in depth.
 - The sparkline is an instrument, not decoration: scale hairlines labeled with the
   real ceiling, a dotted mean, a time axis. While the cap applies it floors the
   scale (DEF-002) so a small rate does not dramatically fill the band; uncapped,
@@ -131,3 +175,14 @@ contrast AND size measured on the rendered page (walk text nodes, compute the
 effective background, WCAG ratio per element), never on the token table; no
 horizontal overflow at 1280 and 375; screenshots regenerated with
 `scripts/capture-webui-screenshots.py`.
+
+Authentication-sensitive development also gets a live proxy pass. Run the
+backend on port 8000, start Vite with
+`VITE_PROXY=http://127.0.0.1:8000 npm run dev`, and open the Vite origin with the
+printed launch token in its query. The tokenized root, `/api`, and `/ws` proxy
+rules preserve the browser-facing `Host` with `changeOrigin: false`; changing
+only `Host` would make legitimate cookie writes and terminal WebSockets fail the
+backend's `Origin` comparison. The clean redirect must return to Vite, and the
+vendor control must remain locked through both a local run and a reloaded active
+run. A reload of a non-default vendor run must load that vendor's catalog before
+showing the restored panel, then release on stop or completion.

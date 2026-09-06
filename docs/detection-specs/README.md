@@ -22,6 +22,26 @@ human-authored reference for the detection its telemetry is shaped to exercise.
   parser?) and repeats the standing delivery caveat: every timing and delivery
   claim in this project is loopback-only until the first observed rule fire.
 
+## Logical families and vendor-native fields
+
+Detection specs name the vendor-neutral logical event families the engine emits.
+They do not treat one vendor's category, signature, action, or extension key as a
+universal identifier. A spec may designate one pilot profile, but it must label that
+profile's native mapping separately from the logical family.
+
+For a mixed-family plan, the spec must list every entry in `logical_families` and
+state required fields per family. The primary `native_*` metadata describes only the
+primary family. The aggregate `native_cef_fields_held` and
+`native_cef_fields_varied` values are unions across the plan, so they cannot prove
+that one particular family carries a field. Use
+`native_cef_fields_by_logical_family` for that assertion and preserve explicit
+unavailable fields rather than substituting a plausible vendor key.
+
+The older `log_type`, `subtype`, `signature_id`, `action`, and `cef_fields_*` API
+fields remain compatibility views of the catalog and its FortiGate binding. They do
+not change with the selected vendor. Selected-renderer documentation uses the
+additive `logical_*` and `native_*` fields instead.
+
 ## Phasing
 
 Authoring 24 specs up front, against a core whose delivery path has never been

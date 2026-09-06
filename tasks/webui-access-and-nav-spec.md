@@ -1,6 +1,9 @@
 # Spec: make the web UI directly reachable and easier to navigate
 
-Author: DJR. Captured 2026-07-28. Status: not started.
+Author: DJR. Captured 2026-07-28. Original status: not started.
+Current status: implemented in v0.3.0; authentication and active-run identity
+hardened in PR #101 on 2026-09-06. The context and numbered requirements below
+are preserved as the original design record.
 
 ## Context
 
@@ -9,6 +12,72 @@ mandatory per-session token in the query string, and rejects any request whose
 Host header is not localhost. Reaching it from another machine requires an SSH
 tunnel. Getting from `git clone` to a usable page takes too many steps. Fix the
 access path and the in-app navigation.
+
+## Current authentication and run-identity contract (2026-09-06)
+
+The shipped flow is stricter than the original first-load wording below:
+
+- A tokenized browser `GET` is bootstrap only. Before serving the SPA or any of
+  its module graph, the server exchanges a valid launch token for a fresh,
+  short-lived `replicant_session` id in an httpOnly `SameSite=Strict` cookie and
+  returns a `303` to the same path without `token`. The redirect is `no-store`.
+  An invalid launch token is also stripped before document load, but earns no
+  session.
+- Once bootstrapped, browser `fetch`, EventSource, and WebSocket traffic is
+  cookie-only. No frontend module reads the token value, retains it, or replays
+  it. Bearer, `X-Replicant-Token`, and query-token API clients remain
+  supported, but those programmatic paths do not mint browser sessions.
+- Session ids live in the server process for 12 hours, expire independently of
+  the persistent launch token, and can be revoked one browser at a time with
+  `POST /api/session/logout`. Issuance, expiry, validation, and revocation are
+  serialized because FastAPI may execute synchronous dependencies in worker
+  threads.
+- The selected vendor changes the catalog's native detection metadata. While a
+  start request is awaiting admission, the vendor selector and tab navigation
+  are disabled with an explicit reason. The browser first reserves a
+  client-generated idempotency key through `POST /api/run-admissions`; the
+  acknowledged owner is visible as an unclaimed `reserved` request awaiting
+  start, becomes `admitting` while the plan is prepared, and is promoted in
+  place to `running`. Retrying a lost
+  reservation response uses the same key. A lost start response is reconciled
+  through `GET /api/run-admissions/{id}`, with no fixed waiting window or empty
+  active-probe inference. A terminal admission is followed through its exact
+  run status before active-owner confirmation, preserving the final count and
+  manifest. While a locally started run or a
+  run restored from `/api/runs/active` is active, the vendor selector remains
+  disabled. Stopping a restored run enters
+  a visible stopping state. A single watcher follows natural completion
+  or the stop, retains the lock across transient failures, and carries the latest
+  rendered count and final manifest from the status endpoint. A missing bounded
+  status record after either restoration or a local SSE disconnect reconciles
+  through the active endpoint while retaining the previous owner. The run
+  handle plus start, active,
+  status, and conflict responses carry the resolved vendor, so a restored page
+  aligns its selector and catalog to the owner instead of the configured default
+  before presenting it. If initial owner discovery fails, the application keeps
+  the run controls fail-closed rather than presenting an idle default profile.
+  The backend resets worker stop state before publishing a running owner and
+  closes an SSE subscriber only after its terminal item publication barrier.
+  After terminal state, an active-owner probe transfers directly to a successor
+  and its vendor or confirms that the selector may unlock. Local SSE completion
+  and its dropped-stream polling fallback use the same terminal handoff, so a
+  live stream cannot be relabeled or remounted under another profile.
+
+For frontend development, run the backend and Vite separately:
+
+```bash
+replicant web --port 8000 --no-browser
+cd webui
+VITE_PROXY=http://127.0.0.1:8000 npm run dev
+```
+
+Open the Vite origin with the launch URL's `?token=...` value. Vite proxies only
+that tokenized root navigation to the backend for the exchange; the clean
+redirect returns to Vite for the source UI. `/api` and `/ws` are proxied as
+normal. All three proxy rules must keep `changeOrigin: false`: cookie-authenticated
+writes and terminal WebSockets compare the browser `Origin` with `Host`, so
+rewriting only `Host` to the backend target makes a legitimate development
+request appear cross-origin.
 
 Do not change the runtime safety invariants: a run still sends only to the
 single operator-configured collector, entity pools stay synthetic (RFC1918 +
@@ -40,6 +109,11 @@ issues no attack. Those are unrelated to this work and must survive it.
      bind address and stating that the embedded terminal is exposed. Refuse
      `--no-auth` outright when the bind address is not loopback unless
      `--i-understand-this-is-unauthenticated` is also passed.
+
+   > **Current implementation, 2026-09-06:** the cookie is set on a `303`
+   > bootstrap response before the first SPA document is served. JavaScript URL
+   > cleanup remains defense in depth, not the credential exchange. Explicit
+   > header and query API authentication never create a session.
 
 4. When `--host` is not loopback, disable the Terminal (PTY) tab by default.
    Add `--enable-terminal` to turn it back on. The CLI and the Rich menu

@@ -590,6 +590,8 @@ class Orchestrator:
         on_progress: ProgressCallback | None = None,
         on_event: EventCallback | None = None,
         run_id: str | None = None,
+        *,
+        _reset_stop: bool = True,
     ) -> RunResult:
         # Generated once here so every surface shares one id: the CLI prints it,
         # the manifest records it, the web runner passes its handle id in so the
@@ -608,7 +610,12 @@ class Orchestrator:
         send = want_send and request.collector is not None
         file_path = request.to_file
 
-        self.reset()
+        # Direct callers reuse an orchestrator and therefore need a clean stop
+        # event for each run. The web runner resets before publishing its handle
+        # as stoppable, then passes False so an acknowledged early Stop cannot be
+        # erased between thread.start() and worker entry.
+        if _reset_stop:
+            self.reset()
         self.last_send_stats = None
         plan = self.build_plan(request)
 
@@ -677,7 +684,8 @@ class Orchestrator:
             # anything wrong. The supported scope is one sending run per host,
             # and this is where that is enforced rather than merely stated. Held
             # across the whole emit, and only when a collector is actually in
-            # play: --no-send and --to-file cannot exceed anything.
+            # play: --no-send and file-only runs cannot exceed anything. A live
+            # send mirrored with --to-file still holds the lock.
             with ExitStack() as guard:
                 if send:
                     guard.enter_context(sending_lock())
@@ -1251,8 +1259,8 @@ class Orchestrator:
             # host's single sending slot for the whole emit. Without this a
             # `scenario run` sent unlocked, so a concurrent `replicant run` found
             # the slot free and both streamed up to eps_cap at once, which is the
-            # 2x the cap the lock exists to prevent. --no-send/--to-file never
-            # acquire it.
+            # 2x the cap the lock exists to prevent. --no-send and file-only
+            # scenarios never acquire it; a live send mirrored to a file does.
             with ExitStack() as guard:
                 if send:
                     guard.enter_context(sending_lock())

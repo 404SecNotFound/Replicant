@@ -301,6 +301,7 @@ def test_partial_scenario_failure_records_exact_progress(tmp_path: Path, monkeyp
     assert written["total_event_count"] == 2
     assert written["planned_event_count"] > 2
     assert written["partial"] is True
+    assert not list(manifest_dir.glob("*.advisory.md"))
 
 
 def test_dirty_progress_is_durable_before_a_long_plan_wait(tmp_path: Path, monkeypatch) -> None:
@@ -352,6 +353,7 @@ def test_dirty_progress_is_durable_before_a_long_plan_wait(tmp_path: Path, monke
     )
 
     assert result.stopped is True
+    assert result.manifest.status == "stopped"
     assert observed_during_wait == [1]
 
 

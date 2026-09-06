@@ -25,10 +25,12 @@ destination-conditional synthetic marker.
   `flexString1` is a flex slot none of the three vendor profiles populate, so
   marking corrupts no field a detection reads.
 
-- **Authorize the run.** Before sending to any shared collector, tell the SOC the
-  run id, the technique, the source and destination entities, and the window. The
-  run manifest records all of this, and its `marker_attestation` line states the
-  marking decision; treat the manifest as the authorization artifact.
+- **Authorize the run out of band.** Before sending to any shared collector,
+  agree with the SOC on the destination, technique, source and destination
+  entities, and window. The run manifest records the executed values, and its
+  `marker_attestation` line states the marking decision. Preserve it as the
+  durable execution and audit record; a self-generated manifest is not proof of
+  prior approval.
 
 - **The safety invariants still bind.** One fail-closed egress to the operator's
   configured collector, synthetic entities only, log strings only (never real
@@ -39,6 +41,7 @@ destination-conditional synthetic marker.
 
 An enterprise will not, and should not, approve an unattested attack-log injector
 near a production pipeline. Keeping Replicant on the lab side of the boundary,
-with the marker on and the manifest as the authorization record, is what turns a
+with prior approval recorded through the operator's normal change process, the
+marker on, and the manifest retained as the execution record, is what turns a
 "fake attack incident" into an authorized, auditable, reversible test. It is the
 hard precondition for any live operational pilot.

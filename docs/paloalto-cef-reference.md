@@ -131,7 +131,14 @@ System admin auth failure:
 
 - The same technique catalog and scenario engine drive this profile. Techniques emit vendor-neutral
   `(log_type, subtype)` categories; `PaloAltoProfile.render` maps each to the PAN-OS layout above.
-  The FortiGate `signature_id` in the catalog is documentation only and is not read by either profile.
+  The catalog's FortiGate `signature_id` is not a PAN-OS render input. It remains legacy
+  FortiGate/catalog metadata for compatibility. `/api/catalog?vendor=paloalto` and the sample
+  endpoint expose the selected PAN-OS primary match under `native_*`; the unchanged legacy fields
+  do not change meaning with the selected vendor.
+- `native_metadata_scope=primary` means the native type, signature, and action describe only the
+  primary logical family. For mixed plans, use `logical_families` and
+  `native_cef_fields_by_logical_family` for exact per-family field coverage; aggregate native field
+  lists are unions across the plan.
 - `event:vpn` with `srccountry` present (REP-011 geovelocity) adds `cs4Label=Source Region cs4=<country>`
   after `PanOSAuthMethod`; the eight golden lines omit it, so it stays optional.
 - Select the vendor at run time with `--vendor paloalto` (default `fortigate`). Same seed plus
