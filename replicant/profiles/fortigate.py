@@ -30,7 +30,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from replicant.core.models import CefHeader, EventRecord
-from replicant.profiles.base import VendorProfile, require
+from replicant.profiles.base import (
+    DetectionMetadata,
+    VendorProfile,
+    mapped_detection_field,
+    require,
+)
 
 # Reversed FortiOS priority level -> CEF severity (reference s2.4).
 # CEF severity = 8 - FortiOS numeric priority.
@@ -55,6 +60,101 @@ LOGID_DNS_RESPONSE = "1501054802"  # confirmed (reference s2.4)
 LOGID_VPN_SUCCESS = "0101039947"  # [Unverified] tunnel-up last-5; login-fail 39426 is confirmed
 LOGID_VPN_FAIL = "0101039426"
 LOGID_EVENT_SYSTEM = "0100032002"
+
+# Every field currently used by the catalog is named here. This is deliberately
+# exhaustive: adding a signal to the catalog without proving its rendered key
+# must fail rather than silently inheriting a plausible-looking identity map.
+_DETECTION_FIELDS: dict[str, str | None] = {
+    "FTNTFGTattack": "FTNTFGTattack",
+    "FTNTFGTattackid": "FTNTFGTattackid",
+    "FTNTFGTduration": "FTNTFGTduration",
+    "FTNTFGTqname": "FTNTFGTqname",
+    "FTNTFGTqtype": "FTNTFGTqtype",
+    "FTNTFGTrcode": "FTNTFGTrcode",
+    "FTNTFGTreason": "FTNTFGTreason",
+    "FTNTFGTseverity": "FTNTFGTseverity",
+    "FTNTFGTsrccountry": "FTNTFGTsrccountry",
+    "FTNTFGTxid": "FTNTFGTxid",
+    "act": "act",
+    "cnt": "cnt",
+    "dpt": "dpt",
+    "dst": "dst",
+    "duser": "duser",
+    "externalId": "externalId",
+    "in": "in",
+    "out": "out",
+    "proto": "proto",
+    "rt": "FTNTFGTeventtime",
+    "src": "src",
+}
+
+# Catalog signals each logical template actually carries. This is source-field
+# support, not merely a set of coincidentally present CEF keys: for example,
+# traffic has no event count even though IPS does.
+_DETECTION_FIELDS_BY_FAMILY: dict[tuple[str, str], frozenset[str]] = {
+    ("traffic", "forward"): frozenset(
+        {
+            "FTNTFGTduration",
+            "act",
+            "dpt",
+            "dst",
+            "externalId",
+            "in",
+            "out",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("dns", "dns-query"): frozenset(
+        {
+            "FTNTFGTqname",
+            "FTNTFGTqtype",
+            "FTNTFGTxid",
+            "act",
+            "dpt",
+            "dst",
+            "externalId",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("dns", "dns-response"): frozenset(
+        {
+            "FTNTFGTqname",
+            "FTNTFGTqtype",
+            "FTNTFGTrcode",
+            "FTNTFGTxid",
+            "act",
+            "dpt",
+            "dst",
+            "externalId",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("utm", "ips"): frozenset(
+        {
+            "FTNTFGTattack",
+            "FTNTFGTattackid",
+            "FTNTFGTseverity",
+            "act",
+            "cnt",
+            "dpt",
+            "dst",
+            "externalId",
+            "proto",
+            "rt",
+            "src",
+        }
+    ),
+    ("event", "vpn"): frozenset(
+        {"FTNTFGTreason", "FTNTFGTsrccountry", "act", "duser", "rt", "src"}
+    ),
+    ("event", "system"): frozenset({"FTNTFGTreason", "act", "duser", "rt", "src"}),
+}
 
 
 @dataclass(frozen=True)
@@ -111,6 +211,42 @@ class FortiGateProfile(VendorProfile):
         if key == ("event", "system"):
             return self._event_system(event)
         raise ValueError(f"unsupported FortiGate log type '{event.log_type}:{event.subtype}'")
+
+    def detection_metadata(
+        self,
+        log_type: str,
+        subtype: str,
+        signature_id: str,
+        action: str | None,
+    ) -> DetectionMetadata:
+        return DetectionMetadata(
+            log_type,
+            subtype,
+            signature_id,
+            action,
+            "Primary FortiGate category and subtype",
+        )
+
+    def detection_field_name(
+        self,
+        field: str,
+        *,
+        log_type: str,
+        subtype: str,
+    ) -> str | None:
+        native = mapped_detection_field(_DETECTION_FIELDS, field)
+        family = (log_type, subtype)
+        try:
+            supported = _DETECTION_FIELDS_BY_FAMILY[family]
+        except KeyError as exc:
+            raise ValueError(f"unsupported FortiGate log type '{log_type}:{subtype}'") from exc
+        if field not in supported:
+            return None
+        # FortiGate event templates render their action under the native key,
+        # while traffic/DNS/IPS use standard CEF ``act``.
+        if field == "act" and log_type == "event":
+            return "FTNTFGTaction"
+        return native
 
     # -- helpers ---------------------------------------------------------------
 

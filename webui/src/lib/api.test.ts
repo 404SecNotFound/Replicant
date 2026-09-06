@@ -15,7 +15,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { urlWithoutToken } from "./api";
 
-import { VENDOR_LABELS, getRunStatus, startRun, stopRun, vendorLabel } from "./api";
+import { VENDOR_LABELS, getCatalog, startRun, stopRun, vendorLabel } from "./api";
 
 function mockFetch(status: number, body: unknown) {
   return vi.fn(async () => ({
@@ -60,9 +60,17 @@ describe("vendorLabel", () => {
 });
 
 describe("api client", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
+    vi.resetModules();
+  });
 
-  it("returns parsed JSON and attaches the session token header", async () => {
+  it("uses the browser session cookie without replaying the launch token", async () => {
+    const launchToken = "configured-master-token";
+    window.history.replaceState(null, "", `/?token=${launchToken}`);
+    vi.resetModules();
+    const { getRunStatus: getRunStatusFromLaunchUrl } = await import("./api");
     const f = mockFetch(200, {
       run_id: "r1",
       status: "running",
@@ -73,12 +81,15 @@ describe("api client", () => {
       manifest_path: null,
     });
     vi.stubGlobal("fetch", f);
-    const status = await getRunStatus("r1");
+    const status = await getRunStatusFromLaunchUrl("r1");
     expect(status.status).toBe("running");
     const [url, init] = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock
       .calls[0];
     expect(url).toBe("/api/runs/r1");
-    expect((init.headers as Record<string, string>)["X-Replicant-Token"]).toBeDefined();
+    expect(init.credentials).toBe("same-origin");
+    expect((init.headers as Record<string, string>)["X-Replicant-Token"]).toBeUndefined();
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+    expect(JSON.stringify(init.headers)).not.toContain(launchToken);
   });
 
   it("throws with the server's detail on an error response", async () => {
@@ -88,6 +99,22 @@ describe("api client", () => {
     await expect(
       startRun({ technique_id: "REP-001", intensity: "low", no_send: true }),
     ).rejects.toThrow(/in progress/);
+  });
+
+  it("requests catalog metadata for the selected vendor profile", async () => {
+    const f = mockFetch(200, {
+      vendor_profile: "paloalto",
+      timezone: "UTC+04:00",
+      techniques: [],
+    });
+    vi.stubGlobal("fetch", f);
+
+    await getCatalog("paloalto");
+
+    expect(f).toHaveBeenCalledWith(
+      "/api/catalog?vendor=paloalto",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
   });
 
   it("falls back to a status-coded message when the error body has no detail", async () => {

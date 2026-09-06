@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { describe, expect, it } from "vitest";
-import { filterTechniques, groupByTactic, logTypeOf, LOG_TYPES } from "./catalogView";
+import { filterTechniques, groupByTactic, logTypeOf, logTypesOf } from "./catalogView";
 import type { Technique } from "./api";
 
 function technique(overrides: Partial<Technique> = {}): Technique {
@@ -23,8 +23,17 @@ function technique(overrides: Partial<Technique> = {}): Technique {
     ndr_rule: "rule",
     ndr_uc: "UC-001",
     objective: "Prove a detection can catch a beacon by its interval.",
+    logical_log_type: "traffic",
+    logical_subtype: "forward",
+    logical_families: ["traffic:forward"],
     log_type: "traffic",
     subtype: "forward",
+    native_log_type: "traffic",
+    native_subtype: "forward",
+    native_signature_id: "00013",
+    native_action: "accept",
+    native_metadata_scope: "primary",
+    native_metadata_semantics: "Primary FortiGate category and subtype",
     attack: ["T1071.001"],
     tactics: ["TA0011 Command and Control"],
     intensities: ["low", "medium", "high"],
@@ -34,6 +43,12 @@ function technique(overrides: Partial<Technique> = {}): Technique {
     action: "accept",
     cef_fields_held: [],
     cef_fields_varied: [],
+    native_cef_fields_held: [],
+    native_cef_fields_varied: [],
+    native_cef_fields_unavailable: { held: [], varied: [] },
+    native_cef_fields_by_logical_family: {
+      "traffic:forward": { held: [], varied: [], unavailable: { held: [], varied: [] } },
+    },
     params: {},
     distributions: {},
     benign_baseline: null,
@@ -46,19 +61,21 @@ function technique(overrides: Partial<Technique> = {}): Technique {
 
 describe("logTypeOf", () => {
   it("joins the pair the way the catalog and the vendor profiles key on it", () => {
-    expect(logTypeOf(technique({ log_type: "dns", subtype: "dns-response" }))).toBe(
-      "dns:dns-response",
-    );
+    expect(
+      logTypeOf(
+        technique({ native_log_type: "TRAFFIC", native_subtype: "dns-response" }),
+      ),
+    ).toBe("TRAFFIC:dns-response");
   });
 
-  it("lists exactly the render paths the catalog uses", () => {
-    expect(LOG_TYPES).toEqual([
-      "traffic:forward",
-      "dns:dns-query",
-      "dns:dns-response",
-      "event:vpn",
-      "utm:ips",
-    ]);
+  it("derives event families from the selected vendor's catalog metadata", () => {
+    expect(
+      logTypesOf([
+        technique({ native_log_type: "TRAFFIC", native_subtype: "end" }),
+        technique({ id: "REP-002", native_log_type: "TRAFFIC", native_subtype: "deny" }),
+        technique({ id: "REP-003", native_log_type: "TRAFFIC", native_subtype: "end" }),
+      ]),
+    ).toEqual(["TRAFFIC:end", "TRAFFIC:deny"]);
   });
 });
 
@@ -126,16 +143,16 @@ describe("filterTechniques", () => {
       name: "DNS tunneling",
       ndr_uc: "UC-003",
       attack: ["T1048.003"],
-      log_type: "dns",
-      subtype: "dns-query",
+      native_log_type: "dns",
+      native_subtype: "dns-query",
     }),
     technique({
       id: "REP-009",
       name: "VPN brute force",
       ndr_uc: "UC-007",
       attack: ["T1110"],
-      log_type: "event",
-      subtype: "vpn",
+      native_log_type: "event",
+      native_subtype: "vpn",
     }),
   ];
 

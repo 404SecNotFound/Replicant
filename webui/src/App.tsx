@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import {
   getCatalog,
   getConfig,
+  type ActiveRun,
   type CatalogResponse,
   type Collector,
   type ConfigResponse,
@@ -54,6 +55,7 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [collector, setCollector] = useState<Collector | null>(null);
   const [vendor, setVendor] = useState("fortigate");
+  const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
   const [selected, setSelected] = useState<Technique | null>(null);
   const [tab, setTab] = useState<Tab>("emitter");
   // Below the lg breakpoint the left rail is a disclosure rather than a column.
@@ -62,15 +64,35 @@ export default function App() {
   const [railOpen, setRailOpen] = useState(false);
 
   useEffect(() => {
-    Promise.all([getCatalog(), getConfig()])
-      .then(([cat, cfg]) => {
-        setCatalog(cat);
+    getConfig()
+      .then((cfg) => {
         setConfig(cfg);
         setVendor(cfg.vendor);
-        setSelected(cat.techniques.find((t) => t.implemented) ?? cat.techniques[0] ?? null);
       })
       .catch((err) => setLoadError((err as Error).message));
   }, []);
+
+  useEffect(() => {
+    if (!config) return;
+    let cancelled = false;
+    getCatalog(vendor)
+      .then((cat) => {
+        if (cancelled) return;
+        setCatalog(cat);
+        setSelected((previous) =>
+          cat.techniques.find((t) => t.id === previous?.id)
+          ?? cat.techniques.find((t) => t.implemented)
+          ?? cat.techniques[0]
+          ?? null,
+        );
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError((err as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [config, vendor]);
 
   if (loadError) {
     return (
@@ -87,7 +109,7 @@ export default function App() {
     );
   }
 
-  if (!catalog || !config) {
+  if (!catalog || !config || catalog.vendor_profile !== vendor) {
     return (
       <div className="flex h-screen items-center justify-center font-mono text-sm text-muted-foreground">
         Loading Replicant…
@@ -200,8 +222,15 @@ export default function App() {
               vendor={vendor}
               vendors={config.vendors}
               onVendorChange={setVendor}
+              vendorChangeDisabled={Boolean(activeRun?.run_id)}
+              vendorChangeDisabledReason={
+                activeRun?.run_id
+                  ? `Vendor profile is locked while ${activeRun.technique_id ?? "a run"} is running. Stop the active run before switching profiles.`
+                  : undefined
+              }
             />
             <CatalogTable
+              key={catalog.vendor_profile}
               techniques={catalog.techniques}
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
@@ -216,6 +245,7 @@ export default function App() {
               vendor={vendor}
               epsCap={config.eps_cap}
               anchorEpoch={config.anchor_epoch}
+              onActiveRunChange={setActiveRun}
             />
           </main>
         </div>

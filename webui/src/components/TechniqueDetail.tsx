@@ -126,6 +126,10 @@ export function TechniqueDetail({ technique, vendor }: Props) {
     new Set(intens.flatMap((i) => Object.keys(technique.params[i] ?? {}))),
   );
   const distEntries = Object.entries(technique.distributions ?? {});
+  const unavailable = technique.native_cef_fields_unavailable;
+  const hasUnavailable = unavailable.held.length > 0 || unavailable.varied.length > 0;
+  const logicalFamilies = technique.logical_families;
+  const logicalFamiliesLabel = logicalFamilies.join(" + ");
 
   return (
     <div className="mx-auto max-w-[900px] pb-2">
@@ -151,7 +155,7 @@ export function TechniqueDetail({ technique, vendor }: Props) {
         </p>
       )}
       <p className="mt-2 max-w-[600px] text-body leading-relaxed text-text-4">
-        Emits synthetic <span className="font-mono text-data text-foreground">{technique.log_type}:{technique.subtype}</span>{" "}
+        Emits synthetic <span className="font-mono text-data text-foreground">{logicalFamiliesLabel}</span>{" "}
         telemetry that exercises <span className="font-mono text-data text-foreground">{technique.ndr_rule}</span>.
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -173,7 +177,7 @@ export function TechniqueDetail({ technique, vendor }: Props) {
             Signal fields
           </span>
           <div className="flex flex-wrap gap-2">
-            {technique.cef_fields_varied.map((f) => (
+            {technique.native_cef_fields_varied.map((f) => (
               <Chip key={f} label={f} tone="varied" />
             ))}
           </div>
@@ -190,7 +194,7 @@ export function TechniqueDetail({ technique, vendor }: Props) {
             Signal (varied)
           </div>
           <div className="mb-4 flex flex-wrap gap-2">
-            {technique.cef_fields_varied.map((f) => (
+            {technique.native_cef_fields_varied.map((f) => (
               <Chip key={f} label={f} tone="varied" />
             ))}
           </div>
@@ -198,10 +202,47 @@ export function TechniqueDetail({ technique, vendor }: Props) {
             Held constant
           </div>
           <div className="mb-4 flex flex-wrap gap-2">
-            {technique.cef_fields_held.map((f) => (
+            {technique.native_cef_fields_held.map((f) => (
               <Chip key={f} label={f} tone="held" />
             ))}
           </div>
+          {hasUnavailable && (
+            <div
+              data-testid="technique-unavailable-fields"
+              className="mb-4 border-t pt-4 text-body leading-relaxed text-text-4"
+            >
+              <span className="text-text-3">Not emitted by {vendorLabel(vendor)}: </span>
+              {unavailable.varied.length > 0 && (
+                <span>signal {unavailable.varied.join(", ")}</span>
+              )}
+              {unavailable.varied.length > 0 && unavailable.held.length > 0 && "; "}
+              {unavailable.held.length > 0 && (
+                <span>held {unavailable.held.join(", ")}</span>
+              )}
+            </div>
+          )}
+          {logicalFamilies.length > 1 && (
+            <div
+              data-testid="technique-family-field-coverage"
+              className="mb-4 border-t pt-4 text-body leading-relaxed text-text-4"
+            >
+              <div className="mb-2 text-text-3">Native field coverage by logical family</div>
+              {logicalFamilies.map((family) => {
+                const coverage = technique.native_cef_fields_by_logical_family[family];
+                const missing = [...coverage.unavailable.varied, ...coverage.unavailable.held];
+                return (
+                  <div key={family}>
+                    <span className="font-mono text-data text-foreground">{family}</span>
+                    {" · signal "}
+                    {coverage.varied.join(", ") || "none"}
+                    {" · held "}
+                    {coverage.held.join(", ") || "none"}
+                    {missing.length > 0 && ` · unavailable ${missing.join(", ")}`}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {technique.benign_baseline && (
             <p className="border-t pt-4 text-body leading-relaxed text-text-4">
               <span className="text-text-3">Baseline · </span>
@@ -231,9 +272,14 @@ export function TechniqueDetail({ technique, vendor }: Props) {
           <div className="grid grid-cols-2">
             <Tile k="NDR rule" v={technique.ndr_rule} />
             <Tile k="Use case" v={technique.ndr_uc} />
-            <Tile k="Log type" v={`${technique.log_type}:${technique.subtype}`} />
-            <Tile k="Signature ID" v={technique.signature_id} />
-            <Tile k="Action" v={technique.action ?? "—"} />
+            <Tile
+              k="Primary native match"
+              v={`${technique.native_log_type}:${technique.native_subtype}`}
+              context={technique.native_metadata_semantics}
+            />
+            <Tile k="Logical families" v={logicalFamiliesLabel} />
+            <Tile k="Signature ID" v={technique.native_signature_id} />
+            <Tile k="Action" v={technique.native_action ?? "—"} />
             <Tile k="Intensities" v={intens.join(" · ")} />
           </div>
         </Card>
@@ -283,7 +329,8 @@ export function TechniqueDetail({ technique, vendor }: Props) {
           <div className="mb-4 flex items-center justify-between gap-3">
             <div className="u-label">What the logs will show · {vendorLabel(vendor)}</div>
             <span className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
-              {technique.log_type}:{technique.subtype} · sig {technique.signature_id}
+              {technique.native_log_type}:{technique.native_subtype} · sig{" "}
+              {technique.native_signature_id}
             </span>
           </div>
           <SampleLines technique={technique} vendor={vendor} />

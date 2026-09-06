@@ -248,7 +248,7 @@ class TestManifestCompleteness:
     datagrams left, is a weaker audit record than safety rule 5 implies.
     """
 
-    def test_a_run_records_its_vendor_duration_and_rate(self, tmp_path: Path) -> None:
+    def test_a_dry_run_records_vendor_duration_and_no_unenforced_rate(self, tmp_path: Path) -> None:
         orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
         result = orch.run(
             RunRequest(
@@ -262,7 +262,7 @@ class TestManifestCompleteness:
 
         assert result.manifest.vendor == "fortigate"
         assert result.manifest.duration == "90s"
-        assert result.manifest.rate is not None and result.manifest.rate > 0
+        assert result.manifest.rate is None
 
     def test_a_sending_run_records_what_the_socket_did(self, tmp_path: Path) -> None:
         import socket as _socket
@@ -289,6 +289,7 @@ class TestManifestCompleteness:
 
         stats = result.manifest.send_stats
         assert stats is not None
+        assert result.manifest.rate is not None and result.manifest.rate > 0
         assert stats["sends"] == result.event_count
         assert stats["errors"] == 0
 

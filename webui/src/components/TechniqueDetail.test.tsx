@@ -103,3 +103,84 @@ describe("TechniqueDetail transferability (roadmap item 5)", () => {
     expect(screen.queryByTestId("technique-transferability")).toBeNull();
   });
 });
+
+describe("TechniqueDetail vendor metadata", () => {
+  it("labels the vendor-native identifier as the primary match", () => {
+    render(<TechniqueDetail technique={makeTechnique()} vendor="fortigate" />);
+
+    expect(screen.getByText("Primary native match")).toBeVisible();
+  });
+
+  it("distinguishes the logical event family from the vendor-native match", () => {
+    render(
+      <TechniqueDetail
+        technique={makeTechnique({
+          logical_log_type: "dns",
+          logical_subtype: "dns-query",
+          logical_families: ["dns:dns-query"],
+          native_log_type: "TRAFFIC",
+          native_subtype: "end",
+          native_signature_id: "end",
+          native_metadata_semantics: "Primary PAN-OS CEF name and signature ID",
+        })}
+        vendor="paloalto"
+      />,
+    );
+
+    expect(screen.getAllByText("dns:dns-query").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("TRAFFIC:end").length).toBeGreaterThan(0);
+    expect(screen.getByText("Primary PAN-OS CEF name and signature ID")).toBeVisible();
+  });
+
+  it("discloses every logical family in a mixed plan", () => {
+    render(
+      <TechniqueDetail
+        technique={makeTechnique({
+          id: "REP-018",
+          logical_log_type: "event",
+          logical_subtype: "vpn",
+          logical_families: ["event:vpn", "event:system", "traffic:forward"],
+          native_cef_fields_by_logical_family: {
+            "event:vpn": {
+              held: [],
+              varied: ["duser", "src", "rt"],
+              unavailable: { held: [], varied: ["dst"] },
+            },
+            "event:system": {
+              held: [],
+              varied: ["duser", "src", "rt"],
+              unavailable: { held: [], varied: ["dst"] },
+            },
+            "traffic:forward": {
+              held: [],
+              varied: ["src", "dst", "rt"],
+              unavailable: { held: [], varied: ["duser"] },
+            },
+          },
+        })}
+        vendor="fortigate"
+      />,
+    );
+
+    expect(screen.getAllByText("event:vpn + event:system + traffic:forward").length).toBe(2);
+    expect(screen.getByTestId("technique-family-field-coverage")).toHaveTextContent(
+      /event:vpn.*unavailable dst.*traffic:forward.*unavailable duser/i,
+    );
+  });
+
+  it("names catalog signals that the selected profile cannot emit", () => {
+    render(
+      <TechniqueDetail
+        technique={makeTechnique({
+          native_cef_fields_varied: ["PanOSDNSQuery"],
+          native_cef_fields_unavailable: { held: [], varied: ["FTNTFGTxid"] },
+        })}
+        vendor="paloalto"
+      />,
+    );
+
+    expect(screen.getByTestId("technique-unavailable-fields")).toHaveTextContent(
+      /Not emitted by Palo Alto.*signal FTNTFGTxid/i,
+    );
+  });
+});

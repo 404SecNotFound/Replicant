@@ -109,6 +109,21 @@ def test_the_preview_rejects_an_unknown_technique(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
+def test_api_rate_override_cannot_raise_the_configured_ceiling(tmp_path: Path) -> None:
+    settings = Settings(eps_cap=10, manifest_dir=str(tmp_path / "manifests"))
+    client = TestClient(create_app(CATALOG, settings, token=TOKEN), base_url="http://localhost")
+
+    resp = client.post(
+        "/api/plan",
+        json={"technique_id": "REP-001", "intensity": "low", "rate": 11},
+        headers=HEADERS,
+    )
+
+    assert resp.status_code == 400
+    assert "11 events/s" in resp.json()["detail"]
+    assert "configured eps cap of 10 events/s" in resp.json()["detail"]
+
+
 # -- what a started run reports ----------------------------------------------
 
 

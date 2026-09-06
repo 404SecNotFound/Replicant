@@ -19,8 +19,8 @@
 // and the eps readout stayed identical to a working run. It cost a live
 // LogRhythm session, with tcpdump showing no packets and nothing saying why.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RunPanel } from "./RunPanel";
 import { ApiError, getActiveRun, getPlanPreview, startRun, stopRun } from "@/lib/api";
 import { makeTechnique } from "@/test/factories";
@@ -38,18 +38,122 @@ vi.mock("@/lib/api", async () => ({
 
 const COLLECTOR = { host: "10.20.0.50", port: 514, transport: "udp" as const };
 
-function renderPanel(collector: typeof COLLECTOR | null = COLLECTOR) {
+function renderPanel(collector: typeof COLLECTOR | null = COLLECTOR, epsCap = 2000) {
   return render(
     <RunPanel
       technique={makeTechnique()}
       defaultSeed={1337}
       collector={collector}
       vendor="fortigate"
-      epsCap={2000}
+      epsCap={epsCap}
       anchorEpoch={1752537600}
     />,
   );
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
+
+describe("RunPanel partial manifest", () => {
+  it("shows the last durable audit record when an emitted run fails", async () => {
+    let stream: {
+      onmessage: ((event: MessageEvent<string>) => void) | null;
+      onerror: (() => void) | null;
+      close: ReturnType<typeof vi.fn>;
+    } | null = null;
+
+    class FakeEventSource {
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+
+      constructor(_url: string) {
+        stream = this;
+      }
+    }
+
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.mocked(getActiveRun).mockResolvedValue({
+      run_id: null,
+      technique_id: null,
+      status: null,
+    });
+    vi.mocked(getPlanPreview).mockResolvedValue({
+      event_count: 49,
+      plan_span_s: 14280,
+      compressed_span_s: 14280,
+      projected_s: 14280,
+      projected_by_pace: { plan: 14280, burst: 0.24 },
+      pace: "plan",
+      speed: 1,
+    });
+    vi.mocked(startRun).mockResolvedValue({
+      run_id: "run-1",
+      total: 49,
+      pace: "plan",
+      speed: 1,
+      projected_s: 14280,
+      plan_span_s: 14280,
+    });
+
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /^Run and send/ }));
+    await waitFor(() => expect(stream).not.toBeNull());
+
+    const partial = {
+      technique_id: "REP-001",
+      technique_name: "Beaconing",
+      ndr_uc: "NDR-001",
+      intensity: "low",
+      seed: 1337,
+      target: "10.20.0.50:514",
+      transport: "udp",
+      event_count: 2,
+      planned_event_count: 49,
+      started_at: "2026-09-06T10:00:00+04:00",
+      ended_at: "2026-09-06T10:00:01+04:00",
+      updated_at: "2026-09-06T10:00:01+04:00",
+      anchor_epoch: 1752537600,
+      warmup_note: null,
+      status: "error",
+      partial: true,
+      error: "ConnectionError: collector failed",
+    };
+    act(() => {
+      stream!.onmessage?.({
+        data: JSON.stringify({
+          type: "error",
+          message: "collector failed",
+          count: 2,
+          manifest: partial,
+        }),
+      } as MessageEvent<string>);
+    });
+
+    expect(screen.getByText(/Run failed.*partial manifest written/i)).toBeVisible();
+    expect(screen.getByTestId("manifest-events")).toHaveTextContent("2 / 49");
+    expect(screen.getByText("collector failed")).toBeVisible();
+  });
+});
+
+describe("RunPanel rate ceiling", () => {
+  it("refuses a per-run rate above the configured collector ceiling", async () => {
+    renderPanel(COLLECTOR, 10);
+
+    const input = screen.getByLabelText("Rate");
+    expect(input).toHaveAttribute("max", "10");
+    fireEvent.change(input, { target: { value: "11" } });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /11 events\/s exceeds the configured cap of 10 events\/s/i,
+    );
+    expect(screen.getByRole("button", { name: /^Run and send/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /^Run and send/ }));
+    expect(startRun).not.toHaveBeenCalled();
+  });
+});
 
 // A configured collector is a statement of intent. The CLI has always read it
 // that way: `replicant run REP-001 --host ...` sends, and `--no-send` is the

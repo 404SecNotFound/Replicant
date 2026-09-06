@@ -76,7 +76,7 @@ def establish_session(client: TestClient) -> None:
     than a constant.
     """
 
-    resp = client.get("/api/health", params={"token": TOKEN})
+    resp = client.get("/", params={"token": TOKEN})
     assert resp.status_code == 200
     assert client.cookies.get(SESSION_COOKIE)
 
@@ -236,30 +236,31 @@ def test_a_wrong_cookie_is_rejected(tmp_path: Path) -> None:
     assert client.get("/api/catalog").status_code == 401
 
 
-# --- A4: the first authenticated load sets the cookie ----------------------
+# --- A4: browser bootstrap redirects cleanly and sets the cookie -----------
 
 
-def test_authenticated_load_sets_an_httponly_session_cookie(tmp_path: Path) -> None:
+def test_query_authenticated_api_request_mints_no_session_cookie(tmp_path: Path) -> None:
     client = make_client(tmp_path)
 
     resp = client.get("/api/catalog", params={"token": TOKEN})
 
-    cookie = resp.headers.get("set-cookie", "")
-    assert SESSION_COOKIE in cookie
-    assert "httponly" in cookie.lower(), "the token must not be readable by page scripts"
-    assert "samesite=strict" in cookie.lower().replace(" ", "")
+    assert resp.status_code == 200
+    assert SESSION_COOKIE not in resp.headers.get("set-cookie", "")
 
 
 def test_the_spa_document_sets_the_cookie_too(tmp_path: Path) -> None:
     # StaticFiles is mounted at "/", so the document response never reaches a
-    # handler this module owns. If the cookie were set in a route instead of in
-    # middleware, opening the printed URL would not establish the session at all.
+    # handler this module owns. Middleware must exchange the token and redirect
+    # before that mount can serve any JavaScript-bearing document.
     client = make_client(tmp_path)
 
-    resp = client.get("/", params={"token": TOKEN})
+    resp = client.get("/", params={"token": TOKEN}, follow_redirects=False)
 
-    assert resp.status_code == 200
-    assert SESSION_COOKIE in resp.headers.get("set-cookie", "")
+    assert resp.status_code == 303
+    cookie = resp.headers.get("set-cookie", "")
+    assert SESSION_COOKIE in cookie
+    assert "httponly" in cookie.lower(), "the token must not be readable by page scripts"
+    assert "samesite=strict" in cookie.lower().replace(" ", "")
 
 
 def test_an_unauthenticated_request_sets_no_cookie(tmp_path: Path) -> None:

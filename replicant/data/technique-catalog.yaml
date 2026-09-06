@@ -32,7 +32,9 @@
 #   fortigate:        { log_type, subtype, signature_id }  log routing and
 #                     display; the CEF header signature ID comes from the
 #                     vendor profile constants, so signature_id here is
-#                     documentation, not a header input
+#                     documentation, not a header input. This is the PRIMARY
+#                     family and native match, not necessarily the whole plan
+#   additional_log_families: [{log_type, subtype}] for mixed-family plans only
 #   cef_fields_held:  fields kept constant to form the pattern
 #   cef_fields_varied: fields the scenario engine iterates
 #   params:           default_intensity + low/medium/high presets
@@ -552,6 +554,8 @@ techniques:
       subtype: "forward"
       signature_id: "00013"
       action: "accept"
+    additional_log_families:
+      - { log_type: "dns", subtype: "dns-query" }
     cef_fields_held: ["src", "dpt", "proto"]
     cef_fields_varied: ["dst", "rt", "out", "in", "externalId"]
     params:
@@ -587,6 +591,9 @@ techniques:
       subtype: "vpn"           # plus event:system login records and traffic:forward east-west legs
       signature_id: "39947"    # [Unverified] same caveat as REP-011
       action: "tunnel-up"
+    additional_log_families:
+      - { log_type: "event", subtype: "system" }
+      - { log_type: "traffic", subtype: "forward" }
     cef_fields_held: []
     cef_fields_varied: ["duser", "src", "dst", "rt"]
     params:

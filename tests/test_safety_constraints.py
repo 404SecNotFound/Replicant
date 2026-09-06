@@ -34,14 +34,18 @@ from replicant.core.models import (
     RunRequest,
     ScenarioRunRequest,
     load_catalog,
+    load_scenario_catalog,
 )
+from replicant.core.orchestrator import Orchestrator
 from replicant.entities.model import EntityModel
+from replicant.resources import SCENARIO_CATALOG
 from replicant.scenario.engine import ScenarioEngine, implemented_technique_ids
 
 CATALOG = load_catalog(
     Path(__file__).resolve().parents[1] / "replicant" / "data" / "technique-catalog.yaml"
 )
 ENTITIES = EntityModel.build()
+SCENARIOS = load_scenario_catalog(SCENARIO_CATALOG, CATALOG)
 
 
 @pytest.mark.parametrize("bad", [0, -1, -2000])
@@ -75,6 +79,89 @@ def test_scenario_request_rejects_nonpositive_rate_override(bad: int) -> None:
 def test_scenario_request_allows_none_or_positive_rate_override() -> None:
     assert ScenarioRunRequest(scenario_id="SCEN-001").rate_override is None
     assert ScenarioRunRequest(scenario_id="SCEN-001", rate_override=10).rate_override == 10
+
+
+def test_direct_run_cannot_raise_the_configured_rate_ceiling(tmp_path: Path) -> None:
+    orchestrator = Orchestrator(
+        CATALOG,
+        Settings(eps_cap=10, manifest_dir=str(tmp_path / "manifests")),
+    )
+
+    with pytest.raises(RuntimeError, match="configured eps cap of 10 events/s"):
+        orchestrator.run(
+            RunRequest(
+                technique_id="REP-001",
+                intensity="low",
+                no_send=True,
+                rate_override=11,
+            )
+        )
+
+
+def test_scenario_run_cannot_raise_the_configured_rate_ceiling(tmp_path: Path) -> None:
+    orchestrator = Orchestrator(
+        CATALOG,
+        Settings(eps_cap=10, manifest_dir=str(tmp_path / "manifests")),
+    )
+
+    with pytest.raises(RuntimeError, match="configured eps cap of 10 events/s"):
+        orchestrator.run_scenario(
+            ScenarioRunRequest(
+                scenario_id="SCEN-003",
+                duration="1m",
+                no_send=True,
+                rate_override=11,
+            ),
+            SCENARIOS,
+        )
+
+
+@pytest.mark.parametrize("destination", ["dry", "file"])
+def test_non_sending_run_does_not_price_or_record_an_unenforced_rate(
+    destination: str, tmp_path: Path
+) -> None:
+    orchestrator = Orchestrator(
+        CATALOG,
+        Settings(manifest_dir=str(tmp_path / "manifests")),
+    )
+    request = RunRequest(
+        technique_id="REP-001",
+        intensity="low",
+        no_send=destination == "dry",
+        to_file=str(tmp_path / "events.log") if destination == "file" else None,
+        pace="burst",
+        rate_override=1,
+    )
+
+    preview = orchestrator.preview_pacing(request, sending=False)
+    result = orchestrator.run(request)
+
+    assert preview.projected_s == 0.0
+    assert preview.projected_by_pace["burst"] == 0.0
+    assert result.manifest.rate is None
+
+
+def test_non_sending_scenario_does_not_price_or_record_an_unenforced_rate(
+    tmp_path: Path,
+) -> None:
+    orchestrator = Orchestrator(
+        CATALOG,
+        Settings(manifest_dir=str(tmp_path / "manifests")),
+    )
+    request = ScenarioRunRequest(
+        scenario_id="SCEN-003",
+        duration="1m",
+        no_send=True,
+        pace="burst",
+        rate_override=1,
+    )
+
+    preview = orchestrator.preview_scenario_pacing(request, SCENARIOS, sending=False)
+    result = orchestrator.run_scenario(request, SCENARIOS)
+
+    assert preview.projected_s == 0.0
+    assert preview.projected_by_pace["burst"] == 0.0
+    assert result.manifest.rate is None
 
 
 # --- Collector numeric domains -----------------------------------------------

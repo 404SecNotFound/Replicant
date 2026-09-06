@@ -20,7 +20,9 @@ with detections.
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 import uuid
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -51,32 +53,192 @@ def _stamp_for_filename() -> str:
     return datetime.now(DUBAI_TZ).strftime("%Y%m%dT%H%M%S")
 
 
+def _json_payload(manifest: RunManifest | ScenarioManifest) -> str:
+    return json.dumps(manifest.model_dump(), indent=2, sort_keys=False) + "\n"
+
+
+_UNSUPPORTED_DIRECTORY_FSYNC = {
+    errno.EINVAL,
+    getattr(errno, "ENOTSUP", errno.EINVAL),
+    getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+}
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Persist directory-entry changes or fail before claiming durability.
+
+    File ``fsync`` makes the JSON durable, but an atomic rename can still be lost
+    across a power failure unless its parent directory is flushed too. A platform
+    or filesystem that rejects directory ``fsync`` cannot provide the audit
+    contract, so surface that capability failure rather than silently sending
+    after an unauditable preflight.
+    """
+
+    unsupported_errno = getattr(
+        errno,
+        "ENOTSUP",
+        getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+    )
+
+    def unsupported() -> OSError:
+        return OSError(
+            unsupported_errno,
+            "manifest durability requires directory fsync, which this "
+            "platform or filesystem does not support",
+            str(directory),
+        )
+
+    # Python exposes no directory-handle flush primitive on Windows. File fsync
+    # and atomic replace are insufficient because their directory entries can
+    # still disappear across a power loss, so the durable preflight must refuse.
+    if os.name == "nt":  # pragma: no cover - platform-specific branch
+        raise unsupported()
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(directory, flags)
+    except OSError as exc:
+        if exc.errno in _UNSUPPORTED_DIRECTORY_FSYNC:
+            raise unsupported() from exc
+        raise
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as exc:
+            if exc.errno in _UNSUPPORTED_DIRECTORY_FSYNC:
+                raise unsupported() from exc
+            raise
+    finally:
+        os.close(descriptor)
+
+
+def _ensure_durable_directory(
+    directory: Path,
+    *,
+    assure_existing_entry: bool = False,
+) -> None:
+    """Create a directory chain and persist every newly visible component.
+
+    Flushing a manifest directory persists entries *inside* it, but cannot make
+    the directory's own entry durable in its parent. Build missing components
+    from the top down and flush each parent before any manifest is published.
+    The parent flush is also performed when another process wins the mkdir race,
+    because this writer cannot assume the competing creator made that entry
+    durable on its behalf.
+    """
+
+    if directory.is_dir():
+        # The initial manifest publication cannot tell a long-established
+        # directory chain from one a competing process created a moment ago.
+        # Assure every ancestor entry once at preflight when requested;
+        # checkpoint replacements leave this off, avoiding those fsyncs on every
+        # interval.
+        if assure_existing_entry and directory.parent != directory:
+            _ensure_durable_directory(
+                directory.parent,
+                assure_existing_entry=True,
+            )
+            _fsync_directory(directory.parent)
+        return
+    parent = directory.parent
+    if parent == directory:
+        # A missing filesystem root cannot be created by this process. Let mkdir
+        # raise the platform's useful error rather than recursing forever.
+        directory.mkdir()
+        return
+    _ensure_durable_directory(
+        parent,
+        assure_existing_entry=assure_existing_entry,
+    )
+    try:
+        directory.mkdir()
+    except FileExistsError:
+        if not directory.is_dir():
+            raise
+    _fsync_directory(parent)
+
+
+def _durable_temp(path: Path, payload: str) -> Path:
+    """Write and fsync a same-directory temporary file for atomic publication."""
+
+    _ensure_durable_directory(path.parent)
+    temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    return temporary
+
+
+def _atomic_replace(path: Path, payload: str) -> None:
+    """Durably publish complete JSON at ``path`` with a same-directory replace."""
+
+    temporary = _durable_temp(path, payload)
+    try:
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        # A failed write/replace must not accumulate temp files. After a successful
+        # os.replace the source no longer exists, so this is a no-op.
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _atomic_create(path: Path, payload: str) -> None:
+    """Publish complete JSON without ever overwriting an existing manifest.
+
+    Linking the already-fsynced temp file gives exclusive-create semantics: the
+    final name appears atomically and ``FileExistsError`` wins a collision race,
+    while readers can never observe a placeholder or partial JSON document.
+    """
+
+    temporary = _durable_temp(path, payload)
+    linked = False
+    try:
+        os.link(temporary, path)
+        linked = True
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if linked:
+            _fsync_directory(path.parent)
+
+
 def _write_unique(directory: Path, prefix: str, payload: str) -> Path:
-    """Write ``payload`` to ``{prefix}-{stamp}-{token}.json`` under ``directory``.
+    """Atomically write ``payload`` to a unique manifest path.
 
     The timestamp has second precision, so two same-id, same-seed runs in one
     second would otherwise resolve to one path and the second would overwrite the
     first, destroying a run's audit record (safety rule 5). A random token makes
-    the name unique, and exclusive creation (``open("x")``) guarantees two writers
-    never resolve to the same file even under a race; on the astronomically
-    unlikely collision it retries with a fresh token.
+    the name unique. The complete, fsynced payload is atomically published from a
+    same-directory temp file, so a crash cannot expose a half-written JSON record.
     """
-    directory.mkdir(parents=True, exist_ok=True)
+    _ensure_durable_directory(directory, assure_existing_entry=True)
     stamp = _stamp_for_filename()
     for _ in range(8):
         token = uuid.uuid4().hex[:8]
         path = directory / f"{prefix}-{stamp}-{token}.json"
         try:
-            with path.open("x", encoding="utf-8") as handle:
-                handle.write(payload)
-            return path
+            _atomic_create(path, payload)
         except FileExistsError:
             continue
+        return path
     raise RuntimeError(f"could not allocate a unique manifest path in {directory}")
 
 
 def write_manifest(manifest: RunManifest, out_dir: str | Path) -> Path:
-    payload = json.dumps(manifest.model_dump(), indent=2, sort_keys=False) + "\n"
+    payload = _json_payload(manifest)
     # The run id makes the file findable from the id an operator has in hand (the
     # web 409, the CLI summary, a marked CEF line). It stays after the technique
     # and seed so a directory listing is still grouped and chronological, and it
@@ -86,6 +248,14 @@ def write_manifest(manifest: RunManifest, out_dir: str | Path) -> Path:
     suffix = manifest.run_id or "RUN-none"
     prefix = f"{manifest.technique_id}-seed{manifest.seed}-{suffix}"
     return _write_unique(Path(out_dir), prefix, payload)
+
+
+def update_manifest(manifest: RunManifest | ScenarioManifest, path: str | Path) -> Path:
+    """Atomically and durably replace an established write-ahead manifest."""
+
+    resolved = Path(path)
+    _atomic_replace(resolved, _json_payload(manifest))
+    return resolved
 
 
 def human_summary(manifest: RunManifest, manifest_path: Path) -> str:
@@ -108,7 +278,7 @@ def human_summary(manifest: RunManifest, manifest_path: Path) -> str:
 
 
 def write_scenario_manifest(manifest: ScenarioManifest, out_dir: str | Path) -> Path:
-    payload = json.dumps(manifest.model_dump(), indent=2, sort_keys=False) + "\n"
+    payload = _json_payload(manifest)
     prefix = f"{manifest.scenario_id}-seed{manifest.seed}"
     return _write_unique(Path(out_dir), prefix, payload)
 

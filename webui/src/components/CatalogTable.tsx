@@ -15,7 +15,7 @@
 import { useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { filterTechniques, groupByTactic, LOG_TYPES, logTypeOf } from "@/lib/catalogView";
+import { filterTechniques, groupByTactic, logTypeOf, logTypesOf } from "@/lib/catalogView";
 import type { Technique } from "@/lib/api";
 
 interface Props {
@@ -31,6 +31,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
   const [query, setQuery] = useState("");
   const [logTypes, setLogTypes] = useState<string[]>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const availableLogTypes = useMemo(() => logTypesOf(techniques), [techniques]);
 
   const groups = useMemo(
     () => groupByTactic(filterTechniques(techniques, { query, logTypes })),
@@ -77,7 +78,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1">
-        {LOG_TYPES.map((value) => {
+        {availableLogTypes.map((value) => {
           const on = logTypes.includes(value);
           return (
             <button

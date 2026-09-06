@@ -6,6 +6,36 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Added
+
+- **Crash-safe write-ahead run manifests.** Individual and scenario runs now
+  publish a durable `running` manifest before opening any output, checkpoint
+  progress about once per second, and atomically finalize the same file. A
+  process or power failure leaves the last durable count, the planned count,
+  and an explicit partial state instead of erasing the audit trail. A failed
+  preflight manifest write prevents any output.
+
+### Changed
+
+- **`--rate` can only lower the configured `eps_cap`.** CLI, API, pacing preview,
+  and web form now reject a per-run value above the collector-protection
+  ceiling instead of replacing it with a larger limit.
+- **Catalog detection metadata follows the selected vendor profile.** The web UI
+  now separates the logical event family from the profile's native match,
+  translates signal-field names to keys that profile emits, and names catalog
+  fields the profile cannot carry instead of displaying FortiGate identifiers
+  for every vendor.
+
+### Fixed
+
+- **The browser no longer receives, retains, or replays the persistent launch
+  token in JavaScript.** The server exchanges the tokenized bootstrap navigation
+  for an httpOnly session cookie and redirects to a clean URL before serving the
+  SPA. Subsequent requests use only that revocable session. Explicit Bearer and
+  `X-Replicant-Token` API clients remain supported.
+- **Browser-session lifecycle operations are thread-safe.** Concurrent expiry,
+  validation, logout, and issuance can no longer race on the session store.
+
 ## [0.10.0] - 2026-09-01
 
 Execution of the 2026-09 five-persona roadmap (`docs/roadmap-2026-09.md`): all 13

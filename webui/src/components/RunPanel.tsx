@@ -44,6 +44,7 @@ interface Props {
   vendor: string;
   epsCap: number;
   anchorEpoch: number;
+  onActiveRunChange?: (activeRun: ActiveRun | null) => void;
 }
 
 const MAX_VISIBLE = 800;
@@ -70,7 +71,15 @@ function fmtDur(sec: number): string {
   return m > 0 ? `${m}m ${String(s % 60).padStart(2, "0")}s` : `${s}s`;
 }
 
-export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, anchorEpoch }: Props) {
+export function RunPanel({
+  technique,
+  defaultSeed,
+  collector,
+  vendor,
+  epsCap,
+  anchorEpoch,
+  onActiveRunChange,
+}: Props) {
   const [intensity, setIntensity] = useState("medium");
   const [duration, setDuration] = useState("");
   const [seed, setSeed] = useState(String(defaultSeed));
@@ -124,6 +133,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   const linesRef = useRef<string[]>([]);
   const esRef = useRef<EventSource | null>(null);
   const runIdRef = useRef<string | null>(null);
+  const runTechniqueRef = useRef<string | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   const countRef = useRef(0);
   const startRef = useRef(0);
@@ -149,6 +159,26 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   useEffect(() => {
     void refreshLock();
   }, [refreshLock, technique]);
+
+  // The vendor picker lives above this component, but this component owns the
+  // authoritative local/remote run state. Report only that small piece upward
+  // so switching profiles cannot unmount an in-flight panel and relabel its
+  // stream. The technique is frozen at start because browsing the catalog does
+  // not change which technique the already-running worker is executing.
+  useEffect(() => {
+    if (!onActiveRunChange) return;
+    if (lockedBy?.run_id) {
+      onActiveRunChange(lockedBy);
+    } else if (running && runIdRef.current) {
+      onActiveRunChange({
+        run_id: runIdRef.current,
+        technique_id: runTechniqueRef.current,
+        status: "running",
+      });
+    } else {
+      onActiveRunChange(null);
+    }
+  }, [lockedBy, onActiveRunChange, running]);
 
   useEffect(() => setSeed(String(defaultSeed)), [defaultSeed]);
   useEffect(() => {
@@ -184,13 +214,18 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
   }, [sending]);
 
   const speedNum = Math.max(1, Number(speed) || 1);
+  const requestedRate = rate.trim() ? Number(rate.trim()) : null;
+  const rateError =
+    requestedRate !== null && requestedRate > epsCap
+      ? `${requestedRate} events/s exceeds the configured cap of ${epsCap} events/s. A per-run rate may lower this safety ceiling, not raise it.`
+      : null;
   // Burst has no timeline to compress. The server refuses that combination
   // rather than ignoring it, so the form never sends one it already knows is
   // contradictory.
   const effectiveSpeed = pace === "plan" ? speedNum : 1;
 
   function buildBody(): RunBody | null {
-    if (!technique) return null;
+    if (!technique || rateError) return null;
     return {
       technique_id: technique.id,
       intensity,
@@ -203,7 +238,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       anchor,
       // Blank means the configured cap. Sent as a number so the server's
       // gt=0 constraint rejects nonsense rather than silently flooding.
-      rate: rate.trim() ? Number(rate.trim()) : null,
+      rate: requestedRate,
       pace,
       speed: effectiveSpeed,
     };
@@ -308,6 +343,7 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
     try {
       const { run_id, total: est } = await startRun(body);
       runIdRef.current = run_id;
+      runTechniqueRef.current = technique.id;
       setTotal(est);
       setRunning(true);
       const es = new EventSource(runEventsUrl(run_id));
@@ -330,6 +366,9 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           setRunning(false);
           es.close();
         } else if (item.type === "error") {
+          countRef.current = Math.max(countRef.current, item.count ?? 0);
+          setCount((current) => Math.max(current, item.count ?? 0));
+          if (item.manifest) setManifest(item.manifest);
           setError(item.message);
           setRunning(false);
           es.close();
@@ -405,8 +444,16 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
     );
   }
 
-  const canRun = technique.implemented && !running && !lockedBy;
+  const canRun = technique.implemented && !running && !lockedBy && !rateError;
   const pct = total > 0 ? Math.min(100, Math.round((count / total) * 100)) : running ? 5 : 0;
+  const manifestHeading =
+    manifest?.status === "error"
+      ? `Run failed · ${manifest.partial ? "partial manifest written" : "manifest written"}`
+      : manifest?.status === "stopped"
+        ? `Run stopped · ${manifest.partial ? "partial manifest written" : "manifest written"}`
+        : manifest?.status === "running"
+          ? "Run interrupted · last durable checkpoint"
+          : "Run complete · manifest written";
 
   // The button says where the events go. Two switches above it decided that
   // silently before, and a run with both off renders everything and delivers
@@ -472,10 +519,16 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           </label>
           <Input
             id="rate"
+            type="number"
+            min={1}
+            max={epsCap}
+            step={1}
             className="h-9 font-mono text-data"
             placeholder={`${epsCap}/s`}
             inputMode="numeric"
             title="Events per second. Blank uses the configured cap. Lower it if your collector drops events."
+            aria-invalid={rateError ? true : undefined}
+            aria-describedby={rateError ? "rate-error" : undefined}
             value={rate}
             onChange={(e) => setRate(e.target.value)}
           />
@@ -506,6 +559,12 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
           </div>
         </div>
       </div>
+
+      {rateError && (
+        <p id="rate-error" role="alert" className="mt-2.5 text-body text-destructive">
+          {rateError}
+        </p>
+      )}
 
       {/* Pacing.
           Its own row rather than a seventh column in the grid above: the choice
@@ -693,16 +752,26 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
       {manifest && (
         <div className="mt-4 rounded-lg bg-card p-6">
           <div className="mb-4 flex items-center gap-2 text-body">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-muted-foreground">
-              <path d="M2.5 7.5 L5.5 10.5 L11.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Run complete · manifest written
+            {manifest.status === undefined || manifest.status === "done" ? (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-muted-foreground">
+                <path d="M2.5 7.5 L5.5 10.5 L11.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : (
+              <span aria-hidden="true" className="font-mono text-signal">!</span>
+            )}
+            {manifestHeading}
           </div>
           {/* Audit fields. Two columns is the floor: these are short mono values
               and one column per row would make a seven-field manifest a scroll. */}
           <div className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
             {[
-              ["events", manifest.event_count],
+              [
+                "events",
+                typeof manifest.planned_event_count === "number"
+                  ? `${manifest.event_count} / ${manifest.planned_event_count}`
+                  : manifest.event_count,
+              ],
+              ["status", manifest.status ?? "done"],
               ["seed", manifest.seed],
               ["intensity", manifest.intensity],
               ["use case", manifest.ndr_uc],
@@ -710,7 +779,11 @@ export function RunPanel({ technique, defaultSeed, collector, vendor, epsCap, an
               ["transport", manifest.transport],
               ["anchor", manifest.anchor_epoch],
             ].map(([k, v]) => (
-              <div key={k} className="u-label">
+              <div
+                key={k}
+                className="u-label"
+                data-testid={k === "events" ? "manifest-events" : undefined}
+              >
                 {k}
                 <b className="mt-0.5 block font-mono text-data font-normal normal-case tracking-normal text-foreground">
                   {String(v)}

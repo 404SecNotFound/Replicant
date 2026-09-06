@@ -34,8 +34,11 @@ Intensity = Literal["low", "medium", "high"]
 Transport = Literal["udp", "tcp", "tls"]
 #: Does a green result exercise the shipped production rule, or only its parser?
 Transferability = Literal["transfers", "parser-only"]
-#: How a run ended. ``stopped`` is the kill switch, ``error`` is a raised failure.
-RunStatus = Literal["done", "stopped", "error"]
+#: Lifecycle of a run manifest. ``running`` is the durable write-ahead record,
+#: ``stopped`` is the kill switch, and ``error`` is a raised failure. Keeping
+#: ``error`` rather than renaming it to ``failed`` preserves compatibility with
+#: existing manifests and API consumers.
+RunStatus = Literal["running", "done", "stopped", "error"]
 
 
 class CefHeader(BaseModel):
@@ -101,6 +104,13 @@ class FortigateBinding(BaseModel):
     action: str | None = None
 
 
+class EventFamily(BaseModel):
+    """One additional vendor-neutral family emitted by a mixed plan."""
+
+    log_type: str
+    subtype: str
+
+
 class Technique(BaseModel):
     """One catalog entry. Drives the menu, the CLI ``list``, and the engine."""
 
@@ -118,6 +128,10 @@ class Technique(BaseModel):
     objective: str = ""
     attack: AttackMapping = Field(default_factory=AttackMapping)
     fortigate: FortigateBinding
+    #: Families beyond the primary dispatch/binding above. Most plans emit one
+    #: family; mixed plans must name the others so a singular native identifier
+    #: cannot be mistaken for an exhaustive description of their telemetry.
+    additional_log_families: list[EventFamily] = Field(default_factory=list)
     cef_fields_held: list[str] = Field(default_factory=list)
     cef_fields_varied: list[str] = Field(default_factory=list)
     params: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -155,7 +169,21 @@ class Technique(BaseModel):
                 f"{self.id}: transferability 'parser-only' requires a transferability_note "
                 "stating what the shipped rule keys on that the synthetic data cannot carry"
             )
+        families = [
+            (self.fortigate.log_type, self.fortigate.subtype),
+            *((family.log_type, family.subtype) for family in self.additional_log_families),
+        ]
+        if len(families) != len(set(families)):
+            raise ValueError(f"{self.id}: logical event families must be unique")
         return self
+
+    def logical_families(self) -> list[tuple[str, str]]:
+        """Return the primary family followed by every declared mixed-plan family."""
+
+        return [
+            (self.fortigate.log_type, self.fortigate.subtype),
+            *((family.log_type, family.subtype) for family in self.additional_log_families),
+        ]
 
     def preset(self, intensity: Intensity) -> dict[str, Any]:
         if intensity not in self.params:
@@ -249,8 +277,8 @@ class RunRequest(BaseModel):
     # technique with no foil (emits_foil is false) yields nothing under
     # "negative"; the orchestrator surfaces that rather than sending an empty run.
     controls: Literal["both", "positive", "negative"] = "both"
-    # A non-positive override disables the emit-loop rate limiter (safety rule 4),
-    # so it must be a positive events-per-second value when present.
+    # A per-run slowdown. It must be positive here; the orchestrator also rejects
+    # values above Settings.eps_cap so an override can never raise the safety ceiling.
     rate_override: int | None = Field(default=None, gt=0)
     collector: CollectorProfile | None = None
     anchor_epoch: int | None = None
@@ -292,8 +320,14 @@ class RunManifest(BaseModel):
     transport: str
     accepted_as: str | None = None
     event_count: int
+    #: Number of events the completed plan intended to emit. Added separately
+    #: from ``event_count`` so a write-ahead or interrupted manifest can say how
+    #: much work remained. ``None`` keeps older manifests loadable.
+    planned_event_count: int | None = None
     started_at: str
-    ended_at: str
+    #: Absent on the initial ``running`` record. A final atomic replacement sets
+    #: it on every handled completion, stop, or error path.
+    ended_at: str | None = None
     anchor_epoch: int
     warmup_note: str | None = None
     # How the events were delivered. Two runs of the same seed and technique can
@@ -325,6 +359,13 @@ class RunManifest(BaseModel):
     #: written before this field existed still load. See Orchestrator._resolve_marker.
     marker_attestation: str = ""
     status: RunStatus = "done"
+    #: True when fewer events than planned are durably accounted for. An initial
+    #: non-empty ``running`` record is therefore partial even at zero: a crash
+    #: before its first periodic checkpoint must not resemble a completed run.
+    partial: bool = False
+    #: Wall-clock time of the last durable manifest replacement. Optional for
+    #: backward compatibility with manifests written before write-ahead support.
+    updated_at: str | None = None
     #: Bounded description of the failure, or None. Type and message only, never
     #: a traceback: this is an operator record, not a debugger.
     error: str | None = None
@@ -421,7 +462,7 @@ class ScenarioRunRequest(BaseModel):
     duration: str | None = None
     to_file: str | None = None
     no_send: bool = False
-    # Positive when present; a non-positive value would disable the rate limiter.
+    # Positive when present and constrained by Settings.eps_cap in the orchestrator.
     rate_override: int | None = Field(default=None, gt=0)
     collector: CollectorProfile | None = None
     anchor_epoch: int | None = None
@@ -474,9 +515,11 @@ class ScenarioManifest(BaseModel):
     vendor: str
     accepted_as: str | None = None
     total_event_count: int
+    #: Scenario equivalent of RunManifest.planned_event_count.
+    planned_event_count: int | None = None
     stages: list[ScenarioStageRecord]
     started_at: str
-    ended_at: str
+    ended_at: str | None = None
     anchor_epoch: int
     warmup_note: str | None = None
     coverage: dict[str, Any] = Field(default_factory=dict)
@@ -489,6 +532,11 @@ class ScenarioManifest(BaseModel):
     # The window the chain was asked to cover. Two runs of the same scenario and
     # seed can now span very different amounts of time (safety rule 5).
     duration: str | None = None
+    #: Collector events-per-second ceiling actually in force. None for file-only
+    #: and dry runs, where the emitter rate limiter is not applied.
+    rate: int | None = None
     # See RunManifest: written on every exit path, so it has to say which one.
     status: RunStatus = "done"
+    partial: bool = False
+    updated_at: str | None = None
     error: str | None = None
