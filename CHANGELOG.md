@@ -8,6 +8,15 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ### Added
 
+- **Executable catalog signal-contract coverage.** Every technique's held and
+  varied fields are now checked against its rendered positive events at all
+  three intensities. The dated catalog review records the disposition of all 24
+  techniques and all three curated scenarios, including remaining foil and
+  live-validation gaps.
+- **Scenario definitions now fail early on malformed setup.** Empty stage lists,
+  invalid stage offsets, and unknown parameter override names are rejected when
+  the scenario catalog loads rather than during or after composition.
+
 - **Crash-safe write-ahead run manifests.** Individual and scenario runs now
   publish a durable `running` manifest before opening any output, checkpoint
   the rendered-event count about once per second, and atomically finalize the
@@ -24,6 +33,13 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ### Changed
 
+- **REP-019 now carries only the ATT&CK behavior its telemetry represents.** An
+  internal source scanning internal targets maps to Discovery and `T1046`, not
+  pre-compromise Reconnaissance and `T1595.001`.
+- **Curated scenario labels and presets match their builders.** SCEN-001 is now
+  named as internal discovery rather than perimeter intrusion, and SCEN-003's
+  password-spray stage selects REP-007's spray preset rather than brute mode.
+
 - **`--rate` can only lower the configured `eps_cap`.** CLI, API, pacing preview,
   and web form now reject a per-run value above the collector-protection
   ceiling instead of replacing it with a larger limit.
@@ -36,6 +52,14 @@ Claims that have not been validated against a live vendor build or a real host a
   make mixed REP-017/018 plans explicit.
 
 ### Fixed
+
+- **Catalog signal declarations match emitted telemetry.** REP-005 correctly
+  varies destinations, REP-010 no longer advertises a nonexistent traffic
+  `cnt`, and REP-017 exposes its 53/UDP to 443/TCP transition as varied fields.
+- **REP-018 emits its requested causal identities and REP-019 honors its total
+  probe count.** Medium REP-018 no longer silently drops its third user; high
+  REP-019 emits 1,500 positive probes rather than multiplying that total by
+  `probes_per_dst`.
 
 - **The synthetic-DNS safety wording no longer calls every documentation domain
   non-resolvable.** `example.net` is reserved for examples but does resolve.

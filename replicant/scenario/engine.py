@@ -2001,8 +2001,8 @@ class ScenarioEngine:
         anchor: int,
         duration_override_s: int | None,
     ) -> _BuilderResult:
-        path_len = int(preset["path_len"])
-        user_count = int(preset["users"])
+        path_len = max(1, int(preset["path_len"]))
+        user_count = max(1, int(preset["users"]))
         switch_at_hop = int(preset["switch_at_hop"])
         window_s = (
             duration_override_s
@@ -2013,10 +2013,23 @@ class ScenarioEngine:
         pool = entities.internal_hosts
         hops = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(path_len, len(pool)))]
         user_pool = entities.users
+        # A path of N hosts can carry at most N distinct causal identities: one
+        # on entry and one at each later hop. Cap overrides to that physical
+        # limit so the run note always describes identities actually emitted.
         users = [
             user_pool[i]
-            for i in unique_ints(rng, 0, len(user_pool) - 1, min(user_count, len(user_pool)))
+            for i in unique_ints(
+                rng,
+                0,
+                len(user_pool) - 1,
+                min(user_count, len(user_pool), len(hops)),
+            )
         ]
+        if len(users) > 1:
+            # Leave at least one later hop for every requested identity. This
+            # keeps even an over-late private override internally consistent.
+            latest_complete_switch = len(hops) - len(users) + 1
+            switch_at_hop = min(max(switch_at_hop, 1), latest_complete_switch)
         entry_src = str(rng.choice(entities.adversary_external))
         admin_ports = [3389, 445, 22]
         hop_gap_s = window_s / max(path_len, 1)
@@ -2058,7 +2071,21 @@ class ScenarioEngine:
             if len(events) + 2 > self.max_events:
                 truncated = True
                 break
-            user = users[min(hop // max(switch_at_hop, 1), len(users) - 1)]
+            if len(users) == 1 or hop < switch_at_hop:
+                user = users[0]
+            else:
+                # The first credential change occurs at switch_at_hop. Spread
+                # any remaining identities over the rest of the chain, making
+                # the catalog's users parameter an exact emitted count rather
+                # than an upper bound that medium intensity never reached.
+                post_switch_hops = max(len(hops) - switch_at_hop, 1)
+                progress = hop - switch_at_hop
+                denominator = max(post_switch_hops - 1, 1)
+                remaining_index = min(
+                    len(users) - 2,
+                    (progress * (len(users) - 1)) // denominator,
+                )
+                user = users[1 + remaining_index]
             source = hops[hop - 1]
             target = hops[hop]
             when = anchor + int(hop * hop_gap_s)
@@ -2149,7 +2176,7 @@ class ScenarioEngine:
         anchor: int,
         duration_override_s: int | None,
     ) -> _BuilderResult:
-        probes_per_dst = int(preset["probes_per_dst"])
+        probes_per_dst = max(1, int(preset["probes_per_dst"]))
         gap_lo, gap_hi = (float(v) for v in preset["gap_s"])
         src_pool_size = int(preset["src_pool"])
         total_probes = int(preset["total_probes"])
@@ -2178,23 +2205,22 @@ class ScenarioEngine:
         events: list[EventRecord] = []
         session = int(rng.integers(10_000, 60_000))
         elapsed = 0.0
+        dst = targets[0]
+        dpt = ports[0]
         for index in range(total_probes):
             # Source rotation keeps per-source counts under per-source
             # thresholds; the long gap keeps any rate window from filling. TRW
             # converges on a small number of attempts FROM ONE SOURCE, so
             # spreading the walk across a pool is the evasion.
-            src = sources[index % len(sources)]
-            dst = targets[int(rng.integers(0, len(targets)))]
-            dpt = int(rng.choice(ports))
-            for _ in range(probes_per_dst):
-                events.append(self._deny_probe(rng, src, dst, dpt, anchor + int(elapsed), session))
-                session += 1
-                if len(events) >= self.max_events:
-                    truncated = True
-                    break
-            if truncated:
-                break
-            elapsed += float(rng.uniform(gap_lo, gap_hi))
+            target_index = index // probes_per_dst
+            src = sources[target_index % len(sources)]
+            if index % probes_per_dst == 0:
+                dst = targets[int(rng.integers(0, len(targets)))]
+                dpt = int(rng.choice(ports))
+            events.append(self._deny_probe(rng, src, dst, dpt, anchor + int(elapsed), session))
+            session += 1
+            if index + 1 < total_probes:
+                elapsed += float(rng.uniform(gap_lo, gap_hi))
 
         foil_start = len(events)
         # Sparse benign policy denies from an unrelated host, at a similar rate.

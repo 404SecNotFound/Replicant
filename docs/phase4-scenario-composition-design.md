@@ -70,12 +70,12 @@ Example:
 version: 0.1.0
 scenarios:
   - id: SCEN-001
-    name: "Perimeter intrusion to exfiltration"
-    description: "External recon, then low-and-slow C2, then bulk exfil from the same host."
+    name: "Internal discovery to exfiltration"
+    description: "Internal horizontal discovery, then low-and-slow C2, then bulk exfil from the same host."
     stages:
-      - { technique_id: REP-003, label: "external recon", intensity: medium, start_offset: "0s" }
+      - { technique_id: REP-003, label: "internal discovery", intensity: medium, start_offset: "0s" }
       - { technique_id: REP-001, label: "C2 established",  intensity: low,    start_offset: "1h" }
-      - { technique_id: REP-005, label: "bulk exfil",      intensity: high,   start_offset: "6h" }
+      - { technique_id: REP-005, label: "bulk exfil",      intensity: high,   start_offset: "6h", align: "next-off-hours" }
     references: ["ATT&CK chain: TA0007 Discovery -> TA0011 C2 -> TA0010 Exfiltration"]
 ```
 
@@ -197,7 +197,7 @@ Rich menu: add `[a] attack scenario` to the prompt (`[1-11] technique · [a] sce
 
 | id | name | stages (offset) | ATT&CK chain | through-line |
 |----|------|-----------------|--------------|--------------|
-| SCEN-001 | Perimeter intrusion to exfiltration | REP-003 sweep (0) -> REP-001 C2 (+1h) -> REP-005 exfil (+6h) | Discovery -> C2 -> Exfiltration | victim `src`; C2+exfil share adversary IP |
+| SCEN-001 | Internal discovery to exfiltration | REP-003 sweep (0) -> REP-001 C2 (+1h) -> REP-005 exfil (+6h) | Discovery -> C2 -> Exfiltration | victim `src`; C2+exfil share adversary IP |
 | SCEN-002 | Recon, first contact, DNS exfil | REP-002 vscan (0) -> REP-008 new-dst (+45m) -> REP-004 DNS tunnel (+3h) | Discovery -> C2 -> Exfil-over-DNS | victim `src` |
 | SCEN-003 | External access to foothold | REP-009 IPS spike (0) -> REP-007 spray (+30m) -> REP-011 geovelocity (+2h) -> REP-001 C2 (+3h) | Recon -> Credential Access -> Initial Access -> C2 | mixed: user (spray->geo), then host (C2) |
 
