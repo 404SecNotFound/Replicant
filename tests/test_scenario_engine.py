@@ -98,20 +98,21 @@ def test_rep001_interval_is_periodic_with_jitter() -> None:
 
 def test_rep002_one_src_one_dst_many_unique_ports_mostly_deny() -> None:
     plan = _plan("REP-002", "low", 1337)
+    events = [event for event in plan.events if event.control == "positive"]
     unique_ports = CATALOG.by_id("REP-002").params["low"]["unique_ports"]
-    assert len(plan.events) == unique_ports
-    assert len({e.src for e in plan.events}) == 1
-    assert len({e.dst for e in plan.events}) == 1
-    assert len({e.dpt for e in plan.events}) == unique_ports  # all destination ports unique
-    deny = sum(1 for e in plan.events if e.action == "deny")
-    assert deny / len(plan.events) > 0.9  # mostly deny
+    assert len(events) == unique_ports
+    assert len({e.src for e in events}) == 1
+    assert len({e.dst for e in events}) == 1
+    assert len({e.dpt for e in events}) == unique_ports  # all destination ports unique
+    deny = sum(1 for e in events if e.action == "deny")
+    assert deny / len(events) > 0.9  # mostly deny
 
 
 def test_rep002_probes_span_the_preset_window() -> None:
     """window_s is the detection surface: the walk must fill it, not finish early."""
     preset = CATALOG.by_id("REP-002").params["low"]
     plan = _plan("REP-002", "low", 1337)
-    times = [e.eventtime for e in plan.events]
+    times = [e.eventtime for e in plan.events if e.control == "positive"]
     span = max(times) - min(times)
     window_s = int(preset["window_s"])
     assert span >= window_s * 0.9, "probes must be spread across the whole window"
@@ -122,11 +123,13 @@ def test_rep002_duration_override_caps_probe_count() -> None:
     """The preset density is kept and the probe count gives way, as in REP-019."""
     full = _plan("REP-002", "low", 1337)
     capped = _plan("REP-002", "low", 1337, duration_s=12)
-    assert 0 < len(capped.events) < len(full.events)
-    times = [e.eventtime for e in capped.events]
+    full_events = [event for event in full.events if event.control == "positive"]
+    capped_events = [event for event in capped.events if event.control == "positive"]
+    assert 0 < len(capped_events) < len(full_events)
+    times = [e.eventtime for e in capped_events]
     assert max(times) - min(times) <= 12
     # The window-honouring invariants survive the cap.
-    assert len({e.dpt for e in capped.events}) == len(capped.events)
+    assert len({e.dpt for e in capped_events}) == len(capped_events)
 
 
 def test_rep004_high_entropy_qnames_high_cardinality() -> None:
@@ -170,15 +173,16 @@ def test_rep004_qnames_are_synthetic_parents() -> None:
 
 def test_rep003_one_src_one_port_many_unique_hosts_mostly_deny() -> None:
     plan = _plan("REP-003", "low", 1337)
+    events = [event for event in plan.events if event.control == "positive"]
     preset = CATALOG.by_id("REP-003").params["low"]
     unique_hosts, port = preset["unique_hosts"], preset["port"]
-    assert len(plan.events) == unique_hosts
-    assert len({e.src for e in plan.events}) == 1  # one source, held
-    assert {e.dpt for e in plan.events} == {port}  # one destination port, held
-    assert {e.proto for e in plan.events} == {6}
-    assert len({e.dst for e in plan.events}) == unique_hosts  # every dst unique
-    deny = sum(1 for e in plan.events if e.action == "deny")
-    assert deny / len(plan.events) > 0.9  # mostly deny
+    assert len(events) == unique_hosts
+    assert len({e.src for e in events}) == 1  # one source, held
+    assert {e.dpt for e in events} == {port}  # one destination port, held
+    assert {e.proto for e in events} == {6}
+    assert len({e.dst for e in events}) == unique_hosts  # every dst unique
+    deny = sum(1 for e in events if e.action == "deny")
+    assert deny / len(events) > 0.9  # mostly deny
 
 
 def test_rep003_deterministic_same_seed() -> None:
@@ -199,13 +203,18 @@ def test_rep005_outbound_exfil_volume_shape() -> None:
     plan = _plan("REP-005", "low", 1337)
     preset = CATALOG.by_id("REP-005").params["low"]
     sessions, total_mb, dst_count = preset["sessions"], preset["total_out_mb"], preset["dst_count"]
-    assert len(plan.events) == sessions
-    assert len({e.src for e in plan.events}) == 1  # one source, held
-    assert len({e.dpt for e in plan.events}) == 1  # one port, held
-    assert len({e.dst for e in plan.events}) <= dst_count  # few destinations
-    assert all(e.action == "accept" for e in plan.events)
-    total_out = sum(e.out_bytes or 0 for e in plan.events)
-    total_in = sum(e.in_bytes or 0 for e in plan.events)
+    positive = [event for event in plan.events if event.control == "positive"]
+    current_cutoff = min(
+        event.eventtime for event in positive if (event.out_bytes or 0) > 1_000_000
+    )
+    events = [event for event in positive if event.eventtime >= current_cutoff]
+    assert len(events) == sessions
+    assert len({e.src for e in events}) == 1  # one source, held
+    assert len({e.dpt for e in events}) == 1  # one port, held
+    assert len({e.dst for e in events}) <= dst_count  # few destinations
+    assert all(e.action == "accept" for e in events)
+    total_out = sum(e.out_bytes or 0 for e in events)
+    total_in = sum(e.in_bytes or 0 for e in events)
     assert total_out >= total_mb * 1_000_000 * 0.5  # large outbound volume near target
     assert total_out / max(total_in, 1) > 20  # exfil ratio out:in > 20:1
 
@@ -274,16 +283,17 @@ def test_rep006_destinations_are_synthetic() -> None:
 
 def test_rep010_denied_outbound_burst_shape() -> None:
     plan = _plan("REP-010", "low", 1337)
+    events = [event for event in plan.events if event.control == "positive"]
     preset = CATALOG.by_id("REP-010").params["low"]
     denies, window = preset["denies"], preset["window_s"]
-    assert len(plan.events) == denies
-    assert len({e.src for e in plan.events}) == 1  # one source, held
-    assert all(e.action == "deny" for e in plan.events)  # all denied
+    assert len(events) == denies
+    assert len({e.src for e in events}) == 1  # one source, held
+    assert all(e.action == "deny" for e in events)  # all denied
     external = ipaddress.ip_network("203.0.113.0/24")
-    for event in plan.events:
+    for event in events:
         assert event.dst is not None
         assert ipaddress.ip_address(event.dst) in external  # synthetic external destinations
-    times = [e.eventtime for e in plan.events]
+    times = [e.eventtime for e in events]
     assert max(times) - min(times) <= window  # inside the burst window
 
 

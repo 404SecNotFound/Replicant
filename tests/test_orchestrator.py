@@ -93,6 +93,7 @@ def test_rep002_mostly_deny_many_ports(tmp_path: Path) -> None:
             seed=1337,
             to_file=str(out),
             no_send=True,
+            controls="positive",
         )
     )
     lines = out.read_text().splitlines()
