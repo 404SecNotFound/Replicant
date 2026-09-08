@@ -24,7 +24,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { testConnection, vendorShortLabel, type Collector, type PathReport } from "@/lib/api";
+import { VendorPicker } from "@/components/VendorPicker";
+import { testConnection, type Collector, type PathReport } from "@/lib/api";
 
 /** Badge copy, keyed by verdict.
  *
@@ -62,6 +63,7 @@ type BadgeState =
   | "failed";
 
 interface Props {
+  showVendorPicker?: boolean;
   epsCap: number;
   collector: Collector | null;
   onCollectorChange: (c: Collector | null) => void;
@@ -73,6 +75,7 @@ interface Props {
 }
 
 export function ConnectionCard({
+  showVendorPicker = true,
   epsCap,
   collector,
   onCollectorChange,
@@ -133,7 +136,7 @@ export function ConnectionCard({
         : report.verdict;
 
   return (
-    <section className="rounded-lg bg-card px-4 py-5">
+    <section className="panel">
       <div className="u-label mb-2.5">Collector</div>
       <div className="mb-4 flex items-center gap-2">
         <span className="h-1.5 w-1.5 flex-none rounded-full bg-text-4" />
@@ -142,47 +145,11 @@ export function ConnectionCard({
         </span>
       </div>
 
-      {/* Content-sized segments with nowrap: "Check Point" has wrapped inside an
-          equal-width segment twice now, so the segments take the width their
-          label needs. The active segment recesses to the canvas color. */}
-      <div
-        role="radiogroup"
-        aria-label="Vendor profile"
-        aria-disabled={vendorChangeDisabled || undefined}
-        aria-describedby={vendorChangeDisabled ? "vendor-profile-lock-reason" : undefined}
-        className="flex w-max max-w-full overflow-hidden rounded-btn border"
-      >
-        {vendors.map((v) => (
-          <button
-            key={v}
-            role="radio"
-            aria-checked={v === vendor}
-            disabled={vendorChangeDisabled}
-            onClick={() => onVendorChange(v)}
-            className={cn(
-              "whitespace-nowrap border-r px-2.5 py-2 font-mono text-label uppercase tracking-[-0.24px] transition-colors last:border-r-0 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-              v === vendor
-                ? "bg-background text-foreground"
-                : "text-text-4 enabled:hover:text-foreground",
-            )}
-          >
-            {vendorShortLabel(v)}
-          </button>
-        ))}
-      </div>
-      {vendorChangeDisabled && (
-        <p
-          id="vendor-profile-lock-reason"
-          role="status"
-          className="mt-2 text-body leading-relaxed text-text-3"
-        >
-          {vendorChangeDisabledReason
-            ?? "Vendor profile is locked while a run is active. Stop the active run before switching profiles."}
-        </p>
-      )}
+      {showVendorPicker && <VendorPicker vendor={vendor} vendors={vendors} onVendorChange={onVendorChange}
+        disabled={vendorChangeDisabled} reason={vendorChangeDisabledReason} />}
 
-      <div className="mt-3.5 grid grid-cols-[1fr_66px_78px] gap-2">
-        <div>
+      <div className="mt-3.5 grid grid-cols-2 gap-3 min-[480px]:grid-cols-[minmax(0,1fr)_80px_100px]">
+        <div className="col-span-2 min-[480px]:col-span-1">
           <label className="u-label mb-1.5 block" htmlFor="host">
             Host
           </label>
@@ -205,9 +172,9 @@ export function ConnectionCard({
           />
         </div>
         <div>
-          <label className="u-label mb-1.5 block">Trans</label>
+          <label id="transport-label" className="u-label mb-1.5 block">Transport</label>
           <Select value={transport} onValueChange={setTransport}>
-            <SelectTrigger className="h-9 font-mono text-data">
+            <SelectTrigger aria-labelledby="transport-label" className="h-9 font-mono text-data">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -220,7 +187,7 @@ export function ConnectionCard({
       </div>
 
       {transport === "tls" && (
-        <div className="mt-3 grid grid-cols-[auto_1fr] items-end gap-3">
+        <div className="mt-3 grid grid-cols-1 items-end gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
           <div className="flex items-center gap-2 pb-2">
             <Switch id="tlsverify" checked={tlsVerify} onCheckedChange={setTlsVerify} />
             <label htmlFor="tlsverify" className="whitespace-nowrap text-body text-muted-foreground">
@@ -245,7 +212,7 @@ export function ConnectionCard({
       <button
         onClick={handleTest}
         disabled={busy || !host}
-        className="mt-4 w-full rounded-btn bg-primary px-4 py-2.5 font-mono text-label uppercase tracking-[-0.24px] text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="action-button mt-4 w-full"
       >
         {busy ? "Sending…" : "Send test log"}
       </button>
@@ -296,7 +263,7 @@ export function ConnectionCard({
             </div>
           )}
 
-          {report.claim && <div className="text-signal">{report.claim}</div>}
+          {report.claim && <div className="text-destructive">{report.claim}</div>}
 
           <div>{report.summary}</div>
 

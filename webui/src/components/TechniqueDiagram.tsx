@@ -15,10 +15,10 @@
 import type { Technique } from "@/lib/api";
 
 // A data-driven schematic: synthetic SOURCE -> the technique's behavior pattern
-// -> NDR rule match. Signal orange is the emitted signal / the anomaly the
+// -> NDR rule match. Signal red is the emitted signal / the anomaly the
 // detection keys on; everything else stays in the neutral ramp. The glyph plus
 // the detection outline are the card's two chromatic elements, so nothing else
-// in the drawing may take the orange. One archetype per technique.
+// in the drawing may take the red. One archetype per technique.
 
 const SIG = "hsl(var(--signal))";
 const HAIR = "hsl(var(--border))";
@@ -26,7 +26,7 @@ const EDGE = "hsl(var(--text-4))";
 const FG = "hsl(var(--foreground))";
 const T3 = "hsl(var(--text-3))";
 const T4 = "hsl(var(--text-4))";
-// The palette has no red. A refusal mark is part of the neutral story the
+// A refusal mark is part of the neutral story the
 // glyph tells; the chromatic element is the pattern, not each cross.
 const RED = "hsl(var(--text-4))";
 const CARD = "hsl(var(--card))";
@@ -564,7 +564,7 @@ function Pin({ x, y, label, accent }: { x: number; y: number; label: string; acc
   );
 }
 
-export function TechniqueDiagram({ technique }: { technique: Technique }) {
+export function TechniqueDiagram({ technique, compact = false }: { technique: Technique; compact?: boolean }) {
   const spec = DIAGRAM_SPECS[technique.id];
 
   // No fallback drawing. The old `?? "periodic"` rendered a DGA and an inbound
@@ -582,6 +582,25 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
 
   const caption = spec.caption ?? CAPTION[spec.glyph];
   const source = spec.source ?? ["host", "10.20.30.x"];
+
+  // The workspace preview puts its labels in normal document flow. This keeps
+  // names readable when the diagram shares a column with the run form.
+  if (compact) {
+    return <div className="compact-signal" role="img" aria-label={`${technique.name} · ${caption}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-label text-muted-foreground">
+        <span className="capitalize">Synthetic {source[0]}</span>
+        <span className="font-mono">{source[1]}</span>
+      </div>
+      <svg viewBox="132 35 376 160" className="mx-auto block w-full max-w-[440px]" aria-hidden="true">
+        <line x1={132} y1={YC} x2={508} y2={YC} stroke={HAIR} strokeWidth={1} strokeDasharray="2 4" />
+        <Glyph arch={spec.glyph} />
+      </svg>
+      <p className="mb-3 text-center text-label text-foreground">{caption}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-label text-muted-foreground">
+        <span>Detection</span><span className="font-mono text-foreground">{technique.ndr_rule}</span>
+      </div>
+    </div>;
+  }
 
   return (
     <svg
@@ -616,7 +635,7 @@ export function TechniqueDiagram({ technique }: { technique: Technique }) {
       {/* behavior glyph */}
       <Glyph arch={spec.glyph} />
 
-      {/* detection chip: the orange outline is the card's second chromatic
+      {/* detection chip: the red outline is the card's second chromatic
           element; no fill wash and no pulsing dot behind it */}
       <rect x={512} y={YC - 20} width={106} height={40} rx={3} fill="none" stroke={SIG} strokeWidth={1.2} />
       {mono(565, YC - 4, technique.ndr_uc, FG, 11)}

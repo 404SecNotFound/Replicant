@@ -40,6 +40,8 @@ export default {
         title: ["36px", { lineHeight: "1.15" }],   // the screen's one hero line
       },
       colors: {
+        selection: "hsl(var(--selection))",
+        selected: "hsl(var(--selected))",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -89,8 +91,8 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
-        // Buttons and nav in the Factory system are 3px against 10px cards.
-        btn: "3px",
+        // Controls have a slightly tighter radius than panels.
+        btn: "6px",
       },
       fontFamily: {
         sans: ["Geist", "system-ui", "-apple-system", "sans-serif"],

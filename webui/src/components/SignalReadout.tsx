@@ -23,6 +23,7 @@
 // proves delivery, which is why no wording in this frame claims it.
 
 interface Props {
+  rateAvailable?: boolean;
   eps: number;
   cap: number;
   // Whether the cap is actually governing this run. The events-per-second cap is
@@ -50,6 +51,7 @@ const BOTTOM = 32;
 const LEFT = 16; // room for the scale labels
 
 export function SignalReadout({
+  rateAvailable = true,
   eps,
   cap,
   capApplies,
@@ -76,16 +78,16 @@ export function SignalReadout({
   const last = pts[pts.length - 1];
 
   return (
-    <div className="my-6 overflow-hidden rounded-lg border bg-frame">
+    <div className="my-4 overflow-hidden rounded-lg border bg-frame">
       {/* frame bar */}
-      <div className="flex items-center gap-4 border-b border-elev px-6 py-4">
+      <div className="flex items-center gap-4 border-b border-elev px-4 py-4">
         <div className="flex gap-2" aria-hidden="true">
           <span className="block h-2 w-2 rounded-full bg-border" />
           <span className="block h-2 w-2 rounded-full bg-border" />
           <span className="block h-2 w-2 rounded-full bg-border" />
         </div>
         <span className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
-          Replicant — emission
+          Emission readout
         </span>
         {running ? (
           <span className="ml-auto flex items-center gap-2 font-mono text-label uppercase tracking-[-0.24px] text-signal">
@@ -101,12 +103,12 @@ export function SignalReadout({
       </div>
 
       {/* metric tiles */}
-      <div className="flex flex-col sm:flex-row">
-        <div className="flex-1 border-b border-elev p-5 sm:border-b-0">
+      <div className="grid grid-cols-2 min-[480px]:grid-cols-3">
+        <div className="flex-1 border-b border-elev p-3 min-[480px]:border-b-0">
           <div className="mb-3 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
             Events emitted
           </div>
-          <div className="text-title tracking-[-0.9px] text-foreground">
+          <div className="text-stat tracking-[-0.9px] text-foreground">
             {count.toLocaleString()}
           </div>
           <div className="mt-2 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
@@ -114,12 +116,12 @@ export function SignalReadout({
           </div>
         </div>
 
-        <div className="flex-1 border-b border-elev p-5 sm:border-b-0 sm:border-l">
+        <div className="flex-1 border-b border-elev p-3 min-[480px]:border-b-0 sm:border-l">
           <div className="mb-3 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
             Rate
           </div>
-          <div className="text-title tracking-[-0.9px] text-foreground">
-            {eps.toLocaleString()}{" "}
+          <div className="text-stat tracking-[-0.9px] text-foreground">
+            {rateAvailable ? eps.toLocaleString() : "Unknown"}{" "}
             <span className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
               eps
             </span>
@@ -166,11 +168,11 @@ export function SignalReadout({
           </svg>
         </div>
 
-        <div className="flex-1 p-5 sm:border-l sm:border-elev">
+        <div className="flex-1 p-3 min-[480px]:border-l border-elev">
           <div className="mb-3 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
             Elapsed
           </div>
-          <div className="font-mono text-title tracking-[-0.9px] text-foreground">
+          <div className="font-mono text-stat tracking-[-0.9px] text-foreground">
             {elapsedLabel}
           </div>
           <div
@@ -188,7 +190,7 @@ export function SignalReadout({
       </div>
 
       {/* progress track */}
-      <div className="px-6 pb-5 pt-2">
+      <div className="px-4 pb-5 pt-2">
         <div className="relative mb-3 h-0.5 bg-elev">
           <div
             className="absolute inset-y-0 left-0 bg-signal transition-[width]"

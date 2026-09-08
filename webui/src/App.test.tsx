@@ -199,14 +199,14 @@ describe("navigation", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("button", { name: "Docs" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Documentation" })).toBeInTheDocument();
   });
 
   it("has no scenario surface (OBS-006 / CHAIN-16, deferred by design)", async () => {
     vi.mocked(api.getConfig).mockResolvedValue(config());
 
     render(<App />);
-    await screen.findByRole("button", { name: "Emitter" });
+    await screen.findByRole("button", { name: "Run workspace" });
 
     expect(screen.queryByText(/scenario/i)).not.toBeInTheDocument();
   });
@@ -228,7 +228,7 @@ describe("terminal tab visibility", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("button", { name: "Emitter" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Run workspace" })).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Terminal" })).not.toBeInTheDocument(),
     );
@@ -401,7 +401,8 @@ describe("vendor-specific detection metadata", () => {
     expect(api.getCatalog).not.toHaveBeenCalledWith("fortigate");
     expect(await screen.findByText("Primary PAN-OS CEF name and signature ID")).toBeVisible();
     expect((await screen.findAllByText("TRAFFIC:end")).length).toBeGreaterThan(0);
-    expect(api.getSample).toHaveBeenCalledWith("REP-001", "paloalto");
+    fireEvent.click(screen.getByRole("button", { name: "Sample CEF" }));
+    await waitFor(() => expect(api.getSample).toHaveBeenCalledWith("REP-001", "paloalto"));
     expect(screen.queryByText("Primary FortiGate category and subtype")).toBeNull();
     expect(screen.getByText(/running under PAN-OS/i)).toBeVisible();
   });
@@ -647,7 +648,7 @@ describe("vendor-specific detection metadata", () => {
     expect(screen.queryByText(/already running/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /stop the running/i })).toBeNull();
     expect(screen.getByRole("button", { name: "Stop run" })).toBeDisabled();
-    for (const tabName of ["Docs", "Logs", "Terminal"]) {
+    for (const tabName of ["Documentation", "Process logs", "Terminal"]) {
       expect(screen.getByRole("button", { name: tabName })).toBeDisabled();
       expect(screen.getByRole("button", { name: tabName })).toHaveAttribute(
         "title",
@@ -657,7 +658,7 @@ describe("vendor-specific detection metadata", () => {
 
     // A pending POST stays owned by this mounted panel. Navigation cannot
     // detach it and leave App with an admission that no response can settle.
-    fireEvent.click(screen.getByRole("button", { name: "Docs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Documentation" }));
     expect(screen.getByRole("button", { name: "Run without sending" })).toBeDisabled();
 
     fireEvent.click(fortiGate);
@@ -682,7 +683,7 @@ describe("vendor-specific detection metadata", () => {
     expect(panOs).toBeDisabled();
     expect(screen.getByText(/REP-001 is running under PAN-OS/i)).toBeVisible();
     expect(screen.getByRole("button", { name: "Stop run" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Docs" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Documentation" })).toBeEnabled();
     expect(api.getCatalog).not.toHaveBeenCalledWith("fortigate");
     expect(screen.queryByText("Primary FortiGate category and subtype")).toBeNull();
   });
@@ -736,7 +737,7 @@ describe("vendor-specific detection metadata", () => {
     expect(screen.getByText(/requests admission for REP-001 under PAN-OS/i)).toBeVisible();
     expect(panOs).toBeChecked();
     expect(panOs).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Docs" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Documentation" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /stop the running/i })).toBeNull();
 
     await act(async () => {
@@ -757,7 +758,7 @@ describe("vendor-specific detection metadata", () => {
     expect(screen.getByText(/REP-001 is running under PAN-OS/i)).toBeVisible();
     expect(panOs).toBeChecked();
     expect(panOs).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Docs" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Documentation" })).toBeEnabled();
     expect(api.getCatalog).not.toHaveBeenCalledWith("fortigate");
   });
 
@@ -928,5 +929,104 @@ describe("vendor-specific detection metadata", () => {
     fireEvent.click(panOs);
     expect(api.getCatalog).not.toHaveBeenCalledWith("paloalto");
     expect(screen.getByRole("button", { name: "Stop run" })).toBeEnabled();
+  });
+});
+
+describe("workspace drafts and run evidence", () => {
+  it("retains draft settings across library, collector, and profile navigation", async () => {
+    vi.mocked(api.getConfig).mockResolvedValue(config());
+    vi.mocked(api.getCatalog).mockImplementation(async (vendor = "fortigate") => ({
+      vendor_profile: vendor, timezone: "UTC+04:00", techniques: [TECHNIQUE],
+    }));
+    render(<App />);
+    const duration = await screen.findByLabelText("Duration");
+    fireEvent.change(duration, { target: { value: "30m" } });
+    fireEvent.change(screen.getByLabelText("Seed"), { target: { value: "42" } });
+    fireEvent.click(screen.getByRole("radio", { name: "high" }));
+    fireEvent.click(screen.getByRole("button", { name: "Techniques" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Filter techniques" }), { target: { value: "T1071" } });
+    expect(screen.getByRole("button", { name: /Beaconing T1071/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Collector" }));
+    expect(screen.getByRole("heading", { name: "Collector connection" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Back to run workspace" }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "PAN-OS" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("radio", { name: "PAN-OS" }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "PAN-OS" })).toBeChecked());
+    expect(await screen.findByLabelText("Duration")).toHaveValue("30m");
+    expect(screen.getByLabelText("Seed")).toHaveValue("42");
+    expect(screen.getByRole("radio", { name: "high" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Techniques" }));
+    expect(screen.getByRole("textbox", { name: "Filter techniques" })).toHaveValue("T1071");
+  });
+
+  it("keeps a live stream attached during navigation and preserves its identity after draft changes", async () => {
+    let stream!: FakeEventSource;
+    class FakeEventSource {
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+      constructor() { stream = this; }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.mocked(api.getConfig).mockResolvedValue(config());
+    vi.mocked(api.getCatalog).mockImplementation(async (vendor = "fortigate") => ({
+      vendor_profile: vendor, timezone: "UTC+04:00", techniques: [TECHNIQUE],
+    }));
+    vi.mocked(api.startRun).mockResolvedValue({
+      admission_id: "00000000-0000-4000-8000-000000000001", run_id: "retained-run",
+      vendor: "fortigate", output_path: "/server/out/test.log", total: 2, pace: "burst", speed: 1, projected_s: 0.01, plan_span_s: 5,
+    });
+    render(<App />);
+    await screen.findByRole("button", { name: "Run without sending" });
+    fireEvent.click(screen.getByRole("switch", { name: "File" }));
+    fireEvent.change(screen.getByLabelText("Output file name"), { target: { value: "/requested/test.log" } });
+    const start = screen.getByRole("button", { name: "Run and write to file" });
+    await waitFor(() => expect(start).toBeEnabled());
+    fireEvent.click(start);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Stop run" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Techniques" }));
+    expect(stream.close).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Run workspace" }));
+    expect(screen.getByRole("button", { name: "Stop run" })).toBeEnabled();
+    const manifest = {
+      technique_id: "REP-001", technique_name: "Beaconing", vendor: "fortigate", ndr_uc: "UC-001",
+      intensity: "medium", seed: 1337, target: "/server/out/test.log", transport: "file", event_count: 2,
+      planned_event_count: 2, started_at: "2026-09-08T00:00:00Z", ended_at: "2026-09-08T00:00:01Z",
+      anchor_epoch: 1752537600, warmup_note: null, status: "done" as const,
+    };
+    await act(async () => {
+      stream.onmessage?.({ data: JSON.stringify({ type: "line", data: "CEF:0|Fortinet|Fortigate|test" }) } as MessageEvent<string>);
+      stream.onmessage?.({ data: JSON.stringify({ type: "done", status: "done", count: 2, manifest }) } as MessageEvent<string>);
+    });
+    await waitFor(() => expect(screen.getByRole("radio", { name: "PAN-OS" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("radio", { name: "PAN-OS" }));
+    await screen.findByRole("radio", { name: "PAN-OS", checked: true });
+    expect(screen.getByRole("region", { name: "Run result" })).toHaveTextContent("REP-001 · FortiGate");
+    expect(screen.getByRole("region", { name: "Run result" })).toHaveTextContent("Event stream · fortigate");
+    expect(screen.getByTestId("run-destination")).toHaveTextContent("No send");
+    expect(screen.getByTestId("run-destination")).toHaveTextContent("/server/out/test.log");
+    expect(screen.getByTestId("run-destination")).not.toHaveTextContent("/requested/test.log");
+    expect(screen.getByRole("region", { name: "Run result" })).toHaveTextContent("uncapped");
+    expect(screen.getByTestId("manifest-events")).toHaveTextContent("2 / 2");
+    expect(screen.getByText(/The draft has changed/)).toBeVisible();
+    expect(api.startRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes stale plan numbers while a changed preset is being calculated", async () => {
+    vi.mocked(api.getConfig).mockResolvedValue(config());
+    const pending = deferred<Awaited<ReturnType<typeof api.getPlanPreview>>>();
+    const initial = {
+      event_count: 49, plan_span_s: 14280, compressed_span_s: 14280, projected_s: 0.24,
+      projected_by_pace: { plan: 14280, burst: 0.24 }, pace: "burst" as const, speed: 1,
+    };
+    vi.mocked(api.getPlanPreview).mockResolvedValueOnce(initial).mockReturnValue(pending.promise);
+    render(<App />);
+    expect(await screen.findByText("49")).toBeVisible();
+    fireEvent.click(screen.getByRole("radio", { name: "high" }));
+    expect(screen.queryByText("49")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Calculating…")).toHaveLength(3);
+    await waitFor(() => expect(api.getPlanPreview).toHaveBeenLastCalledWith(expect.objectContaining({ intensity: "high" })));
+    await act(async () => { pending.resolve({ ...initial, event_count: 91 }); });
+    expect(screen.getByText("91")).toBeVisible();
   });
 });

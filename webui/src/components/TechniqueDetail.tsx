@@ -89,7 +89,7 @@ function Tile({ k, v, context }: { k: string; v: string; context?: string }) {
   );
 }
 
-function SampleLines({ technique, vendor }: Props) {
+export function SampleLines({ technique, vendor }: Props) {
   const [sample, setSample] = useState<TechniqueSample | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -138,7 +138,7 @@ export function TechniqueDetail({ technique, vendor }: Props) {
         {technique.id} · {technique.ndr_uc}
       </div>
       {/* Weight 400 at 36px: the hero line is size, not boldness. */}
-      <h1 className="mt-3 text-title tracking-[-1px]">{technique.name}</h1>
+      <h1 className="mt-3 text-2xl tracking-tight">{technique.name}</h1>
 
       {/* The objective, first and in the reading colour.
           This slot used to hold "Emits synthetic <log type> telemetry that
@@ -185,7 +185,7 @@ export function TechniqueDetail({ technique, vendor }: Props) {
       </div>
 
       {/* detail cards */}
-      <div className="mt-6 grid gap-6 md:grid-cols-2">
+      <div className="mt-6 grid gap-6 2xl:grid-cols-2">
         <Card title="What the detection looks for">
           <p className="mb-4 text-body leading-relaxed text-foreground">
             The rule keys on the fields that move against a steady baseline.

@@ -52,7 +52,7 @@ const LEVEL_STYLE: Record<LogLevel, string> = {
   // Was "text-text-2", a token that does not exist, so the class compiled to
   // nothing and the color was whatever the container happened to inherit.
   info: "text-foreground",
-  warning: "text-signal",
+  warning: "text-destructive",
 };
 
 function formatTime(ts: number): string {
@@ -139,7 +139,7 @@ export function LogsView() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div className="flex h-full w-full min-w-0 min-h-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap gap-1" role="group" aria-label="Log level">
           {LEVELS.map((option) => (
@@ -151,7 +151,7 @@ export function LogsView() {
               className={cn(
                 "rounded-btn border px-2.5 py-1 font-mono text-label uppercase tracking-[-0.24px] transition-colors",
                 level === option.id
-                  ? "border-muted-foreground bg-background text-foreground"
+                  ? "border-selection bg-selected text-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -164,7 +164,7 @@ export function LogsView() {
           <span className="font-mono text-micro text-text-3">
             {counts.total} line{counts.total === 1 ? "" : "s"}
             {counts.warnings > 0 && (
-              <span className="text-signal"> · {counts.warnings} warning</span>
+              <span className="text-destructive"> · {counts.warnings} warning</span>
             )}
           </span>
           <Button variant="outline" size="sm" onClick={() => setPaused((value) => !value)}>
@@ -215,7 +215,7 @@ export function LogsView() {
                 {entry.level}
               </span>
               <span className="flex-none text-text-4">{entry.logger.replace("replicant.", "")}</span>
-              <span className={cn("min-w-0", entry.level === "warning" && "text-signal")}>
+              <span className={cn("min-w-0", entry.level === "warning" && "text-destructive")}>
                 {entry.message}
               </span>
             </div>

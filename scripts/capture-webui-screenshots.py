@@ -18,13 +18,12 @@ The README's screenshots go stale every time the UI changes, and the previous
 regeneration was done ad hoc and not kept, so it had to be reinvented. This is
 that method, written down.
 
-Drives headless Chrome over the DevTools Protocol rather than a screenshot tool,
-because two of the three shots need interaction: one needs the Docs tab open, one
-needs a run actually emitting. Captures at 1440x900 at scale 1, matching the
-images already committed.
+Drives headless Chrome over the DevTools Protocol. Captures the workspace,
+technique library, reference, completed run, and terminal at 1440x900 at scale 1,
+plus the workspace at 360x900 for the narrow-screen example.
 
-The UI is dark-only (the Factory system), so there is no theme to pin any more;
-the script still refuses to capture until the page has painted the Factory canvas,
+The UI is dark-only (the silver-and-red system), so there is no theme to pin any more;
+the script still refuses to capture until the page has painted the silver-and-red canvas,
 so a shot of a half-loaded or unstyled page cannot land in the repo unnoticed.
 
 Usage:
@@ -33,8 +32,9 @@ Usage:
     python scripts/capture-webui-screenshots.py "http://127.0.0.1:9787/?token=..."
     python scripts/capture-webui-screenshots.py URL --views emitter
 
-The run shot starts a real run with no collector and no output file, so it emits
-to the browser stream and writes nothing anywhere.
+Use a fresh loopback instance with no collector configured and the terminal
+enabled. The run shot starts a real no-send run: it emits to the browser stream
+and writes its required manifest, but sends no telemetry or output file.
 
 Requires Google Chrome and the ``websockets`` package (already a transitive
 dependency of ``uvicorn[standard]``, so a ``.[web]`` install has it).
@@ -56,7 +56,7 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 DEBUG_PORT = 9222
 WIDTH, HEIGHT = 1440, 900
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "images"
-VIEWS = ("emitter", "docs", "run", "terminal")
+VIEWS = ("emitter", "techniques", "mobile", "docs", "run", "terminal")
 
 
 class Chrome:
@@ -130,22 +130,24 @@ class Chrome:
             )
 
     async def capture(self, name: str) -> None:
-        result = await self.send("Page.captureScreenshot", format="png")
+        result = await self.send("Page.captureScreenshot", format="jpeg", quality=95)
         path = OUT_DIR / name
         path.write_bytes(base64.b64decode(result["data"]))
         print(f"  wrote {path.relative_to(OUT_DIR.parents[1])}")
 
-    async def assert_factory_canvas(self) -> None:
+    async def assert_workspace_canvas(self) -> None:
         """Fail rather than capture an unstyled or half-loaded page.
 
         The UI is dark-only, so the check is no longer which theme won but
-        whether the stylesheet painted at all: the body must be the Factory
-        canvas (#101010). A CSS load failure otherwise produces a white shot
+        whether the stylesheet painted at all: the body must be the workspace
+        canvas (#101214). A CSS load failure otherwise produces a white shot
         that quietly replaces a committed dark one.
         """
         actual = await self.evaluate("getComputedStyle(document.body).backgroundColor")
-        if actual != "rgb(16, 16, 16)":
-            raise RuntimeError(f"expected the Factory canvas rgb(16, 16, 16), got {actual!r}")
+        if actual != "rgb(16, 18, 20)":
+            raise RuntimeError(
+                f"expected the silver-and-red canvas rgb(16, 18, 20), got {actual!r}"
+            )
 
 
 def button_by_text(text: str) -> str:
@@ -155,23 +157,8 @@ def button_by_text(text: str) -> str:
     )
 
 
-def button_starting_with(prefix: str) -> str:
-    """Match on a stable prefix rather than a whole label.
-
-    The run button used to read "Start run". It now names its destination, so it
-    is "Run and send to 10.0.20.125:514", "Run and write to file" or "Run without
-    sending" depending on where the events are going. An exact match silently
-    stopped working and this script only failed the next time someone ran it,
-    which was months later.
-    """
-    return (
-        "[...document.querySelectorAll('button')]"
-        f".find(b => b.textContent.trim().startsWith({json.dumps(prefix)}))"
-    )
-
-
 def shot_name(view: str) -> str:
-    return f"webui-{view}.png"
+    return f"webui-{view}.jpg"
 
 
 async def capture_all(url: str, views: set[str]) -> None:
@@ -219,36 +206,71 @@ async def capture_all(url: str, views: set[str]) -> None:
             )
             await page.send("Page.navigate", url=url)
             await page.wait_for(
-                "!!document.querySelector('input[aria-label=\"Filter techniques\"]')",
-                what="the catalog rail",
+                "!!document.querySelector('[aria-label=\"Run workspace\"]')"
+                " && !document.body.textContent.includes('Calculating…')",
+                what="the workspace and settled plan estimate",
             )
-            await page.assert_factory_canvas()
+            await page.assert_workspace_canvas()
             # The signal diagram animates in; let it settle before capturing.
             await asyncio.sleep(1.5)
             if "emitter" in views:
                 print("emitter view")
                 await page.capture(shot_name("emitter"))
 
+            if "mobile" in views:
+                print("narrow workspace")
+                await page.send(
+                    "Emulation.setDeviceMetricsOverride",
+                    width=360,
+                    height=900,
+                    deviceScaleFactor=1,
+                    mobile=False,
+                )
+                await asyncio.sleep(0.4)
+                await page.capture(shot_name("mobile"))
+                await page.send(
+                    "Emulation.setDeviceMetricsOverride",
+                    width=WIDTH,
+                    height=HEIGHT,
+                    deviceScaleFactor=1,
+                    mobile=False,
+                )
+
+            if "techniques" in views:
+                print("technique library")
+                await page.click(button_by_text("Techniques"))
+                await page.wait_for(
+                    "!!document.querySelector('input[aria-label=\"Filter techniques\"]')",
+                    what="the technique library",
+                )
+                await asyncio.sleep(0.4)
+                await page.capture(shot_name("techniques"))
+
             if "docs" in views:
                 print("docs tab")
-                await page.click(button_by_text("Docs"))
+                await page.click(button_by_text("Documentation"))
                 await page.wait_for(
                     "!!document.querySelector('.doc-prose h1')", what="a rendered doc"
+                )
+                await page.click(button_by_text("FortiGate CEF reference"))
+                await page.wait_for(
+                    "document.querySelector('.doc-prose h1')?.textContent"
+                    ".includes('Replicant FortiGate')",
+                    what="the FortiGate reference",
                 )
                 await asyncio.sleep(0.5)
                 await page.capture(shot_name("docs"))
 
             if "run" in views:
                 print("live run")
-                await page.click(button_by_text("Emitter"))
+                await page.click(button_by_text("Run workspace"))
                 await page.wait_for(
                     "!!document.querySelector('main')", what="the emitter view to come back"
                 )
+                await page.click(button_by_text("Techniques"))
                 # The shot needs a plan big enough to fill the waveform and the
                 # progress bar. REP-001's default is 243 events and is over in well
-                # under a second; REP-004's is 108000. Filtering to it also puts the
-                # rail in a more useful state for the shot, since REP-004 is mapped
-                # to two tactics and so appears under both.
+                # under a second; REP-004's is 108000. Filter the library to find it.
                 #
                 # React tracks the input's value on the DOM node, so assigning .value
                 # directly is silently reverted on the next render. Going through the
@@ -265,7 +287,7 @@ async def capture_all(url: str, views: set[str]) -> None:
                 await page.wait_for(
                     "[...document.querySelectorAll('button')]"
                     ".some(b => b.textContent.includes('DNS tunneling'))",
-                    what="REP-004 in the filtered rail",
+                    what="REP-004 in the filtered library",
                 )
                 await page.click(
                     "[...document.querySelectorAll('button')]"
@@ -273,8 +295,8 @@ async def capture_all(url: str, views: set[str]) -> None:
                 )
                 await asyncio.sleep(0.8)
                 # No collector and no output file: the run emits to the browser
-                # stream and writes nothing to disk.
-                await page.click(button_starting_with("Run "))
+                # stream and writes its required manifest to disk.
+                await page.click(button_by_text("Run without sending"))
                 # Capture the settled frame: the full waveform, the final counts,
                 # and the manifest panel. A fixed sleep raced the server here --
                 # REP-004's 108000-event plan can still be building seconds after
@@ -285,10 +307,6 @@ async def capture_all(url: str, views: set[str]) -> None:
                     "document.body.textContent.includes('manifest written')",
                     what="the run to finish and write its manifest",
                     timeout=180.0,
-                )
-                await page.evaluate(
-                    "document.querySelector('main').scrollTop = "
-                    "document.querySelector('main').scrollHeight * 0.55"
                 )
                 await asyncio.sleep(0.4)
                 await page.capture(shot_name("run"))

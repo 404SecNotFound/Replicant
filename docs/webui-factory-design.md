@@ -1,5 +1,7 @@
 # Replicant web UI - the Factory system
 
+> 2026-09-08: superseded by [the silver-and-red design](webui-silver-red-design.md). This document records the previous visual system.
+
 Status: implemented (v0.6.0). Supersedes `docs/webui-reskin-design.md` (the amber
 "signal-instrument" system, kept for history). The design direction is the archived
 dark-era factory.ai visual system ("terminal war room at midnight"), approved from
