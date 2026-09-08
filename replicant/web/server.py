@@ -79,6 +79,7 @@ from replicant.config.settings import (
 )
 from replicant.core.models import (
     Catalog,
+    CollectorHost,
     CollectorProfile,
     Intensity,
     RunRequest,
@@ -143,6 +144,9 @@ SESSION_COOKIE = "replicant_session"
 #: four hour plan-paced technique is not logged out mid-run, short enough that a
 #: cookie copied off a shared machine is not a permanent credential.
 SESSION_TTL_S = 12 * 3600
+# A launch-token holder can create browser sessions, but must not be able to grow
+# the in-memory credential table without limit.
+MAX_BROWSER_SESSIONS = 256
 
 
 class SessionStore:
@@ -163,8 +167,16 @@ class SessionStore:
     locking or relying on individual dict operations being atomic.
     """
 
-    def __init__(self, ttl_s: int = SESSION_TTL_S, clock: Any = None) -> None:
+    def __init__(
+        self,
+        ttl_s: int = SESSION_TTL_S,
+        clock: Any = None,
+        max_sessions: int = MAX_BROWSER_SESSIONS,
+    ) -> None:
+        if max_sessions <= 0:
+            raise ValueError("max_sessions must be positive")
         self.ttl_s = ttl_s
+        self.max_sessions = max_sessions
         self._clock = clock or time.monotonic
         self._expiry: dict[str, float] = {}
         self._lock = threading.RLock()
@@ -184,6 +196,12 @@ class SessionStore:
     def issue(self) -> str:
         with self._lock:
             self._sweep()
+            if len(self._expiry) >= self.max_sessions:
+                # Fixed TTL makes the earliest expiry the oldest session. The
+                # launch-token holder already has authority to replace it, so
+                # oldest-first eviction is preferable to unbounded growth.
+                oldest = min(self._expiry, key=self._expiry.__getitem__)
+                self._expiry.pop(oldest, None)
             sid = secrets.token_urlsafe(32)
             self._expiry[sid] = self._clock() + self.ttl_s
             return sid
@@ -408,7 +426,7 @@ class AccessPolicy:
 
 
 class CollectorBody(BaseModel):
-    host: str
+    host: CollectorHost
     port: int = Field(default=514, ge=1, le=65535)
     transport: Transport = "udp"
     tls_verify: bool = True
@@ -420,7 +438,7 @@ class RunBody(BaseModel):
     technique_id: str
     intensity: Intensity = "medium"
     duration: str | None = None
-    seed: int | None = None
+    seed: int | None = Field(default=None, ge=0)
     to_file: str | None = None
     # Defaults to sending, because a caller who supplies a collector has said
     # where the events go. `replicant run REP-001 --host ...` has always read it
@@ -704,10 +722,14 @@ def create_app(
                 raise HTTPException(status_code=403, detail="cross-origin write rejected")
 
     def _set_session_cookie(response: Any, request: Request) -> None:
+        sid = request.cookies.get(SESSION_COOKIE) or ""
+        if not sessions.validate(sid):
+            sid = sessions.issue()
         response.set_cookie(
             SESSION_COOKIE,
-            # A fresh short-lived id, not the launch token. See SessionStore.
-            sessions.issue(),
+            # A short-lived id, not the launch token. Reuse a valid id so a
+            # bookmarked token URL cannot churn through the bounded store.
+            sid,
             httponly=True,
             samesite="strict",
             path="/",
@@ -1193,15 +1215,15 @@ def create_app(
             ),
         }
 
-    @app.post("/api/session/logout")
+    @app.post("/api/session/logout", dependencies=[Depends(require_token)])
     def logout(request: Request) -> JSONResponse:
         """End this browser's session without touching the launch token.
 
         The point of the exchange: revoking one browser used to mean
         regenerating the token file, which logged out every other client and
-        every script. Deliberately unauthenticated, because presenting a session
-        id you want destroyed is not something to gate: the worst an attacker can
-        do is end a session they already hold.
+        every script. This remains authenticated because the session id is an
+        ambient cookie. Without the normal write Origin check, a cross-site form
+        could make the victim's browser revoke a value the attacker never knew.
         """
 
         sid = request.cookies.get(SESSION_COOKIE) or ""

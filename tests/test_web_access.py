@@ -121,6 +121,22 @@ def test_token_file_is_readable_only_by_its_owner(config_home: Path) -> None:
     assert mode == 0o600, f"token file is group/world readable: {mode:o}"
 
 
+def test_persisted_token_permissions_are_repaired_on_startup(config_home: Path) -> None:
+    """Upgrades must not preserve an older install's exposed master token."""
+
+    config_home.mkdir(mode=0o755, exist_ok=True)
+    config_home.chmod(0o755)
+    path = web_token_path()
+    path.write_text("persisted-master-token\n", encoding="utf-8")
+    path.chmod(0o644)
+
+    token, state = load_or_create_web_token(rotate=False)
+
+    assert (token, state) == ("persisted-master-token", "persisted")
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(config_home.stat().st_mode) == 0o700
+
+
 def test_config_dir_is_not_world_traversable(config_home: Path) -> None:
     load_or_create_web_token(rotate=False)
     mode = stat.S_IMODE(web_token_path().parent.stat().st_mode)

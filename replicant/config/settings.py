@@ -118,7 +118,8 @@ def stale_anchor_warning(anchor_epoch: int, *, sending: bool, now: int | None = 
 class Settings(BaseModel):
     """Operator defaults. The default layer of the precedence chain."""
 
-    default_seed: int = 1337
+    # numpy's deterministic generator accepts only non-negative integer seeds.
+    default_seed: int = Field(default=1337, ge=0)
     # Positive by construction: the emit loop treats a non-positive cap as "no
     # limit", so a zero or negative value would silently disable safety rule 4.
     eps_cap: int = Field(default=2000, gt=0)
@@ -187,6 +188,24 @@ def _write_secret(path: Path, value: str) -> None:
     os.chmod(path, 0o600)
 
 
+def _harden_existing_secret(path: Path) -> None:
+    """Restore owner-only permissions before reusing a persisted web token.
+
+    Tokens created by current versions are already protected in
+    :func:`_write_secret`. The read path matters for upgrades: an older install,
+    a restored backup, or an accidental chmod can leave the persistent master
+    credential and its directory group/world-readable. Returning it unchanged
+    would preserve that exposure indefinitely because normal startups do not
+    rotate the token.
+
+    Permission repair is mandatory. An ``OSError`` propagates and prevents the
+    web server from starting with a credential it could not secure.
+    """
+
+    os.chmod(path.parent, 0o700)
+    os.chmod(path, 0o600)
+
+
 def load_or_create_web_token(*, rotate: bool = False) -> tuple[str, str]:
     """Return ``(token, state)`` for the web UI, minting one if needed.
 
@@ -206,6 +225,7 @@ def load_or_create_web_token(*, rotate: bool = False) -> tuple[str, str]:
         except OSError:
             existing = ""
         if existing:
+            _harden_existing_secret(path)
             return existing, "persisted"
     token = secrets.token_urlsafe(_WEB_TOKEN_BYTES)
     _write_secret(path, token)

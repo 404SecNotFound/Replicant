@@ -22,10 +22,10 @@ profile lays out into its own field order.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 from replicant.core.pacing import MAX_SPEED, SPEED_WITHOUT_PLAN, Pace
 from replicant.resources import SCENARIO_CATALOG
@@ -39,6 +39,17 @@ Transferability = Literal["transfers", "parser-only"]
 #: ``error`` rather than renaming it to ``failed`` preserves compatibility with
 #: existing manifests and API consumers.
 RunStatus = Literal["running", "done", "stopped", "error"]
+
+# An empty host has special meaning to ``getaddrinfo`` on common platforms: it
+# resolves to the local machine. Treating an empty form field as a configured
+# collector would therefore turn a value that names no destination into a real
+# socket peer, violating the fail-closed boundary. Whitespace inside a host is
+# never meaningful to the resolver; surrounding whitespace is harmlessly
+# normalised for config files and interactive input.
+CollectorHost = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, pattern=r"^\S+$"),
+]
 
 
 class CefHeader(BaseModel):
@@ -223,7 +234,7 @@ class CollectorProfile(BaseModel):
     """A saved or ad-hoc syslog collector target. The only permitted socket peer."""
 
     name: str = "default"
-    host: str
+    host: CollectorHost
     port: int = Field(default=514, ge=1, le=65535)
     transport: Transport = "udp"
     facility: int = Field(default=23, ge=0, le=23)  # syslog facility 0..23, 23=local7
@@ -259,14 +270,19 @@ def _validate_duration(value: str | None) -> str | None:
         return value
     from replicant.config.settings import parse_duration
 
-    parse_duration(value)  # raises ValueError on anything unparseable
+    seconds = parse_duration(value)  # raises ValueError on anything unparseable
+    if seconds <= 0:
+        raise ValueError(f"duration must be greater than zero: {value!r}")
     return value
 
 
 class RunRequest(BaseModel):
     technique_id: str
     intensity: Intensity = "medium"
-    seed: int = 1337
+    # numpy's SeedSequence rejects negative integers. Validate at the shared
+    # model boundary so CLI, menu, web and Python callers get a clean refusal
+    # instead of a traceback or HTTP 500 from the planner.
+    seed: int = Field(default=1337, ge=0)
     duration: str | None = None
     to_file: str | None = None
     no_send: bool = False
@@ -453,7 +469,7 @@ def load_scenario_catalog(path: str | Path, technique_catalog: Catalog) -> Scena
 
 class ScenarioRunRequest(BaseModel):
     scenario_id: str
-    seed: int = 1337
+    seed: int = Field(default=1337, ge=0)
     intensity_override: Intensity | None = None
     # How long the whole chain should take. Scales stage offsets and each stage's
     # own window, so the chain keeps its order and every technique in it keeps

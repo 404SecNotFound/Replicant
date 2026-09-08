@@ -59,6 +59,21 @@ def test_settings_accepts_positive_eps_cap() -> None:
     assert Settings().eps_cap == 2000
 
 
+def test_settings_rejects_a_negative_seed() -> None:
+    with pytest.raises(ValidationError):
+        Settings(default_seed=-1)
+
+
+def test_run_request_rejects_a_negative_seed() -> None:
+    with pytest.raises(ValidationError):
+        RunRequest(technique_id="REP-001", seed=-1)
+
+
+def test_scenario_request_rejects_a_negative_seed() -> None:
+    with pytest.raises(ValidationError):
+        ScenarioRunRequest(scenario_id="SCEN-001", seed=-1)
+
+
 @pytest.mark.parametrize("bad", [0, -1, -50])
 def test_run_request_rejects_nonpositive_rate_override(bad: int) -> None:
     with pytest.raises(ValidationError):
@@ -176,6 +191,16 @@ def test_collector_rejects_out_of_range_port(bad_port: int) -> None:
 @pytest.mark.parametrize("port", [1, 514, 65535])
 def test_collector_accepts_valid_port(port: int) -> None:
     assert CollectorProfile(host="192.0.2.1", port=port).port == port
+
+
+@pytest.mark.parametrize("bad_host", ["", " ", "\t", "collector name"])
+def test_collector_rejects_a_host_that_names_no_peer(bad_host: str) -> None:
+    with pytest.raises(ValidationError):
+        CollectorProfile(host=bad_host)
+
+
+def test_collector_normalizes_surrounding_host_whitespace() -> None:
+    assert CollectorProfile(host=" 192.0.2.1 ").host == "192.0.2.1"
 
 
 @pytest.mark.parametrize("bad_facility", [-1, 24, 100])

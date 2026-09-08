@@ -119,6 +119,20 @@ class TestSessionStore:
 
         assert len(store) < 100
 
+    def test_unexpired_entries_cannot_grow_without_bound(self) -> None:
+        """A client can discard Set-Cookie and replay the launch token forever."""
+
+        store = SessionStore(ttl_s=60, max_sessions=3)
+        ids = [store.issue() for _ in range(4)]
+
+        assert len(store) == 3
+        assert store.validate(ids[0]) is False
+        assert all(store.validate(sid) for sid in ids[1:])
+
+    def test_the_session_bound_must_be_positive(self) -> None:
+        with pytest.raises(ValueError, match="max_sessions"):
+            SessionStore(max_sessions=0)
+
     def test_expired_validation_and_logout_are_safe_when_concurrent(self) -> None:
         """FastAPI runs sync dependencies/endpoints in worker threads.
 
@@ -190,6 +204,14 @@ class TestExchange:
         # No token in this one: the cookie the client kept must carry it.
         assert client.get("/api/config").status_code == 200
 
+    def test_reusing_a_bookmarked_token_keeps_the_live_session(self, client: TestClient) -> None:
+        client.get("/", params={"token": TOKEN}, follow_redirects=False)
+        first = client.cookies.get(SESSION_COOKIE)
+
+        client.get("/", params={"token": TOKEN}, follow_redirects=False)
+
+        assert client.cookies.get(SESSION_COOKIE) == first
+
     def test_a_forged_cookie_is_refused(self, client: TestClient) -> None:
         client.cookies.set(SESSION_COOKIE, "forged-session-id")
 
@@ -205,7 +227,7 @@ class TestExchange:
         client.get("/", params={"token": TOKEN})
         assert client.get("/api/config").status_code == 200
 
-        client.post("/api/session/logout")
+        client.post("/api/session/logout", headers={"origin": "http://localhost"})
 
         assert client.get("/api/config").status_code == 401
 
@@ -221,13 +243,21 @@ class TestExchange:
         client.get("/", params={"token": TOKEN})
         assert client.get("/api/config").status_code == 200
 
-        client.post("/api/session/logout")
+        client.post("/api/session/logout", headers={"origin": "http://localhost"})
 
         assert client.get("/api/config").status_code == 401
         assert (
             client.get("/api/config", headers={"Authorization": f"Bearer {TOKEN}"}).status_code
             == 200
         )
+
+    def test_cross_origin_logout_cannot_revoke_an_ambient_session(self, client: TestClient) -> None:
+        client.get("/", params={"token": TOKEN})
+
+        response = client.post("/api/session/logout", headers={"origin": "http://attacker.example"})
+
+        assert response.status_code == 403
+        assert client.get("/api/config").status_code == 200
 
     def test_the_launch_token_still_works_for_a_non_browser_client(
         self, client: TestClient

@@ -52,6 +52,18 @@ Claims that have not been validated against a live vendor build or a real host a
   continue to work during source development.
 - **Browser-session lifecycle operations are thread-safe.** Concurrent expiry,
   validation, logout, and issuance can no longer race on the session store.
+- **Browser-session storage is bounded.** At most 256 unexpired sessions are
+  retained, repeated bootstrap-token navigations reuse a live cookie, and logout
+  now receives the same Origin protection as other cookie-authenticated writes.
+- **Persisted web-token permissions are repaired before reuse.** A restored or
+  older token file is returned only after the file and config directory have
+  been restored to owner-only access.
+- **Invalid run and collector inputs fail at shared boundaries.** Empty collector
+  hosts, negative random seeds, and zero-length requested run durations are
+  rejected. Invalid ad-hoc collector values now produce a concise CLI error
+  instead of a Pydantic traceback.
+- **Browserslist is updated to a patched release** for two high severity
+  build-tool advisories; the audited frontend dependency tree is clear.
 - **An active run can no longer be detached by switching vendor profiles.** The
   selector and tab navigation are locked during run admission. The browser now
   reserves a client-generated, idempotent admission identity before plan

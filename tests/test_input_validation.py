@@ -34,7 +34,10 @@ rather than the caller explaining itself.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+from pydantic import ValidationError
 
 from replicant.config.settings import parse_duration
 
@@ -52,6 +55,7 @@ class TestParseDuration:
             ("1h 30m", 5400),
             ("  45s  ", 45),
             ("1H30M", 5400),  # case-insensitive
+            ("0s", 0),  # scenario stage offsets legitimately begin at zero
         ],
     )
     def test_well_formed_durations_still_parse(self, text: str, seconds: int) -> None:
@@ -82,6 +86,16 @@ class TestParseDuration:
         with pytest.raises(ValueError, match="10x"):
             parse_duration("10x")
 
+    @pytest.mark.parametrize("text", ["0", "0s", "0h0m"])
+    def test_run_requests_reject_zero_duration(self, text: str) -> None:
+        """Zero is a valid offset, but not a valid requested run window."""
+        from replicant.core.models import RunRequest, ScenarioRunRequest
+
+        with pytest.raises(ValidationError):
+            RunRequest(technique_id="REP-001", duration=text)
+        with pytest.raises(ValidationError):
+            ScenarioRunRequest(scenario_id="SCEN-001", duration=text)
+
 
 class TestVerticalScanPortSpan:
     def test_a_port_count_above_the_port_space_is_clamped_not_raised(self) -> None:
@@ -111,3 +125,27 @@ class TestVerticalScanPortSpan:
         )
 
         assert plan.events
+
+
+class TestCollectorCliValidation:
+    def test_connect_rejects_an_empty_host_without_a_traceback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from replicant.cli.app import main
+
+        monkeypatch.setenv("REPLICANT_CONFIG_DIR", str(tmp_path / "config"))
+
+        assert main(["connect", "--host", ""]) == 1
+        assert "connect refused" in capsys.readouterr().err.lower()
+
+    def test_run_rejects_an_out_of_range_collector_port(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from replicant.cli.app import main
+
+        monkeypatch.setenv("REPLICANT_CONFIG_DIR", str(tmp_path / "config"))
+
+        result = main(["run", "REP-001", "--host", "127.0.0.1", "--port", "0"])
+
+        assert result == 1
+        assert "collector refused" in capsys.readouterr().err.lower()
