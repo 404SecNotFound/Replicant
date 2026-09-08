@@ -108,6 +108,12 @@ Each module is a package under `replicant/`. Key responsibilities and the main t
 - `core/orchestrator.py` `Orchestrator` resolves a `RunRequest` (technique id, intensity, overrides, collector profile) into a `Run`, drives the Scenario Engine, durably creates and checkpoints the manifest around emission, atomically finalizes it, and honors the kill switch.
 - `core/models.py` Pydantic v2 models: `Technique`, `RunRequest`, `RunManifest`, `CollectorProfile`, `Entity`, `EventRecord` (vendor-neutral intermediate event before serialization).
 - `core/pacing.py` when each event is allowed to leave the host. `send_offsets` turns a planned timeline plus the rate cap into one list of send offsets; `compress_timeline` rescales event times for `--speed`. Pure, no clock and no sockets: the Orchestrator owns the waiting, this owns the arithmetic, so the schedule can be asserted exactly rather than measured.
+- `validation/` packaged contract loading, pure Tier 0 evaluation, Tier 1
+  observation comparison, verdict models, and separate telemetry/detection
+  source protocols. `validation/receiver.py` binds only to loopback.
+- `evidence/` bounded evidence directories, catalog-to-renderer mapping, and
+  deterministic plan replay. It does not invent SIEM mappings or appliance
+  observations.
 - `scenario/engine.py` `ScenarioEngine.plan(technique, params, entities, seed) -> Iterator[PlannedEvent]`. Turns one technique into a time-ordered sequence with per-event field values. Pure, deterministic, no I/O.
 - `scenario/distributions.py` seeded helpers: `lognormal_bytes`, `jittered_interval`, `business_hours_weight`, `unique_pool_sampler`. numpy-backed.
 - `profiles/base.py` `VendorProfile` interface: `header(technique) -> CefHeader`, `extension(planned_event) -> dict`, `severity(level)`, `byte_fields()`.
@@ -296,6 +302,14 @@ Replicant/
 - FortiGate profile tests: field names, signature IDs, severity mapping.
 - Scenario engine tests: determinism (same seed same plan), distribution bounds, cardinality counts, warm-up ordering for REP-008.
 - Transport loopback: a tiny in-test UDP and TCP receiver confirms lines arrive intact. Runs in CI with no external collector.
+- Offline contract matrix: every preset satisfies one packaged contract without
+  truncation. Multi-seed control tests match irrelevant distributions and assert
+  the intended discriminator. Tier 1 sends through the production UDP/TCP
+  transport, reads run-tagged records back, and includes a deliberate dropped
+  record that must fail.
+- Evidence and replay: large observations use a bounded deterministic sample;
+  replay must reconstruct the same canonical event-record bytes from the stored
+  recipe.
 - Catalog validation: every entry parses against the model, every `ndr_uc` is unique and known.
 - End-to-end acceptance (manual, documented as a runbook): point Replicant at a LogRhythm syslog listener, run REP-001, confirm the source is accepted and events arrive. Then, once the matching UC rule is deployed in silent mode, confirm the rule fires on the generated pattern. This closes the loop: Replicant validates the pack, the pack validates Replicant.
 
@@ -306,6 +320,11 @@ Replicant/
 - Phase 3 (multi-vendor): Palo Alto and Check Point profiles plus their reference files. Profile-selection in the menu.
 - Phase 4 (ATT&CK and AI builder): a technique-selection and scenario-composition helper that assembles multi-step scenarios from ATT&CK. Keep any AI assist advisory; the human authors the detection design. AI must not write the LogRhythm rule design notes. Done 2026-07-19: data/scenario-catalog.yaml + replicant/scenario/composer.py + advisory.py + Orchestrator.run_scenario, CLI 'scenario' verb and Rich menu [a]. Deterministic, no LLM. Web UI deferred.
 - Phase 5 (web UI): the React 18 + Vite + TypeScript + Tailwind + shadcn/ui front end from the earlier product notes, driving the same Python core over an API.
+- Offline detection validation (complete): all 26 techniques have packaged
+  contracts; Tier 0 evaluates plans without I/O; Tier 1 observes loopback UDP or
+  TCP delivery and parseability; CLI and web share the Orchestrator; evidence
+  packs and deterministic replay preserve the result. Live SIEM parsing and rule
+  alerts remain behind the LogRhythm gate.
 
 ## 19. Open questions and assumptions
 

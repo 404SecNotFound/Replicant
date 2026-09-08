@@ -127,7 +127,8 @@ techniques:
       dpt: "randomized across 1-65535"
       out_bytes: "~0"
       action_mix: "mostly deny, occasional accept on open ports"
-    benign_baseline: "normal hosts touch a handful of ports on a given dst"
+    benign_baseline: "the same global probe volume, port set, actions and window are spread across routine source/destination pairs so per-pair unique-port count is the intended discriminator"
+    emits_foil: true
     references: ["UC-002a", "fortigate-cef-reference: T1046 vertical"]
     safety_notes: "dst is a single synthetic internal or DMZ target"
 
@@ -154,7 +155,8 @@ techniques:
     distributions:
       dst: "iterate a /24 to /16 synthetic internal range"
       port_choices: [445, 3389, 22, 23, 80]
-    benign_baseline: "normal east-west touches few unique hosts per source per window"
+    benign_baseline: "the same global destination, action, port and time distributions are spread across routine administrative sources so per-source unique-host count is the intended discriminator"
+    emits_foil: true
     references: ["UC-002b", "fortigate-cef-reference: T1046 horizontal"]
     safety_notes: "dst pool is synthetic internal space only"
 
@@ -211,7 +213,8 @@ techniques:
       out_bytes: "large; out:in ratio > 20:1"
       dpt_choices: [443, 22, 21]
       timing: "pinned to off-hours (00:00-06:00) to raise anomaly score"
-    benign_baseline: "per-host normal out is 1-500 KB in business hours"
+    benign_baseline: "a matched current-window bulk transfer is preceded by the same host's established high-volume history; the positive host has three low-volume history windows, so deviation from per-host history is the intended discriminator"
+    emits_foil: true
     references: ["UC-004 Outliers Nth Percentile", "fortigate-cef-reference: T1041/T1048"]
     safety_notes: "byte counts are integers in the log only; no real data moves"
 
@@ -349,7 +352,8 @@ techniques:
     distributions:
       dst: "one or many synthetic external destinations"
       pattern: "sharp rate spike, then decay"
-    benign_baseline: "occasional denies from policy, not bursts"
+    benign_baseline: "the same global deny count, ports, destinations and action distribution are spread uniformly across routine internal sources; per-source count and the sharp temporal burst are the intended discriminators"
+    emits_foil: true
     references: ["UC-009", "fortigate-cef-reference: T1090 denied burst"]
     safety_notes: "synthetic destinations only"
 

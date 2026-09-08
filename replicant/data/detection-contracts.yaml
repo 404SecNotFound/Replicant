@@ -1,0 +1,178 @@
+# Copyright 2026 Imran Hafeez (RZA)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Event families, signal fields, preset values, foil presence, and transferability
+# are resolved from technique-catalog.yaml. This registry contains only validation
+# semantics so those catalog-owned facts cannot drift into a second source of truth.
+version: "1.0"
+contracts:
+  - technique_id: REP-001
+    observation_window: {parameters: [duration_min], description: "Full callback run; shorter 5, 15, and 60 minute views may be inconclusive."}
+    measurable_axes:
+      - {id: cadence, description: "Low inter-arrival variation per source/destination/port tuple.", metric: cadence_cv, field: rt, group_by: [src, dst, dpt], parameter: jitter_pct, compare_negative: true}
+    negative: {mode: standalone, reason: "Same count, window, port, and byte envelope with irregular timing.", separable_by: [cadence]}
+
+  - technique_id: REP-002
+    observation_window: {parameters: [window_s], description: "Distinct ports are counted per source and destination inside the preset window."}
+    measurable_axes:
+      - {id: unique_ports, description: "One source/destination pair reaches the preset number of ports.", metric: distinct, field: dpt, group_by: [src, dst], parameter: unique_ports}
+    negative: {mode: standalone, reason: "The same probe volume and port/action distributions are spread across routine source/destination pairs.", separable_by: [unique_ports]}
+
+  - technique_id: REP-003
+    observation_window: {parameters: [window_s], description: "Distinct destinations are counted per source and destination port."}
+    measurable_axes:
+      - {id: unique_hosts, description: "One source reaches the preset number of destinations on one port.", metric: distinct, field: dst, group_by: [src, dpt], parameter: unique_hosts}
+    negative: {mode: standalone, reason: "The same host and action distributions are divided across routine administrative sources.", separable_by: [unique_hosts]}
+
+  - technique_id: REP-004
+    observation_window: {parameters: [duration_min], description: "Query-label cardinality is measured over the generated DNS run."}
+    measurable_axes:
+      - {id: label_cardinality, description: "Unique DNS labels meet the selected preset.", metric: distinct, field: FTNTFGTqname, parameter: unique_labels}
+    negative: {mode: standalone, reason: "Equal query volume, record types, and label envelope with lower unique-label cardinality.", separable_by: [label_cardinality]}
+
+  - technique_id: REP-005
+    observation_window: {fixed_seconds: 21600, description: "Three prior per-host buckets and one current bucket share the generated six-hour off-hours window."}
+    measurable_axes:
+      - {id: host_outbound_bytes, description: "One host reaches the selected outbound-byte volume.", metric: sum, field: out, group_by: [src], parameter: total_out_mb, scale: 1000000, minimum_ratio: 0.75}
+    negative: {mode: standalone, reason: "A matched current-window bulk transfer is preceded by the same host's established high-volume history.", separable_by: [host_outbound_bytes_relative_to_history]}
+
+  - technique_id: REP-006
+    observation_window: {parameters: [window_min], description: "Destination fan-out is grouped by source inside the preset window."}
+    measurable_axes:
+      - {id: unique_destinations, description: "One source reaches the preset destination count.", metric: distinct, field: dst, group_by: [src], parameter: unique_dst}
+    negative: {mode: standalone, reason: "A legitimate proxy has the same fan-out shape but known-good destination context.", separable_by: [destination_context]}
+
+  - technique_id: REP-007
+    observation_window: {parameters: [window_min], description: "Authentication outcomes are grouped by source and user inside the preset window."}
+    measurable_axes:
+      - {id: attempted_users, description: "The source touches the preset user population.", metric: distinct, field: duser, group_by: [src], parameter: users}
+    negative: {mode: standalone, reason: "A shared egress source matches login volume but mostly succeeds and self-corrects.", separable_by: [failure_ratio, successful_self_correction]}
+
+  - technique_id: REP-008
+    observation_window: {parameters: [baseline_days], description: "Embedded per-host history precedes first contact with the novel destinations."}
+    measurable_axes:
+      - {id: destination_presence, description: "The plan contains destination observations for the selected host.", metric: field_presence, field: dst}
+    negative: {mode: embedded, reason: "Required stable-destination history is embedded in the positive plan; there is no standalone foil.", separable_by: [first_seen_against_embedded_history]}
+
+  - technique_id: REP-009
+    observation_window: {parameters: [window_min, baseline_window_min], description: "Positive and steady control rates use separate catalog-owned windows."}
+    measurable_axes:
+      - {id: alert_hits, description: "The positive stream contains the selected hit count.", metric: event_count, parameter: hits}
+    negative: {mode: standalone, reason: "The same hits, signatures, severities, and counters are spread over the longer baseline window.", separable_by: [event_rate]}
+
+  - technique_id: REP-010
+    observation_window: {parameters: [window_s], description: "Denied attempts are grouped by source inside the preset burst window."}
+    measurable_axes:
+      - {id: denies_per_source, description: "One source emits the selected number of denies.", metric: event_count, group_by: [src], parameter: denies}
+    negative: {mode: standalone, reason: "The same global deny volume and field distributions are spread uniformly across routine sources.", separable_by: [denies_per_source, temporal_burst_shape]}
+
+  - technique_id: REP-011
+    observation_window: {parameters: [window_min], description: "Successful VPN logins are grouped by identity inside the selected travel window."}
+    measurable_axes:
+      - {id: supplied_countries, description: "Synthetic country tags cover the selected country count.", metric: distinct, field: FTNTFGTsrccountry, group_by: [duser], parameter: countries}
+    negative:
+      mode: unsupported
+      reason: "A credible GeoIP foil requires observed external GeoIP/ASN enrichment and approved-travel context. Documentation-range addresses and supplied country tags cannot exercise that dependency, so no weak standalone foil is generated."
+      separable_by: []
+
+  - technique_id: REP-012
+    observation_window: {parameters: [duration_min], description: "Per-host and fleet timing are measured across the full generated callback run."}
+    measurable_axes:
+      - {id: callback_timing, description: "Callback records carry measurable event-time gaps.", metric: temporal_span}
+    negative: {mode: standalone, reason: "Benign jittered scheduled traffic overlaps timing and byte shapes.", separable_by: [fleet_aggregation_and_context]}
+
+  - technique_id: REP-013
+    observation_window: {parameters: [generations, gen_gap_s], description: "Propagation generations are measured in causal event-time order."}
+    measurable_axes:
+      - {id: propagation_span, description: "The generated propagation path spans multiple event times.", metric: temporal_span}
+    negative: {mode: standalone, reason: "Administrative fan-out uses the same port without causal self-propagation.", separable_by: [causal_source_destination_progression]}
+
+  - technique_id: REP-014
+    observation_window: {parameters: [session_min], description: "Long-lived traffic is measured across the selected session duration."}
+    measurable_axes:
+      - {id: sessions, description: "The positive stream contains the selected session count.", metric: event_count, parameter: sessions}
+    negative: {mode: standalone, reason: "Bursty benign long sessions overlap ports, duration, and volume.", separable_by: [steady_share_cadence_and_context]}
+
+  - technique_id: REP-015
+    observation_window: {parameters: [duration_h], description: "Low-throughput DNS cardinality is accumulated across the selected hours."}
+    measurable_axes:
+      - {id: label_cardinality, description: "The low-throughput stream exposes measurable DNS-label cardinality; the emitted query count can be lower than the configured label pool.", metric: distinct, field: FTNTFGTqname}
+    negative: {mode: standalone, reason: "Equal DNS volume and label envelope with a lower-cardinality machine-generated workload.", separable_by: [label_cardinality]}
+
+  - technique_id: REP-016
+    observation_window: {parameters: [epochs], description: "Response outcomes and generated-name clusters are measured across all epochs."}
+    measurable_axes:
+      - {id: response_code, description: "DNS response records expose the resolution outcome.", metric: field_presence, field: FTNTFGTrcode}
+    negative: {mode: standalone, reason: "A benign NXDOMAIN trickle overlaps the response family without the DGA cluster shape.", separable_by: [nxdomain_ratio, label_cluster_shape]}
+
+  - technique_id: REP-017
+    observation_window: {parameters: [baseline_min, switch_at_min], description: "Resolver traffic history precedes the switch to HTTPS flows."}
+    measurable_axes:
+      - {id: dns_to_https_order, description: "DNS queries precede the traffic-forward phase.", metric: ordered_families, ordered_families: [dns:dns-query, traffic:forward]}
+    negative: {mode: embedded, reason: "The ordinary DNS phase is embedded history; no separate negative stream is emitted.", separable_by: [cessation_of_dns_followed_by_https]}
+
+  - technique_id: REP-018
+    observation_window: {parameters: [window_min], description: "Identity and host transitions are correlated in event-time order."}
+    measurable_axes:
+      - {id: family_progression, description: "VPN, system login, and traffic records occur in causal order.", metric: ordered_families, ordered_families: [event:vpn, event:system, traffic:forward]}
+    negative: {mode: standalone, reason: "An administrator star matches login volume without the causal host chain.", separable_by: [causal_path_shape, identity_transition]}
+
+  - technique_id: REP-019
+    observation_window: {parameters: [gap_s], description: "Sparse probes are measured over the event span created by the preset gaps."}
+    measurable_axes:
+      - {id: probe_count, description: "The positive stream contains the selected total probe count.", metric: event_count, parameter: total_probes}
+    negative: {mode: standalone, reason: "Sparse unrelated policy denies overlap the low event rate.", separable_by: [distributed_probe_graph]}
+
+  - technique_id: REP-020
+    observation_window: {parameters: [window_min], description: "Organisation-wide history precedes the first contact records."}
+    measurable_axes:
+      - {id: query_name, description: "The plan exposes the queried synthetic names.", metric: field_presence, field: FTNTFGTqname}
+    negative: {mode: embedded, reason: "Organisation-wide prior-contact history is embedded; real registration age is unavailable for synthetic names.", separable_by: [first_seen_against_embedded_history]}
+
+  - technique_id: REP-021
+    observation_window: {parameters: [duration_min], description: "Inbound sources and probes are measured across the calibration window."}
+    measurable_axes:
+      - {id: inbound_sources, description: "The plan contains the selected unique inbound source count.", metric: distinct, field: src, parameter: unique_src}
+    negative: {mode: calibration, reason: "This technique is itself a benign perimeter-background calibration stream, not a malicious positive claim.", separable_by: [operator_interpretation_as_baseline]}
+
+  - technique_id: REP-022
+    observation_window: {parameters: [stage_gap_s], description: "Labeled alert stages are correlated in event-time order."}
+    measurable_axes:
+      - {id: alert_timeline, description: "The alert chain spans multiple event times.", metric: temporal_span}
+    negative: {mode: standalone, reason: "Unrelated alert noise overlaps the same family without the ordered joined chain.", separable_by: [stage_order_and_join]}
+
+  - technique_id: REP-023
+    observation_window: {parameters: [interval_s], description: "Flow-only sessions are measured over the generated callback span."}
+    measurable_axes:
+      - {id: flow_timing, description: "TLS flow records expose a measurable event-time sequence.", metric: temporal_span}
+    negative: {mode: standalone, reason: "Benign TLS flows overlap port, bytes, and duration.", separable_by: [flow_timing_and_destination_context]}
+
+  - technique_id: REP-024
+    observation_window: {parameters: [duration_min], description: "Inbound and outbound legs are correlated inside the selected relay window."}
+    measurable_axes:
+      - {id: relay_timeline, description: "The paired flow legs span measurable event time.", metric: temporal_span}
+    negative: {mode: standalone, reason: "A sanctioned proxy overlaps the two-leg relay shape.", separable_by: [approved_proxy_context]}
+
+  - technique_id: REP-030
+    observation_window: {parameters: [window_min], description: "Sparse failed edges are aggregated across source and user identities."}
+    measurable_axes:
+      - {id: sources, description: "The positive stream reaches the selected source population.", metric: distinct, field: src, parameter: sources}
+      - {id: users, description: "The positive stream reaches the selected user population.", metric: distinct, field: duser, parameter: users}
+    negative: {mode: standalone, reason: "The same failed edges are followed by successful self-correction.", separable_by: [successful_self_correction]}
+
+  - technique_id: REP-043
+    observation_window: {parameters: [window_min], description: "IPS, accepted inbound, and victim egress records are joined in order."}
+    measurable_axes:
+      - {id: family_progression, description: "IPS activity precedes traffic continuation for the joined victim.", metric: ordered_families, ordered_families: [utm:ips, traffic:forward]}
+    negative: {mode: standalone, reason: "Controls omit continuation, break the victim join, or reverse event order.", separable_by: [victim_role_join, event_order]}

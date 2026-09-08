@@ -47,6 +47,7 @@ REPO_ROOT = PACKAGE_ROOT.parent
 DATA_DIR = PACKAGE_ROOT / "data"
 TECHNIQUE_CATALOG = DATA_DIR / "technique-catalog.yaml"
 SCENARIO_CATALOG = DATA_DIR / "scenario-catalog.yaml"
+DETECTION_CONTRACTS = DATA_DIR / "detection-contracts.yaml"
 
 # Vite writes here (see webui/vite.config.ts). Inside the package so that a wheel
 # built after `npm run build` carries the UI.

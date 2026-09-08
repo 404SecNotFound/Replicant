@@ -19,8 +19,8 @@ regeneration was done ad hoc and not kept, so it had to be reinvented. This is
 that method, written down.
 
 Drives headless Chrome over the DevTools Protocol. Captures the workspace,
-technique library, reference, completed run, and terminal at 1440x900 at scale 1,
-plus the workspace at 360x900 for the narrow-screen example.
+validation result, technique library, reference, completed run, and terminal at
+1440x900 at scale 1, plus the workspace at 360x900 for the narrow-screen example.
 
 The UI is dark-only (the silver-and-red system), so there is no theme to pin any more;
 the script still refuses to capture until the page has painted the silver-and-red canvas,
@@ -56,7 +56,7 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 DEBUG_PORT = 9222
 WIDTH, HEIGHT = 1440, 900
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "images"
-VIEWS = ("emitter", "techniques", "mobile", "docs", "run", "terminal")
+VIEWS = ("emitter", "mobile", "validation", "techniques", "docs", "run", "terminal")
 
 
 class Chrome:
@@ -235,6 +235,30 @@ async def capture_all(url: str, views: set[str]) -> None:
                     deviceScaleFactor=1,
                     mobile=False,
                 )
+
+            if "validation" in views:
+                print("validation result")
+                await page.click(
+                    "[...document.querySelectorAll('summary')]"
+                    ".find(s => s.textContent.trim() === 'Full technique reference')"
+                )
+                await page.wait_for(
+                    "document.body.textContent.includes('Validation contract')",
+                    what="the full technique reference",
+                )
+                await page.evaluate(
+                    "[...document.querySelectorAll('section > div')]"
+                    ".find(d => d.textContent.trim() === 'Validation contract')"
+                    ".parentElement.scrollIntoView({ block: 'start' })"
+                )
+                await page.click(button_by_text("Run Tier 0 · plan"))
+                await page.wait_for(
+                    "document.body.textContent.includes('Download evidence pack')",
+                    what="the Tier 0 result and evidence link",
+                )
+                await asyncio.sleep(0.4)
+                await page.capture(shot_name("validation"))
+                await page.evaluate("window.scrollTo(0, 0)")
 
             if "techniques" in views:
                 print("technique library")

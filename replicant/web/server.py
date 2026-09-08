@@ -60,7 +60,13 @@ from uuid import UUID
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from starlette.requests import HTTPConnection
@@ -116,6 +122,11 @@ class DocPage:
 # into the package would guarantee the two copies drift. A wheel install therefore
 # has no reference docs, and these endpoints say so rather than failing.
 DOC_PAGES: tuple[DocPage, ...] = (
+    DocPage(
+        "offline-validation",
+        "Offline detection validation",
+        "offline-detection-validation.md",
+    ),
     DocPage("run-manifest", "Run manifest contract", "run-manifest.md"),
     DocPage("fortigate-cef", "FortiGate CEF reference", "fortigate-cef-reference.md"),
     DocPage("paloalto-cef", "Palo Alto PAN-OS CEF reference", "paloalto-cef-reference.md"),
@@ -504,6 +515,15 @@ class RunAdmissionBody(BaseModel):
     admission_id: UUID | None = None
 
 
+class ValidationBody(BaseModel):
+    technique_id: str
+    tier: Literal["plan", "ingest"] = "plan"
+    intensity: Intensity = "medium"
+    seed: int | None = Field(default=None, ge=0)
+    vendor: str | None = None
+    transport: Literal["udp", "tcp"] = "udp"
+
+
 def _native_field_coverage(technique: Technique, profile: VendorProfile) -> dict[str, Any]:
     """Describe plan-wide and per-family native field coverage.
 
@@ -815,6 +835,58 @@ def create_app(
             "timezone": catalog.timezone,
             "techniques": _technique_json(catalog, orch.profile),
         }
+
+    @app.get(
+        "/api/validation/contracts/{technique_id}",
+        dependencies=[Depends(require_token)],
+    )
+    def validation_contract(technique_id: str) -> dict[str, Any]:
+        try:
+            contract = _orchestrator_for(None).validation_contract(technique_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return contract.model_dump(mode="json")
+
+    @app.post("/api/validate", dependencies=[Depends(require_token)])
+    def validate_technique(body: ValidationBody) -> dict[str, Any]:
+        try:
+            catalog.by_id(body.technique_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        orch = _orchestrator_for(body.vendor)
+        request = RunRequest(
+            technique_id=body.technique_id,
+            intensity=body.intensity,
+            seed=body.seed if body.seed is not None else settings.default_seed,
+            no_send=True,
+            controls="both",
+            anchor_epoch=settings.anchor_epoch,
+            pace="burst",
+        )
+        try:
+            result = orch.validate(
+                request,
+                tier=body.tier,
+                ingest_transport=body.transport,
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        payload = result.model_dump(mode="json")
+        payload["evidence_url"] = f"/api/evidence/{result.run_id}"
+        return payload
+
+    @app.get("/api/evidence/{run_id}", dependencies=[Depends(require_token)])
+    def download_evidence(run_id: str) -> FileResponse:
+        if Path(run_id).name != run_id or not run_id.startswith("RUN-"):
+            raise HTTPException(status_code=404, detail="evidence pack not found")
+        archive = Path(settings.manifest_dir) / "evidence" / f"{run_id}.zip"
+        if not archive.is_file():
+            raise HTTPException(status_code=404, detail="evidence pack not found")
+        return FileResponse(
+            archive,
+            media_type="application/zip",
+            filename=f"replicant-{run_id}-evidence.zip",
+        )
 
     # Sample lines, cached by what determines them.
     #

@@ -65,6 +65,14 @@ then REP-043.
    victim join or reverse the order. The records establish an observable
    progression hypothesis only; they do not establish exploit success.
 
+The subsequent offline-validation implementation completed four older catalog
+control gaps. REP-002 and REP-003 preserve the global scan distributions while
+spreading them across source/destination or source groups. REP-005 compares
+matched current traffic against each host's preceding volume buckets. REP-010
+preserves global deny fields while removing the single-source burst. REP-011
+remains explicitly unsupported because supplied country strings cannot validate
+external GeoIP or ASN enrichment or approved-travel context.
+
 REP-032 remains a REP-009 mode rather than a new catalog entry. REP-036 remains a
 scenario candidate. REP-029, REP-035 and REP-041 remain parked because current
 records cannot establish MFA prompt delivery, QUIC identity or ECH reconnaissance.

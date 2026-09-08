@@ -550,8 +550,13 @@ class ScenarioEngine:
         if unique_ports > PORT_SPAN:
             unique_ports = PORT_SPAN
             truncated = True
-        if unique_ports > self.max_events:
-            unique_ports = self.max_events
+        # Reserve half of the bounded plan for the matched sparse control. The
+        # control repeats the same global port/action/time distribution but
+        # spreads it over ordinary source/destination pairs, so the intended
+        # per-pair distinct-port axis is the only count that changes.
+        positive_cap = max(1, self.max_events // 2)
+        if unique_ports > positive_cap:
+            unique_ports = positive_cap
             truncated = True
 
         # The window is the detection surface: a vertical-scan rule counts
@@ -601,6 +606,36 @@ class ScenarioEngine:
                 )
             )
             session += 1
+        foil_start = len(events)
+        control_sources = [host for host in entities.internal_hosts if host != src][:16]
+        control_targets = [host for host in entities.internal_targets if host != dst][:16]
+        pairs = list(zip(control_sources, control_targets, strict=False))
+        if pairs:
+            for index, dpt in enumerate(ports):
+                control_src, control_dst = pairs[index % len(pairs)]
+                is_open = index in open_indices
+                service, app = port_service(dpt)
+                events.append(
+                    EventRecord(
+                        log_type=technique.fortigate.log_type,
+                        subtype=technique.fortigate.subtype,
+                        action="accept" if is_open else "deny",
+                        level="notice" if is_open else "warning",
+                        eventtime=anchor + int(index * gap_s),
+                        src=control_src,
+                        spt=int(rng.integers(1024, 65535)),
+                        dst=control_dst,
+                        dpt=dpt,
+                        proto=6,
+                        session_id=session,
+                        out_bytes=0,
+                        in_bytes=0,
+                        extra=_scan_traffic_extra(is_open, service, app),
+                    )
+                )
+                session += 1
+        self._mark_negative(events, foil_start)
+        events.sort(key=lambda event: event.eventtime)
         return events, None, truncated
 
     # -- REP-003 horizontal sweep ---------------------------------------------
@@ -625,8 +660,9 @@ class ScenarioEngine:
         if unique_hosts > len(pool):
             unique_hosts = len(pool)
             truncated = True
-        if unique_hosts > self.max_events:
-            unique_hosts = self.max_events
+        positive_cap = max(1, self.max_events // 2)
+        if unique_hosts > positive_cap:
+            unique_hosts = positive_cap
             truncated = True
 
         src = str(rng.choice(entities.internal_hosts))
@@ -663,6 +699,32 @@ class ScenarioEngine:
                 )
             )
             session += 1
+        foil_start = len(events)
+        control_sources = [host for host in entities.internal_hosts if host != src][:16]
+        if control_sources:
+            for index, dst_index in enumerate(dst_indices):
+                is_open = index in open_indices
+                events.append(
+                    EventRecord(
+                        log_type=technique.fortigate.log_type,
+                        subtype=technique.fortigate.subtype,
+                        action="accept" if is_open else "deny",
+                        level="notice" if is_open else "warning",
+                        eventtime=anchor + int(index * gap_s),
+                        src=control_sources[index % len(control_sources)],
+                        spt=int(rng.integers(1024, 65535)),
+                        dst=pool[dst_index],
+                        dpt=port,
+                        proto=6,
+                        session_id=session,
+                        out_bytes=0,
+                        in_bytes=0,
+                        extra=_scan_traffic_extra(is_open, service, app),
+                    )
+                )
+                session += 1
+        self._mark_negative(events, foil_start)
+        events.sort(key=lambda event: event.eventtime)
         return events, None, truncated
 
     # -- REP-005 outbound exfil volume anomaly --------------------------------
@@ -682,8 +744,13 @@ class ScenarioEngine:
         dpt_choices = list(technique.distributions.get("dpt_choices") or [443, 22, 21])
 
         truncated = False
-        if sessions > self.max_events:
-            sessions = self.max_events
+        # Current positive + three low-volume history windows + a matched
+        # negative current window + three high-volume negative history windows.
+        # Keeping the complete comparison is more important than consuming the
+        # whole materialization budget with the positive spike.
+        comparison_multiplier = 8
+        if sessions * comparison_multiplier > self.max_events:
+            sessions = max(1, self.max_events // comparison_multiplier)
             truncated = True
 
         src = str(rng.choice(entities.internal_hosts))
@@ -700,6 +767,15 @@ class ScenarioEngine:
         # faithful. A longer one is capped instead of honoured, because spilling
         # into the working day would destroy the property being demonstrated.
         off_window_s = min(duration_override_s, 6 * 3600) if duration_override_s else 6 * 3600
+        # The full comparison, not just the current spike, must honour
+        # --duration. Divide the bounded off-hours span into three historical
+        # buckets followed by one current bucket. This keeps the plan inside
+        # one operator-requested window while still making "relative to this
+        # host's own preceding traffic" observable without external history.
+        history_windows = 3
+        comparison_windows = history_windows + 1
+        bucket_s = off_window_s / comparison_windows
+        current_start = off_start + int(history_windows * bucket_s)
         per_session_out = total_out_bytes // max(sessions, 1)
 
         events: list[EventRecord] = []
@@ -716,7 +792,7 @@ class ScenarioEngine:
                     subtype=technique.fortigate.subtype,
                     action=technique.fortigate.action or "accept",
                     level="notice",
-                    eventtime=off_start + int(index * off_window_s / max(sessions, 1)),
+                    eventtime=current_start + int(index * bucket_s / max(sessions, 1)),
                     src=src,
                     spt=spt,
                     dst=destinations[index % len(destinations)],
@@ -737,7 +813,78 @@ class ScenarioEngine:
                 )
             )
             session_id += 1
-        return events, None, truncated
+
+        current_positive = list(events)
+        # Three preceding buckets establish that the positive host normally
+        # emits at most 500 KB per bucket. These are part of the positive stream
+        # because a per-host anomaly cannot be evaluated without history.
+        for history_index in range(history_windows):
+            history_total = int(rng.integers(100_000, 500_001))
+            history_out = max(1, history_total // max(sessions, 1))
+            for index, current in enumerate(current_positive):
+                when = off_start + int(
+                    history_index * bucket_s + index * bucket_s / max(sessions, 1)
+                )
+                history_in = max(1, history_out // 40)
+                events.append(
+                    current.model_copy(
+                        update={
+                            "eventtime": when,
+                            "session_id": session_id,
+                            "out_bytes": history_out,
+                            "in_bytes": history_in,
+                            "extra": {
+                                **current.extra,
+                                "sentpkt": str(packet_count(history_out, session_id)),
+                                "rcvdpkt": str(packet_count(history_in, session_id)),
+                            },
+                        }
+                    )
+                )
+                session_id += 1
+
+        foil_start = len(events)
+        control_hosts = [host for host in entities.internal_hosts if host != src]
+        if control_hosts:
+            control_src = str(rng.choice(control_hosts))
+            # The current negative window is byte-for-byte equivalent in its numeric
+            # traffic fields. Its different meaning comes only from the history that
+            # follows: this host has repeatedly carried the same bulk workload.
+            for current in current_positive:
+                events.append(
+                    current.model_copy(
+                        update={
+                            "control": "negative",
+                            "src": control_src,
+                            "session_id": session_id,
+                        }
+                    )
+                )
+                session_id += 1
+            for history_index in range(history_windows):
+                for current in current_positive:
+                    events.append(
+                        current.model_copy(
+                            update={
+                                "control": "negative",
+                                "src": control_src,
+                                "eventtime": off_start
+                                + int(
+                                    history_index * bucket_s + (current.eventtime - current_start)
+                                ),
+                                "session_id": session_id,
+                            }
+                        )
+                    )
+                    session_id += 1
+        self._mark_negative(events, foil_start)
+        events.sort(key=lambda event: event.eventtime)
+        note = (
+            "Three prior per-host windows establish a low-volume positive baseline and a "
+            "matched high-volume control baseline. Current-window session count, bytes, port, "
+            "destinations and off-hours timing overlap; deviation from host history is the axis."
+        )
+        return events, note, truncated
 
     # -- REP-006 destination fan-out burst ------------------------------------
 
@@ -875,8 +1022,9 @@ class ScenarioEngine:
         )
 
         truncated = False
-        if denies > self.max_events:
-            denies = self.max_events
+        positive_cap = max(1, self.max_events // 2)
+        if denies > positive_cap:
+            denies = positive_cap
             truncated = True
 
         src = str(rng.choice(entities.internal_hosts))
@@ -915,6 +1063,33 @@ class ScenarioEngine:
                 )
             )
             session_id += 1
+        foil_start = len(events)
+        control_sources = [host for host in entities.internal_hosts if host != src][:16]
+        if control_sources:
+            for index, positive in enumerate(events[:foil_start]):
+                dpt = positive.dpt or dpt_choices[0]
+                service, app = port_service(dpt)
+                events.append(
+                    EventRecord(
+                        log_type=technique.fortigate.log_type,
+                        subtype=technique.fortigate.subtype,
+                        action="deny",
+                        level="warning",
+                        eventtime=anchor + int(index * window_s / max(denies, 1)),
+                        src=control_sources[index % len(control_sources)],
+                        spt=int(rng.integers(1024, 65535)),
+                        dst=positive.dst,
+                        dpt=dpt,
+                        proto=positive.proto,
+                        session_id=session_id,
+                        out_bytes=0,
+                        in_bytes=0,
+                        extra=_scan_traffic_extra(False, service, app),
+                    )
+                )
+                session_id += 1
+        self._mark_negative(events, foil_start)
+        events.sort(key=lambda event: event.eventtime)
         return events, None, truncated
 
     # -- REP-007 brute force / password spray ---------------------------------
