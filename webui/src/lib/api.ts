@@ -356,6 +356,8 @@ export interface RunBody {
   pace?: PaceChoice | null;
   /** Compresses the plan timeline, event times included. Plan pacing only. */
   speed?: number;
+  /** REP-009 only: broad mixed signatures or one repeated signature. */
+  signature_mode?: "mixed" | "single" | null;
 }
 
 export interface RunAdmissionState {

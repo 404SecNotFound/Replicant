@@ -16,7 +16,7 @@
 The catalog described what each technique EMITS in considerable detail and never
 said what running it is meant to ESTABLISH. The web UI filled that gap with a
 template: "Emits synthetic <log type> telemetry that exercises <rule id>". That
-sentence is true of all 24 entries, so it told an operator nothing about which
+sentence is true of every catalog entry, so it told an operator nothing about which
 one to pick, which is the only question the screen exists to answer.
 
 Parametrized over the whole catalog rather than spot-checked, for the reason the

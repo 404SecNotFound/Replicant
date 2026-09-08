@@ -50,6 +50,8 @@ on:
       - "docs/checkpoint-cef-reference.md"
       - "docs/technique-catalog-expansion-research.md"
       - "docs/technique-catalog-expansion-research-round2.md"
+      - "docs/technique-catalog-expansion-research-round5.md"
+      - "docs/catalog-research-review-2026-09-08.md"
   pull_request:
     paths:
       - "**"
@@ -66,6 +68,8 @@ on:
       - "docs/checkpoint-cef-reference.md"
       - "docs/technique-catalog-expansion-research.md"
       - "docs/technique-catalog-expansion-research-round2.md"
+      - "docs/technique-catalog-expansion-research-round5.md"
+      - "docs/catalog-research-review-2026-09-08.md"
   workflow_dispatch:
 
 # A second push to the same branch cancels the first: these jobs spend real

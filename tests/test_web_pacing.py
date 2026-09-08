@@ -59,15 +59,33 @@ def test_the_preview_needs_a_token(client: TestClient) -> None:
     assert client.post("/api/plan", json={"technique_id": "REP-001"}).status_code == 401
 
 
+def test_rep009_signature_mode_is_exposed_without_becoming_an_inert_global_option(
+    client: TestClient,
+) -> None:
+    accepted = client.post(
+        "/api/plan",
+        json={"technique_id": "REP-009", "signature_mode": "single"},
+        headers=HEADERS,
+    )
+    refused = client.post(
+        "/api/plan",
+        json={"technique_id": "REP-001", "signature_mode": "single"},
+        headers=HEADERS,
+    )
+
+    assert accepted.status_code == 200
+    assert refused.status_code == 422
+
+
 def test_the_preview_reports_the_plan_s_own_span(client: TestClient) -> None:
-    """49 events across 238 minutes. Both figures are shown in the form, because
-    the count alone does not tell an operator that the run takes four hours."""
+    """98 callback/control events across 240 minutes. Both figures are shown in
+    the form because the count alone does not say the run takes four hours."""
 
     body = _plan(client, pace="plan")
 
-    assert body["event_count"] == 49
-    assert body["plan_span_s"] == 14_280
-    assert body["projected_s"] == pytest.approx(14_280, abs=1)
+    assert body["event_count"] == 98
+    assert body["plan_span_s"] == 14_400
+    assert body["projected_s"] == pytest.approx(14_400, abs=1)
 
 
 def test_the_preview_prices_burst_and_plan_differently(client: TestClient) -> None:

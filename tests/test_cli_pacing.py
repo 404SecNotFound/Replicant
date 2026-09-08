@@ -69,7 +69,7 @@ class _Recorder:
 
 
 def test_the_projection_is_the_plan_s_own_span(tmp_path: Path) -> None:
-    """REP-001 low is 49 events across 238 minutes. Plan paced, it takes 238
+    """REP-001 low is 49 callbacks plus 49 controls across 240 minutes. Plan paced, it takes 240
     minutes, and an operator is entitled to know that before committing."""
 
     orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
@@ -78,9 +78,9 @@ def test_the_projection_is_the_plan_s_own_span(tmp_path: Path) -> None:
         RunRequest(technique_id="REP-001", intensity="low", pace="plan"), sending=True
     )
 
-    assert preview.event_count == 49
-    assert preview.plan_span_s == 14_280
-    assert preview.projected_s == pytest.approx(14_280, abs=1)
+    assert preview.event_count == 98
+    assert preview.plan_span_s == 14_400
+    assert preview.projected_s == pytest.approx(14_400, abs=1)
 
 
 def test_speed_shortens_the_projection_proportionally(tmp_path: Path) -> None:
@@ -91,11 +91,11 @@ def test_speed_shortens_the_projection_proportionally(tmp_path: Path) -> None:
         sending=True,
     )
 
-    assert preview.projected_s == pytest.approx(238, abs=2)
+    assert preview.projected_s == pytest.approx(240, abs=2)
 
 
 def test_burst_is_projected_at_the_rate_cap_not_the_plan(tmp_path: Path) -> None:
-    """The same 238 minute plan, sent as a burst, is over in a fraction of a
+    """The same 240 minute plan, sent as a burst, is over in a fraction of a
     second. The contrast is the whole reason the control exists."""
 
     orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
@@ -105,8 +105,8 @@ def test_burst_is_projected_at_the_rate_cap_not_the_plan(tmp_path: Path) -> None
         sending=True,
     )
 
-    assert preview.plan_span_s == 14_280
-    assert preview.projected_s == pytest.approx(48 * 0.005, abs=0.01)
+    assert preview.plan_span_s == 14_400
+    assert preview.projected_s == pytest.approx(98 * 0.005, abs=0.01)
 
 
 def test_rate_override_cannot_raise_the_configured_ceiling(
@@ -168,6 +168,36 @@ def test_the_pace_is_left_unset_when_not_asked_for(
     main(["run", "REP-001", "--to-file", str(tmp_path / "o.log"), "--no-send"])
 
     assert _Recorder.seen[-1].pace is None
+
+
+def test_rep009_signature_mode_reaches_the_shared_request(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("replicant.cli.app.Orchestrator", _Recorder)
+
+    rc = main(
+        [
+            "run",
+            "REP-009",
+            "--signature-mode",
+            "single",
+            "--to-file",
+            str(tmp_path / "o.log"),
+            "--no-send",
+        ]
+    )
+
+    assert rc == 0
+    assert _Recorder.seen[-1].param_overrides == {"signature_mode": "single"}
+
+
+def test_signature_mode_is_refused_on_other_techniques(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc = main(["run", "REP-001", "--signature-mode", "single", "--no-send"])
+
+    assert rc == 1
+    assert "applies only to rep-009" in capsys.readouterr().err.lower()
 
 
 def test_malformed_duration_is_refused_cleanly_not_with_a_traceback(

@@ -58,7 +58,7 @@ describe("renderMarkdown", () => {
   });
 
   it("still renders the markdown the CEF references are made of", () => {
-    // The five served documents are headings, tables and fenced code. If the fix
+    // The served documents are headings, tables and fenced code. If the fix
     // broke those it would have traded one defect for a worse one.
     const html = renderMarkdown("# Title\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n```\nCEF:0|x|y\n```\n");
 

@@ -136,8 +136,9 @@ def test_the_card_window_reflects_speed_compression(tmp_path: Path) -> None:
     result = orch.run(req)
     text = result.card_path.read_text(encoding="utf-8")  # type: ignore[union-attr]
 
-    compressed_last = _fmt(max(e.eventtime for e in compress_timeline(plan.events, 60.0)))
-    raw_last = _fmt(max(e.eventtime for e in plan.events))
+    positive = [event for event in plan.events if event.control == "positive"]
+    compressed_last = _fmt(max(e.eventtime for e in compress_timeline(positive, 60.0)))
+    raw_last = _fmt(max(e.eventtime for e in positive))
     assert compressed_last != raw_last, "60x did not compress the window; pick a wider technique"
     assert compressed_last in text  # the card follows the compressed wire
     assert raw_last not in text  # not the uncompressed plan

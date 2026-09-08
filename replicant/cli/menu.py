@@ -255,6 +255,13 @@ def _params_flow(
     to_file = None
     pace: Pace | None = None
     speed = 1.0
+    param_overrides: dict[str, str] = {}
+    if technique_id == "REP-009":
+        param_overrides["signature_mode"] = Prompt.ask(
+            "  IPS signatures",
+            choices=["mixed", "single"],
+            default="mixed",
+        )
     if dry_run:
         to_file = Prompt.ask("  Output file", default="./out/replicant.log")
     else:
@@ -283,6 +290,7 @@ def _params_flow(
         to_file=to_file,
         no_send=dry_run,
         collector=None if dry_run else collector,
+        param_overrides=param_overrides,
         pace=pace,
         speed=speed,
     )

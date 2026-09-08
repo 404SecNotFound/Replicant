@@ -133,6 +133,7 @@ export function RunPanel({
 }: Props) {
   const bootstrapOwner = initialActiveRun?.run_id ? initialActiveRun : null;
   const [intensity, setIntensity] = useState("medium");
+  const [signatureMode, setSignatureMode] = useState<"mixed" | "single">("mixed");
   const [duration, setDuration] = useState("");
   const [seed, setSeed] = useState(String(defaultSeed));
   // null means the operator has not decided, which follows the collector: one
@@ -554,6 +555,7 @@ export function RunPanel({
       rate: requestedRate,
       pace,
       speed: effectiveSpeed,
+      signature_mode: technique.id === "REP-009" ? signatureMode : null,
     };
   }
 
@@ -1332,6 +1334,21 @@ export function RunPanel({
               </div>
             </div>
             <p className="mt-2 text-label text-muted-foreground">Duration sets the event-time span. Pacing controls how long the run takes.</p>
+            {technique.id === "REP-009" && (
+              <div className="mt-3 max-w-xs">
+                <label className="u-label mb-2 block">IPS signatures</label>
+                <Select
+                  value={signatureMode}
+                  onValueChange={(value) => setSignatureMode(value as "mixed" | "single")}
+                >
+                  <SelectTrigger aria-label="IPS signature mode"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mixed">Mixed signatures</SelectItem>
+                    <SelectItem value="single">One repeated signature</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <details className="mt-3 rounded-btn border bg-well p-3">
               <summary className="text-label text-muted-foreground">{intensity.charAt(0).toUpperCase() + intensity.slice(1)} preset parameters</summary>
               <dl className="mt-3 grid grid-cols-2 gap-3 text-label">

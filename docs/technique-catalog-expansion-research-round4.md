@@ -1,5 +1,10 @@
 # Technique catalog expansion research, round 4
 
+> **Superseded implementation guidance:** the
+> [2026-09-08 all-round review](catalog-research-review-2026-09-08.md) corrects
+> the tactic counts, source claims and field contracts below. REP-043 has since
+> shipped with the corrected design; the other identifiers remain proposals.
+
 Status: **proposal.** Nothing here is implemented. Companion to
 `technique-catalog-expansion-research.md` (round 1, REP-012..REP-020,
 implemented in v0.2.0), `technique-catalog-expansion-research-round2.md`
@@ -179,9 +184,10 @@ outbound dialog from that same host. That three-part correlation is exactly
 the dialog model of BotHunter (Gu, Porras, Yegneswaran, Fong, Lee, USENIX
 Security 2007), whose E1-to-E5 state machine runs over IDS alerts and
 connection dialogs, substantially the same telemetry a FortiGate emits as
-`utm:ips` and `traffic:forward`. BotHunter was evaluated against roughly
-9,000 live infections over 90 days, which is the deployment evidence round 2
-asked for.
+`utm:ips` and `traffic:forward`. The primary paper reports 2,019 successful
+infections over three weeks and 1,920 detections (95.1 percent). A separate
+false-alarm deployment ran for four months. The previously stated figure of
+roughly 9,000 infections over 90 days was unsupported and is withdrawn.
 
 This is the strongest cross-log-type test the catalog can offer an operator's
 correlation content, because the join key (the internal host) changes role
@@ -194,13 +200,13 @@ between the second and third legs: destination inbound, source outbound.
     ndr_uc: "UC-025"
     attack:
       tactics: ["TA0001 Initial Access", "TA0011 Command and Control"]
-      techniques: ["T1190", "T1071", "T1105"]
+      techniques: ["T1190", "T1071"]
     fortigate:
       log_type: "utm"            # emits traffic:forward legs too
       subtype: "ips"
       signature_id: "16384"
       action: "reset"
-    cef_fields_held: ["dst"]       # the internal host the chain is about
+    cef_fields_held: []             # victim changes role: dst inbound, src outbound
     cef_fields_varied: ["src", "FTNTFGTattack", "FTNTFGTattackid", "act", "rt", "out", "in", "externalId"]
     params:
       low:    { chains: 1, alert_hits: [2, 4], inbound_sessions: [1, 3], outbound_sessions: [2, 6],  window_min: 120, noise_alerts: 30 }

@@ -15,7 +15,7 @@
 // The detail panel has to say what a technique is FOR.
 //
 // It opened with "Emits synthetic <log type> telemetry that exercises <rule>",
-// a sentence that is true of all 24 catalog entries. It reads as specific and
+// a sentence that is true of every catalog entry. It reads as specific and
 // carries no information that distinguishes one entry from another, which is
 // the only question this screen exists to answer.
 

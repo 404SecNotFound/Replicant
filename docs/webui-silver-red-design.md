@@ -34,7 +34,7 @@ values. Both remain self-hosted with their existing OFL licenses.
   Documentation, the server-permitted Terminal, and Collector.
 - Run workspace has three numbered sections: Technique, Run settings, and Output.
   The run button names the actual destination and remains near the page title.
-- The selected technique is compact. The full, filterable 24-entry catalog is on
+- The selected technique is compact. The full, filterable 26-entry catalog is on
   its own page. Selecting an entry returns to the draft.
 - Vendor and intensity choices show a red outline and a checkmark. Intensity
   parameters come from the actual catalog. Duration is an event-time span;

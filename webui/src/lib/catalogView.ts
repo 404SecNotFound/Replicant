@@ -71,7 +71,7 @@ function rank(tactic: string): number {
 /**
  * Group techniques by ATT&CK tactic, in kill-chain order.
  *
- * A technique mapped to several tactics appears under each of them: at 24 entries
+ * A technique mapped to several tactics appears under each of them: at 26 entries
  * the rail is for finding a technique, and hiding an exfiltration technique from
  * the Exfiltration group because it is also C2 would defeat that.
  */

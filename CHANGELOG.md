@@ -8,9 +8,19 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ### Added
 
+- **Two research-backed catalog exercises.** REP-030 emits distributed,
+  low-and-slow VPN failures with a self-correcting authentication control.
+  REP-043 correlates an IPS alert and inbound session with later victim egress,
+  alongside broken-join and reversed-order controls. The catalog now contains
+  26 runnable techniques.
+- **Measured controls for REP-001, REP-004 and REP-009.** Beacon timing, DNS
+  cardinality and IPS event rate now have addressable negative streams. DNS
+  query names progress through setup, idle and transfer phases. REP-009 exposes
+  mixed or single-signature runs through the CLI, Rich menu and web UI.
+
 - **Executable catalog signal-contract coverage.** Every technique's held and
   varied fields are now checked against its rendered positive events at all
-  three intensities. The dated catalog review records the disposition of all 24
+  three intensities. The dated catalog review records the disposition of all 26
   techniques and all three curated scenarios, including remaining foil and
   live-validation gaps.
 - **Scenario definitions now fail early on malformed setup.** Empty stage lists,

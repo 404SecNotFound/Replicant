@@ -2,9 +2,10 @@
 # Project: Replicant (github.com/404SecNotFound/Replicant)
 # Author: RZA
 # Timezone for all timestamps produced at runtime: UTC+04:00 (Dubai)
-# Status: 24 techniques. REP-001..011 are the original catalog; REP-012..024
+# Status: 26 techniques. REP-001..011 are the original catalog; REP-012..024
 # were added in v0.2.0 and are each anchored to a peer-reviewed detection paper
-# with measured results (see docs/technique-catalog-expansion-research*.md).
+# with measured results. REP-030 and REP-043 follow the 2026-09-08 all-round
+# research review (see docs/catalog-research-review-2026-09-08.md).
 #
 # PURPOSE
 # This file is the single source of truth for the interactive TTP menu and the
@@ -57,15 +58,15 @@
 #
 # EXPANSION (roadmap 2026-09 item 16)
 # The next technique is gated on the tactic-gap tally, not on which paper had
-# measured results. This catalog is heavily weighted to Command and Control (12 of
-# 24 techniques carry TA0011, several of them beacon/callback variants) while
+# measured results. This catalog is heavily weighted to Command and Control (13 of
+# 26 techniques carry TA0011, several of them beacon/callback variants) while
 # network-visible Impact (1), Credential Access (1) and Defense Evasion (1) sit
 # near zero. A ninth beacon variant has near-zero marginal coverage value; weight
 # a new entry by the tactic it fills, and record its prevalence basis. A recorded
 # rule, downstream of the coverage scorecard deferred until F2 produces real
 # numbers; it commits no slot today.
 
-version: 0.2.0
+version: 0.3.0
 vendor_profile: fortigate
 timezone: "UTC+04:00"
 default_entities_ref: entities.default   # defined in the entity model, not here
@@ -97,7 +98,8 @@ techniques:
       in_bytes:  "usually >= out, still small (tasking)"
       interval:  "fixed base +/- jitter_pct, no business-hours weighting"
       dpt_choices: [443, 8443, 8080, 53]
-    benign_baseline: "browsing to same dst shows fewer records, far higher out/in and duration"
+    benign_baseline: "a second destination receives the same count, port and byte envelope over the same window with irregular timing, so interval regularity is the intended discriminator"
+    emits_foil: true
     references: ["UC-001 Detection Logic", "fortigate-cef-reference: traffic:forward accept"]
     safety_notes: "dst drawn from synthetic-adversary external pool (203.0.113.0/24)"
 
@@ -174,13 +176,14 @@ techniques:
     cef_fields_varied: ["FTNTFGTqname", "FTNTFGTqtype", "rt", "FTNTFGTxid"]
     params:
       low:    { qps: 20,  duration_min: 30, label_len: [30, 45], unique_labels: 300 }
-      medium: { qps: 60,  duration_min: 30, label_len: [40, 55], unique_labels: 1200 }
-      high:   { qps: 200, duration_min: 15, label_len: [50, 63], unique_labels: 5000 }
+      medium: { qps: 60,  duration_min: 25, label_len: [40, 55], unique_labels: 1200 }
+      high:   { qps: 200, duration_min: 8,  label_len: [50, 63], unique_labels: 5000 }
     distributions:
       qname: "high-entropy labels (>3.5 bits/char) under one or few parent domains"
       qtype: "weighted toward TXT, NULL, CNAME"
       parent_domain: "synthetic, from docs range (example.net) or a *.invalid parent"
-    benign_baseline: "normal resolvers show low unique-label cardinality per parent per hour"
+    benign_baseline: "a same-volume synthetic service-discovery and cache-key stream uses the same qtype sequence, label-length range and high-entropy tails but lower unique-label cardinality"
+    emits_foil: true
     references: ["UC-003 MPE prereqs", "fortigate-cef-reference: dns:dns-query"]
     safety_notes: "qname parents stay under IANA documentation domains or .invalid; Replicant performs no DNS lookup or connection and never uses real C2"
 
@@ -312,13 +315,14 @@ techniques:
     cef_fields_held: ["dst"]
     cef_fields_varied: ["src", "FTNTFGTattack", "FTNTFGTattackid", "rt", "cnt"]
     params:
-      low:    { hits: 20,   window_min: 5 }
-      medium: { hits: 200,  window_min: 3 }
-      high:   { hits: 1000, window_min: 1 }
+      low:    { hits: 20,   window_min: 5, signature_mode: mixed, baseline_window_min: 60 }
+      medium: { hits: 200,  window_min: 3, signature_mode: mixed, baseline_window_min: 60 }
+      high:   { hits: 1000, window_min: 1, signature_mode: mixed, baseline_window_min: 60 }
     distributions:
-      attackid: "one repeated signature (targeted) or many distinct (broad recon), selectable"
+      attackid: "one repeated signature (targeted) or many distinct (broad recon), selectable with --signature-mode"
       severity: "high or critical (CEF 6-7)"
-    benign_baseline: "IPS hit rate is low and steady per segment"
+    benign_baseline: "the same hits, signatures, severities and counters are emitted against a second target over a 60-minute window, so event rate is the intended discriminator"
+    emits_foil: true
     references: ["UC-008 Signature ID prereq", "fortigate-cef-reference: utm:ips"]
     safety_notes: "attack names are labels only; no exploit is generated"
 
@@ -503,7 +507,7 @@ techniques:
       qname: "shorter, lower-entropy labels than REP-004, consistent with encoded record fields rather than a file transfer"
       qtype: "weighted to A and AAAA rather than TXT, because the query itself is the channel"
       parent_domain: "one synthetic parent, stable for the whole run"
-    benign_baseline: "a benign parent with a comparable total query count but low unique-label cardinality, so query rate alone cannot separate them"
+    benign_baseline: "a benign parent has the same query count, qtype sequence, label-length envelope and machine-generated high-entropy tails but lower unique-label cardinality"
     emits_foil: true
     references: ["Nadler, Aminov, Shabtai, Computers & Security 80 (2019) 36-53"]
     safety_notes: "parents stay under IANA documentation domains or .invalid; Replicant performs no DNS lookup or connection. Runs are long (up to 72h of simulated time); the duration is stated in the run summary"
@@ -786,6 +790,73 @@ techniques:
       Disclosed limit: eventtime is integer epoch seconds (a documented invariant), so relay lag below one second is not expressible in the parsed event time a correlation rule reads. Correlation at one-second or coarser resolution, and the byte-volume correlation, transfer and cover virtually all firewall/SIEM timing windows; a detector keyed on sub-second inbound-to-outbound deltas will not see the intended signal.
     references: ["Beyond RTT: An Adversarially Robust Two-Tiered Approach for Residential Proxy Detection, NDSS"]
     safety_notes: "Replicant relays nothing. Both halves of every pair are fabricated records. The only socket opened is to the operator's collector"
+
+  - id: REP-030
+    name: "Distributed low-and-slow password spray"
+    ndr_rule: "NDR-ATO-024"
+    ndr_uc: "UC-024"
+    objective: >-
+      Prove a credential-attack rule can aggregate sparse VPN failures across many sources and users when neither a per-source nor per-user threshold is exceeded.
+    attack:
+      tactics: ["TA0006 Credential Access"]
+      techniques: ["T1110.003"]
+    fortigate:
+      log_type: "event"
+      subtype: "vpn"
+      signature_id: "39426"
+      action: "ssl-login-fail"
+    cef_fields_held: []
+    cef_fields_varied: ["src", "duser", "rt", "FTNTFGTreason"]
+    params:
+      low:    { failures: 60,   sources: 12,  users: 60,   window_min: 360 }
+      medium: { failures: 300,  sources: 60,  users: 300,  window_min: 180 }
+      high:   { failures: 1000, sources: 200, users: 1000, window_min: 120 }
+    distributions:
+      failures: "one failed VPN login per synthetic user, distributed evenly across many documentation-range sources; five failures per source in shipped presets"
+      timing: "evenly sparse across a multi-hour window so per-source burst thresholds remain quiet"
+      aggregation: "the detection surface is the portal-wide source-user failure graph and failure ratio"
+    benign_baseline: "the same number of failed source-user edges from a second source and user population, with every failure followed by a successful self-correction"
+    emits_foil: true
+    transferability_note: "The Araña source study uses web authentication logs. Replicant transfers the distributed source-user failure shape to verified event:vpn fields; it does not reproduce the study's service-specific features or claimed detector results."
+    references:
+      - "Araña: Discovering and Characterizing Password Guessing Attacks in Practice, USENIX Security 2023"
+      - "MITRE ATT&CK DET0487 Password Spraying Detection Strategy"
+      - "fortigate-cef-reference: event:vpn ssl-login-fail"
+    safety_notes: "all usernames are synthetic and every source is in an IANA documentation range; Replicant performs no authentication attempt"
+
+  - id: REP-043
+    name: "Inbound alert to egress callback dialog correlation"
+    ndr_rule: "NDR-CORR-025"
+    ndr_uc: "UC-025"
+    objective: >-
+      Prove a correlation rule joins an inbound IPS alert and allowed session to later egress from the same victim, while rejecting broken joins and reversed order.
+    attack:
+      tactics: ["TA0001 Initial Access", "TA0011 Command and Control"]
+      techniques: ["T1190", "T1071"]
+    fortigate:
+      log_type: "utm"
+      subtype: "ips"
+      signature_id: "16384"
+      action: "reset"
+    additional_log_families:
+      - { log_type: "traffic", subtype: "forward" }
+    cef_fields_held: []
+    cef_fields_varied: ["src", "dst", "FTNTFGTattack", "FTNTFGTattackid", "act", "rt", "out", "in", "externalId"]
+    params:
+      low:    { chains: 1, alert_hits: [2, 4],  inbound_sessions: [1, 3], outbound_sessions: [2, 6],  window_min: 120, noise_alerts: 12 }
+      medium: { chains: 2, alert_hits: [3, 8],  inbound_sessions: [2, 5], outbound_sessions: [4, 12], window_min: 90,  noise_alerts: 60 }
+      high:   { chains: 3, alert_hits: [4, 12], inbound_sessions: [3, 8], outbound_sessions: [6, 20], window_min: 60,  noise_alerts: 180 }
+    distributions:
+      chain: "IPS alert destination equals accepted inbound destination and later outbound source; role-aware equality and temporal order are the signal"
+      noise: "blocked alert with no continuation, unrelated egress, reversed-order dialog and unrelated alerts"
+      timing: "alert in the first phase, accepted inbound traffic in the second and outbound callback traffic in the third"
+    benign_baseline: "negative controls contain the same event families but break the victim join, omit continuation, or reverse the event order"
+    emits_foil: true
+    transferability_note: "An IPS alert followed by traffic establishes an observable progression hypothesis only. It does not prove exploit execution, compromise, tool transfer or detection validation."
+    references:
+      - "BotHunter: Detecting Malware Infection Through IDS-Driven Dialog Correlation, USENIX Security 2007"
+      - "fortigate-cef-reference: utm:ips and traffic:forward"
+    safety_notes: "attack names and identifiers are labels only; all addresses are synthetic and no exploit, callback or connection is executed"
 
 # NOTES
 # 1. Signature IDs marked [Unverified] must be confirmed against a live FortiOS

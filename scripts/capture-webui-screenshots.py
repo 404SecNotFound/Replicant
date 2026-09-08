@@ -270,7 +270,8 @@ async def capture_all(url: str, views: set[str]) -> None:
                 await page.click(button_by_text("Techniques"))
                 # The shot needs a plan big enough to fill the waveform and the
                 # progress bar. REP-001's default is 243 events and is over in well
-                # under a second; REP-004's is 108000. Filter the library to find it.
+                # under a second; REP-004's medium preset is 90000 positive plus
+                # 90000 control events. Filter the library to find it.
                 #
                 # React tracks the input's value on the DOM node, so assigning .value
                 # directly is silently reverted on the next render. Going through the
@@ -299,7 +300,7 @@ async def capture_all(url: str, views: set[str]) -> None:
                 await page.click(button_by_text("Run without sending"))
                 # Capture the settled frame: the full waveform, the final counts,
                 # and the manifest panel. A fixed sleep raced the server here --
-                # REP-004's 108000-event plan can still be building seconds after
+                # REP-004's 180000-event plan can still be building seconds after
                 # the click, and one capture shipped showing 0 events emitted
                 # beside EMITTING. The manifest line only exists once the run is
                 # actually done, so waiting for it cannot capture early.
