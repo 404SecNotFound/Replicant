@@ -13,7 +13,8 @@
 # limitations under the License.
 """Headless CLI entry point.
 
-Verbs: ``list``, ``connect``, ``run``, ``scenario``, ``web``, ``menu``. Every verb
+Verbs: ``list``, ``connect``, ``run``, ``validate``, ``replay``, ``scenario``,
+``web``, ``menu``. Every verb
 calls the Orchestrator, so the CLI and the Rich menu share one code path
 (blueprint s7). Uses stdlib argparse to keep the dependency set small.
 
@@ -274,6 +275,27 @@ def build_parser() -> argparse.ArgumentParser:
         choices=list(VENDORS),
         help="vendor profile (default from settings)",
     )
+
+    validate = sub.add_parser("validate", help="evaluate a technique contract")
+    validate.add_argument(
+        "target",
+        nargs="?",
+        help="technique id, or 'show' followed by a technique id",
+    )
+    validate.add_argument("show_id", nargs="?", help=argparse.SUPPRESS)
+    validate.add_argument("--tier", default="plan", help="plan or ingest")
+    validate.add_argument("--intensity", default="medium", help="low, medium, or high")
+    validate.add_argument("--seed", type=int, help="RNG seed (default from settings)")
+    validate.add_argument(
+        "--transport",
+        default="udp",
+        help="local Tier 1 receiver transport: udp or tcp",
+    )
+    validate.add_argument("--evidence-dir", metavar="PATH", help="evidence output root")
+    validate.add_argument("--vendor", choices=list(VENDORS), help="vendor profile")
+
+    replay = sub.add_parser("replay", help="reproduce a plan from evidence/replay.json")
+    replay.add_argument("path", help="evidence directory or replay.json")
 
     scenario = sub.add_parser("scenario", help="compose and run a multi-stage scenario")
     scen_actions = scenario.add_subparsers(dest="action")
@@ -617,6 +639,102 @@ def cmd_scenario(
     return 0
 
 
+def cmd_validate(
+    args: argparse.Namespace, catalog: Catalog, settings: Settings, console: Console
+) -> int:
+    """Show or execute a validation contract using stable four-way exit semantics."""
+
+    import yaml
+
+    from replicant.validation.verdict import exit_code
+
+    if not args.target:
+        _fail("[red]validation usage error[/red]: provide REP-NNN or 'show REP-NNN'")
+        return 3
+    technique_id = args.show_id if args.target == "show" else args.target
+    if args.target == "show" and not technique_id:
+        _fail("[red]validation usage error[/red]: 'validate show' requires REP-NNN")
+        return 3
+    if args.target != "show" and args.show_id is not None:
+        _fail("[red]validation usage error[/red]: unexpected second technique id")
+        return 3
+    assert technique_id is not None
+    try:
+        orchestrator = Orchestrator(catalog, settings)
+        contract = orchestrator.validation_contract(technique_id)
+    except (KeyError, ValueError, OSError) as exc:
+        _fail(f"[red]validation configuration error[/red]: {exc}")
+        return 3
+    if args.target == "show":
+        console.print(yaml.safe_dump(contract.model_dump(mode="json"), sort_keys=False))
+        return 0
+    if args.tier not in {"plan", "ingest"}:
+        _fail("[red]validation usage error[/red]: --tier must be plan or ingest")
+        return 3
+    if args.intensity not in {"low", "medium", "high"}:
+        _fail("[red]validation usage error[/red]: --intensity must be low, medium, or high")
+        return 3
+    if args.transport not in {"udp", "tcp"}:
+        _fail("[red]validation usage error[/red]: --transport must be udp or tcp")
+        return 3
+    try:
+        request = RunRequest(
+            technique_id=technique_id,
+            intensity=args.intensity,
+            seed=args.seed if args.seed is not None else settings.default_seed,
+            no_send=True,
+            controls="both",
+            anchor_epoch=settings.anchor_epoch,
+            pace="burst",
+        )
+        result = orchestrator.validate(
+            request,
+            tier=args.tier,
+            ingest_transport=args.transport,
+            evidence_root=args.evidence_dir,
+        )
+    except (KeyError, ValueError, ValidationError, RuntimeError, OSError) as exc:
+        _fail(f"[red]validation configuration error[/red]: {exc}")
+        return 3
+
+    color = "green" if result.verdict.value == "pass" else "yellow"
+    console.print(
+        f"[{color}]{result.verdict.value.upper()}[/{color}]  {result.technique_id}  "
+        f"tier={result.tier}  observed={result.observed_events}/{result.expected_events}"
+    )
+    for dimension, status in result.dimensions.items():
+        console.print(f"  {dimension:<18} {status.upper()}")
+    console.print(f"proves: {result.proves}")
+    console.print(f"does not prove: {result.does_not_prove}")
+    if result.evidence_path:
+        console.print(f"evidence: {result.evidence_path}")
+    return exit_code(result)
+
+
+def cmd_replay(
+    args: argparse.Namespace, catalog: Catalog, settings: Settings, console: Console
+) -> int:
+    from replicant.evidence.replay import replay_evidence
+
+    try:
+        result = replay_evidence(args.path, catalog, settings)
+    except (KeyError, ValueError, OSError) as exc:
+        _fail(f"[red]replay configuration error[/red]: {exc}")
+        return 3
+    if result.warning:
+        console.print(f"[yellow]warning[/yellow]: {result.warning}")
+    status = "PASS" if result.matches else "FAIL"
+    color = "green" if result.matches else "red"
+    console.print(
+        f"[{color}]{status}[/{color}]  {result.technique_id}  "
+        f"events={result.observed_events}/{result.expected_events}"
+    )
+    console.print(f"expected sha256: {result.expected_sha256}")
+    console.print(f"observed sha256: {result.observed_sha256}")
+    console.print(f"effective parameters: {'MATCH' if result.parameters_match else 'MISMATCH'}")
+    return 0 if result.matches else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -637,6 +755,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_run(args, catalog, settings, console)
     if command == "scenario":
         return cmd_scenario(args, catalog, settings, console)
+    if command == "validate":
+        return cmd_validate(args, catalog, settings, console)
+    if command == "replay":
+        return cmd_replay(args, catalog, settings, console)
     if command == "menu":
         from replicant.cli.menu import run_menu
 

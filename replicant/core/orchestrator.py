@@ -32,7 +32,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from replicant import __version__
 from replicant.audit.manifest import (
@@ -82,6 +82,10 @@ from replicant.scenario.composer import ComposedPlan, compose
 from replicant.scenario.engine import ScenarioEngine, ScenarioPlan
 from replicant.transport.filesink import FileSink
 from replicant.transport.syslog import SyslogEmitter
+
+if TYPE_CHECKING:
+    from replicant.validation.contract import ValidationContract
+    from replicant.validation.verdict import ValidationResult
 
 _log = get_logger("run")
 
@@ -583,6 +587,155 @@ class Orchestrator:
             keep = "negative" if request.controls == "negative" else "positive"
             plan.events = [event for event in plan.events if event.control == keep]
         return plan
+
+    def validation_contract(self, technique_id: str) -> ValidationContract:
+        """Resolve one packaged contract through the shared application boundary."""
+
+        from replicant.validation.contract import load_contracts
+
+        self.catalog.by_id(technique_id)
+        return load_contracts(self.catalog).by_id(technique_id)
+
+    def validate(
+        self,
+        request: RunRequest,
+        *,
+        tier: str = "plan",
+        ingest_transport: str = "udp",
+        evidence_root: str | Path | None = None,
+        _drop_last_observed: bool = False,
+    ) -> ValidationResult:
+        """Run Tier 0 or Tier 1 validation through the shared orchestration path.
+
+        The evaluator itself is pure. This method owns the surrounding run,
+        transport, observation, manifest, and evidence I/O so CLI and web callers
+        cannot acquire subtly different validation semantics.
+        """
+
+        from tempfile import TemporaryDirectory
+
+        from replicant.evidence.pack import write_evidence_pack
+        from replicant.validation.evaluator import evaluate_ingest, evaluate_plan
+        from replicant.validation.receiver import LocalSyslogReceiver
+        from replicant.validation.sources.file import FileLogSource
+
+        if tier not in {"plan", "ingest"}:
+            raise ValueError(f"unsupported validation tier: {tier!r}")
+        if ingest_transport not in {"udp", "tcp"}:
+            raise ValueError("ingest validation supports udp or tcp")
+        technique = self.catalog.by_id(request.technique_id)
+        contract = self.validation_contract(request.technique_id)
+        run_id = new_run_id()
+        captured_lines: list[str] = []
+        captured_events: list[EventRecord] = []
+
+        def capture(line: str, event: EventRecord) -> None:
+            captured_lines.append(line)
+            captured_events.append(event)
+
+        base_updates: dict[str, Any] = {
+            "controls": "both",
+            "to_file": None,
+            "pace": "burst",
+            "speed": 1.0,
+        }
+        if tier == "plan":
+            validation_request = request.model_copy(
+                update={**base_updates, "no_send": True, "collector": None}
+            )
+            run_result = self.run(validation_request, on_event=capture, run_id=run_id)
+            validation = evaluate_plan(
+                contract,
+                run_result.plan,
+                seed=validation_request.seed,
+                run_id=run_id,
+            )
+            observed_events = captured_events
+            observed_lines = captured_lines
+        else:
+            transport = ingest_transport
+            with TemporaryDirectory(prefix="replicant-ingest-") as temporary:
+                capture_path = Path(temporary) / "receiver.log"
+                with LocalSyslogReceiver(capture_path, transport=transport) as receiver:  # type: ignore[arg-type]
+                    collector = CollectorProfile(
+                        name="validation-loopback",
+                        host="127.0.0.1",
+                        port=receiver.port,
+                        transport=transport,
+                    )
+                    validation_request = request.model_copy(
+                        update={
+                            **base_updates,
+                            "no_send": False,
+                            "collector": collector,
+                        }
+                    )
+                    marked_settings = self.settings.model_copy(
+                        update={"benign_marker": True, "no_marker": False}
+                    )
+                    validation_orchestrator = Orchestrator(
+                        self.catalog,
+                        marked_settings,
+                        profile=self.profile,
+                        entities=self.entities,
+                        engine=self.engine,
+                    )
+                    run_result = validation_orchestrator.run(
+                        validation_request,
+                        on_event=capture,
+                        run_id=run_id,
+                    )
+                    receiver.wait_for_count(run_result.event_count)
+                if _drop_last_observed:
+                    lines = capture_path.read_text(encoding="utf-8").splitlines()
+                    capture_path.write_text(
+                        "\n".join(lines[:-1]) + ("\n" if len(lines) > 1 else ""),
+                        encoding="utf-8",
+                    )
+                times = [event.eventtime for event in run_result.plan.events]
+                window = (
+                    (min(times), max(times))
+                    if times
+                    else (run_result.plan.anchor_epoch, run_result.plan.anchor_epoch)
+                )
+                observation = FileLogSource(capture_path).fetch(run_id, window)
+            plan_validation = evaluate_plan(
+                contract,
+                run_result.plan,
+                seed=validation_request.seed,
+                run_id=run_id,
+            )
+            required_fields: set[str] = {"flexString1", "flexString1Label"}
+            for field in contract.signal_fields.held + contract.signal_fields.varied:
+                for log_type, subtype in technique.logical_families():
+                    native = self.profile.detection_field_name(
+                        field,
+                        log_type=log_type,
+                        subtype=subtype,
+                    )
+                    if native is not None:
+                        required_fields.add(native)
+            validation = evaluate_ingest(plan_validation, observation, required_fields)
+            observed_events = captured_events[: len(observation.raw_lines)]
+            observed_lines = observation.raw_lines
+
+        root = (
+            Path(evidence_root)
+            if evidence_root is not None
+            else Path(self.settings.manifest_dir) / "evidence"
+        )
+        return write_evidence_pack(
+            root,
+            manifest=run_result.manifest,
+            contract=contract,
+            result=validation,
+            events=observed_events,
+            cef_lines=observed_lines,
+            replay_events=run_result.plan.events,
+            request=validation_request,
+            technique=technique,
+            profile=self.profile,
+        )
 
     def run(
         self,
