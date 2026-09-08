@@ -44,6 +44,7 @@ on:
       # what re-includes them.
       - "README.md"
       - "docs/detection-specs/**"
+      - "docs/offline-detection-validation.md"
       - "docs/fortigate-cef-reference.md"
       - "docs/run-manifest.md"
       - "docs/paloalto-cef-reference.md"
@@ -62,6 +63,7 @@ on:
       - "!NOTICE"
       - "README.md"
       - "docs/detection-specs/**"
+      - "docs/offline-detection-validation.md"
       - "docs/fortigate-cef-reference.md"
       - "docs/run-manifest.md"
       - "docs/paloalto-cef-reference.md"
@@ -92,6 +94,29 @@ permissions:
 # GitHub-hosted, so that is satisfied; a self-hosted runner would need checking.
 
 jobs:
+  validation:
+    name: Offline validation contracts and receiver failure path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install with the dev extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Contract matrix and real loopback receiver
+        run: pytest tests/test_validation_contracts.py tests/test_validation_ingest.py
+
+      - name: Deliberately drop one received event and require fail_no_events
+        run: pytest tests/test_validation_ingest.py::test_dropped_receiver_record_is_fail_no_events_not_a_crash
+
   python:
     name: Python ${{ matrix.python }}
     runs-on: ubuntu-latest
@@ -416,6 +441,9 @@ jobs:
           /tmp/wheelvenv/bin/replicant scenario list >/dev/null
           /tmp/wheelvenv/bin/replicant run REP-004 --intensity low --to-file ./out.log --no-send
           head -1 ./out.log | grep -q '^CEF:0|Fortinet|Fortigate'
+          /tmp/wheelvenv/bin/replicant validate show REP-001 >/dev/null
+          /tmp/wheelvenv/bin/replicant validate REP-011 --tier plan --evidence-dir ./evidence >/dev/null
+          /tmp/wheelvenv/bin/replicant replay ./evidence/RUN-*/ >/dev/null
 
           # The built UI must be served from the wheel, not the "build it" page.
           /tmp/wheelvenv/bin/replicant web --no-browser --port 9791 >/tmp/web.log 2>&1 &

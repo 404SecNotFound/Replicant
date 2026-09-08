@@ -56,8 +56,12 @@ EXPECTED_FOIL = frozenset(
         "REP-006",
         "REP-007",
         "REP-001",
+        "REP-002",
+        "REP-003",
         "REP-004",
+        "REP-005",
         "REP-009",
+        "REP-010",
         "REP-012",
         "REP-013",
         "REP-014",
@@ -178,12 +182,12 @@ def test_positive_plus_negative_equals_both() -> None:
 
 
 def test_controls_negative_on_a_foil_less_technique_is_empty() -> None:
-    """REP-002 has no foil; asking for the negative stream yields nothing rather
+    """REP-011 has no foil; asking for the negative stream yields nothing rather
     than silently sending the attack."""
 
     orch = Orchestrator(CATALOG, Settings())
     plan = orch.build_plan(
-        RunRequest(technique_id="REP-002", intensity="low", controls="negative", no_send=True)
+        RunRequest(technique_id="REP-011", intensity="low", controls="negative", no_send=True)
     )
     assert plan.events == []
 

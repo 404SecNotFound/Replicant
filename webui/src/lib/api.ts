@@ -211,6 +211,76 @@ export const getCatalog = (vendor?: string) =>
   api<CatalogResponse>(
     `/api/catalog${vendor ? `?vendor=${encodeURIComponent(vendor)}` : ""}`,
   );
+
+export interface ValidationAxis {
+  id: string;
+  description: string;
+  metric: string;
+  field: string | null;
+  group_by: string[];
+  parameter: string | null;
+}
+
+export interface ValidationContract {
+  schema_version: string;
+  technique_id: string;
+  technique_name: string;
+  detection_rule: string;
+  expected_event_families: string[];
+  signal_fields: { held: string[]; varied: string[] };
+  observation_window: {
+    parameters: string[];
+    fixed_seconds: number | null;
+    description: string;
+  };
+  positive_control: { required: boolean; expectation: string };
+  negative_control: {
+    mode: "standalone" | "embedded" | "calibration" | "unsupported";
+    present: boolean;
+    reason: string;
+    separable_by: string[];
+  };
+  measurable_axes: ValidationAxis[];
+  transferability: "transfers" | "parser-only";
+  limitations: string[];
+}
+
+export type ValidationDimension =
+  | "pass"
+  | "fail_no_events"
+  | "fail_no_alert"
+  | "inconclusive"
+  | "not_run";
+
+export interface ValidationResult {
+  technique_id: string;
+  tier: "plan" | "ingest" | "detect";
+  verdict: "pass" | "fail_no_events" | "fail_no_alert" | "inconclusive";
+  intensity: string;
+  seed: number;
+  run_id: string | null;
+  expected_events: number;
+  observed_events: number;
+  dimensions: Record<string, ValidationDimension>;
+  proves: string;
+  does_not_prove: string;
+  limitations: string[];
+  evidence_url: string;
+}
+
+export const getValidationContract = (id: string) =>
+  api<ValidationContract>(`/api/validation/contracts/${encodeURIComponent(id)}`);
+
+export const validateTechnique = (
+  id: string,
+  tier: "plan" | "ingest",
+  intensity: string,
+  vendor: string,
+) =>
+  api<ValidationResult>("/api/validate", {
+    method: "POST",
+    body: JSON.stringify({ technique_id: id, tier, intensity, vendor, transport: "udp" }),
+  });
 export const getConfig = () => api<ConfigResponse>("/api/config");
 
 export interface DocPage {

@@ -60,16 +60,16 @@ contract. It does not mean detection-validated.
 | Technique | Review disposition | Remaining work |
 |---|---|---|
 | REP-001 | Same-shape irregular callback foil added. | Live detection validation only. |
-| REP-002 | No generator-contract defect found. | Needs a sparse vertical-scan foil. |
-| REP-003 | No generator-contract defect found. | Needs a sparse horizontal-sweep foil. |
+| REP-002 | Matched probe volume, ports, actions, and timing are spread across routine source/destination pairs. | Live detection validation only. |
+| REP-003 | Matched destination, action, port, and timing distributions are spread across routine sources. | Live detection validation only. |
 | REP-004 | DNS safety wording corrected; equal-volume machine-generated foil and phase-aware names added. | Live detection validation only. |
-| REP-005 | Destination signal metadata corrected. | Needs the host's own benign volume baseline as a negative control. |
+| REP-005 | Destination signal metadata corrected; low-volume and matched high-volume per-host histories precede matched current windows. | Live detection validation only. |
 | REP-006 | No generator-contract defect found; structural proxy foil is present. | Live detection validation only. |
 | REP-007 | No generator-contract defect found; NAT/source-collapse foil is present. | Live detection validation only. |
 | REP-008 | No generator-contract defect found; warm-up history establishes per-host novelty. | No standalone negative stream. |
 | REP-009 | Single/mixed selector and steady matched IPS-rate foil added. | Live detection validation only. |
-| REP-010 | Non-emitted signal metadata corrected. | Needs routine policy denials as a negative control. |
-| REP-011 | No generator-contract defect found. | Parser-only until real GeoIP enrichment is exercised; also lacks a credible foil. |
+| REP-010 | Non-emitted signal metadata corrected; the matched global deny stream is spread across routine sources and time. | Live detection validation only. |
+| REP-011 | No generator-contract defect found. A credible GeoIP foil is explicitly unsupported rather than approximated with supplied country strings. | Parser-only until real GeoIP or ASN enrichment and approved-travel context are observed. |
 | REP-012 | No generator-contract defect found; benign jittered traffic foil is present. | Live detection validation only. |
 | REP-013 | No generator-contract defect found; admin fan-out foil is present. | Live detection validation only. |
 | REP-014 | No generator-contract defect found; bursty benign long-session foil is present. | Live detection validation only. |
@@ -96,20 +96,18 @@ contract. It does not mean detection-validated.
 
 ## Recommended enhancement order
 
-1. Build and machine-check the five remaining negative controls: REP-002,
-   REP-003, REP-005, REP-010 and REP-011. A trivially separable foil should remain
-   absent rather than create false confidence.
-2. Run the existing LogRhythm pilot and capture an observed ingest and rule-fire
+1. Run the existing LogRhythm pilot and capture an observed ingest and rule-fire
    result before describing any technique as detection-validated.
-3. Complete the live Palo Alto and Check Point appliance pass and remove
+2. Complete the live Palo Alto and Check Point appliance pass and remove
    `[Unverified]` markers only where captured output supports it.
-4. Add user and victim continuity controls to SCEN-003 if it is promoted from a
+3. Add user and victim continuity controls to SCEN-003 if it is promoted from a
    mixed-domain demonstration to a tightly correlated campaign replay.
 
-The current `emits_foil` state remains honest: 17 techniques expose a separate
+The current `emits_foil` state remains honest: 21 techniques expose a separate
 negative stream; REP-008, REP-017, and REP-020 carry required history inside the
-positive plan; REP-021 is itself a calibration baseline; and five entries remain
-without purpose-designed controls.
+positive plan; REP-021 is itself a calibration baseline; and REP-011 remains
+explicitly unsupported because its GeoIP dependency cannot be represented
+credibly with synthetic firewall telemetry alone.
 
 ## Additional research follow-up
 

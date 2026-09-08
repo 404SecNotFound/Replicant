@@ -45,6 +45,7 @@ def test_index_lists_the_allowlisted_pages(client: TestClient) -> None:
     pages = client.get("/api/docs", headers=HEADERS).json()["pages"]
 
     ids = [page["id"] for page in pages]
+    assert "offline-validation" in ids
     assert "run-manifest" in ids
     assert "fortigate-cef" in ids
     assert "paloalto-cef" in ids
@@ -70,6 +71,14 @@ def test_run_manifest_contract_is_available_in_the_docs_tab(client: TestClient) 
 
     assert data["id"] == "run-manifest"
     assert 'status="running"' in data["markdown"]
+
+
+def test_offline_validation_contract_is_available_in_the_docs_tab(client: TestClient) -> None:
+    data = client.get("/api/docs/offline-validation", headers=HEADERS).json()
+
+    assert data["id"] == "offline-validation"
+    assert "Tier 0" in data["markdown"]
+    assert "does not prove" in data["markdown"]
 
 
 def test_page_requires_a_token(client: TestClient) -> None:
