@@ -142,6 +142,21 @@ def test_push_and_pull_request_filters_are_identical() -> None:
     assert _paths_for("push") == _paths_for("pull_request")
 
 
+@pytest.mark.parametrize("job", ["wheel", "container"])
+def test_artifact_smoke_tests_derive_the_technique_count(job: str) -> None:
+    """Catalog growth must not leave the wheel or container gate on an old count."""
+    steps = _workflow()["jobs"][job]["steps"]
+    script = next(
+        str(step["run"])
+        for step in steps
+        if "run" in step and "actual_techniques=" in str(step["run"])
+    )
+
+    assert "expected_techniques=$(grep -cE" in script
+    assert 'test "$actual_techniques" -eq "$expected_techniques"' in script
+    assert not re.search(r"actual_techniques.*-eq\s+\d+", script, re.DOTALL)
+
+
 @pytest.mark.parametrize("event", ["push", "pull_request"])
 @pytest.mark.parametrize("path", LOAD_BEARING)
 def test_load_bearing_paths_trigger_a_run(event: str, path: str) -> None:
