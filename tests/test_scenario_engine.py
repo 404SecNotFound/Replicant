@@ -70,13 +70,14 @@ def test_different_seed_differs() -> None:
 
 def test_rep001_holds_src_dst_dpt_proto() -> None:
     plan = _plan("REP-001", "medium", 1337, duration_s=1800)
-    assert len(plan.events) > 5
-    assert len({e.src for e in plan.events}) == 1
-    assert len({e.dst for e in plan.events}) == 1
-    assert len({e.dpt for e in plan.events}) == 1
-    assert len({e.proto for e in plan.events}) == 1
+    events = [event for event in plan.events if event.control == "positive"]
+    assert len(events) > 5
+    assert len({e.src for e in events}) == 1
+    assert len({e.dst for e in events}) == 1
+    assert len({e.dpt for e in events}) == 1
+    assert len({e.proto for e in events}) == 1
     # session id (externalId) varies event to event
-    assert len({e.session_id for e in plan.events}) == len(plan.events)
+    assert len({e.session_id for e in events}) == len(events)
 
 
 def test_rep001_bytes_within_preset_bounds() -> None:
@@ -88,7 +89,7 @@ def test_rep001_bytes_within_preset_bounds() -> None:
 
 def test_rep001_interval_is_periodic_with_jitter() -> None:
     plan = _plan("REP-001", "medium", 1337, duration_s=1800)
-    times = [e.eventtime for e in plan.events]
+    times = [e.eventtime for e in plan.events if e.control == "positive"]
     gaps = [b - a for a, b in zip(times, times[1:], strict=False)]
     base, jitter = 60, 0.15
     for gap in gaps:
@@ -130,8 +131,9 @@ def test_rep002_duration_override_caps_probe_count() -> None:
 
 def test_rep004_high_entropy_qnames_high_cardinality() -> None:
     plan = _plan("REP-004", "medium", 1337, duration_s=10)  # 60 qps * 10 s = 600 queries
-    assert len(plan.events) == 600
-    qnames = [e.extra["qname"] for e in plan.events]
+    events = [event for event in plan.events if event.control == "positive"]
+    assert len(events) == 600
+    qnames = [e.extra["qname"] for e in events]
     # High unique-label cardinality under one synthetic parent domain.
     assert len(set(qnames)) == 600
     parents = {name.split(".", 1)[1] for name in qnames}
@@ -143,21 +145,26 @@ def test_rep004_high_entropy_qnames_high_cardinality() -> None:
 
 def test_rep004_qtype_weighted_to_txt_null() -> None:
     plan = _plan("REP-004", "medium", 1337, duration_s=20)
-    counts = Counter(e.extra["qtype"] for e in plan.events)
+    counts = Counter(e.extra["qtype"] for e in plan.events if e.control == "positive")
     assert counts["TXT"] == max(counts.values())  # TXT is the modal qtype
     assert counts["TXT"] + counts["NULL"] > counts["A"] + counts["CNAME"]
 
 
 def test_rep004_holds_resolver_and_port() -> None:
     plan = _plan("REP-004", "medium", 1337, duration_s=10)
-    assert {e.dst for e in plan.events} == {ENTITIES.resolver}
-    assert {e.dpt for e in plan.events} == {53}
-    assert {e.proto for e in plan.events} == {17}
+    events = [event for event in plan.events if event.control == "positive"]
+    assert {e.dst for e in events} == {ENTITIES.resolver}
+    assert {e.dpt for e in events} == {53}
+    assert {e.proto for e in events} == {17}
 
 
 def test_rep004_qnames_are_synthetic_parents() -> None:
     plan = _plan("REP-004", "medium", 1337, duration_s=10)
-    parent = plan.events[0].extra["qname"].split(".", 1)[1]
+    parent = (
+        next(event for event in plan.events if event.control == "positive")
+        .extra["qname"]
+        .split(".", 1)[1]
+    )
     assert parent in set(ENTITIES.parents)
 
 
@@ -348,26 +355,27 @@ def test_rep007_deterministic_same_seed() -> None:
 
 def test_rep009_ips_spike_shape() -> None:
     plan = _plan("REP-009", "low", 1337)
+    events = [event for event in plan.events if event.control == "positive"]
     hits = CATALOG.by_id("REP-009").params["low"]["hits"]
-    assert len(plan.events) == hits
-    assert len({e.dst for e in plan.events}) == 1  # one attacked target, held
-    assert len({e.src for e in plan.events}) > 1  # many attacking sources, varied
-    assert len({e.extra["attack"] for e in plan.events}) > 1  # signature name varies
-    assert all(e.action == "reset" for e in plan.events)
+    assert len(events) == hits
+    assert len({e.dst for e in events}) == 1  # one attacked target, held
+    assert len({e.src for e in events}) > 1  # many attacking sources, varied
+    assert len({e.extra["attack"] for e in events}) > 1  # signature name varies
+    assert all(e.action == "reset" for e in events)
     profile = FortiGateProfile()
-    assert all(profile.render(e)[0].severity in (6, 7) for e in plan.events)  # high/critical
+    assert all(profile.render(e)[0].severity in (6, 7) for e in events)  # high/critical
 
 
 def test_rep009_within_window() -> None:
     plan = _plan("REP-009", "low", 1337)
     window_s = CATALOG.by_id("REP-009").params["low"]["window_min"] * 60
-    times = [e.eventtime for e in plan.events]
+    times = [e.eventtime for e in plan.events if e.control == "positive"]
     assert max(times) - min(times) <= window_s
 
 
 def test_rep009_cnt_varies() -> None:
     plan = _plan("REP-009", "low", 1337)
-    counts = {int(e.extra["cnt"]) for e in plan.events}
+    counts = {int(e.extra["cnt"]) for e in plan.events if e.control == "positive"}
     assert len(counts) > 1  # aggregation count escalates across the spike
     assert max(counts) > 1
 
@@ -375,7 +383,7 @@ def test_rep009_cnt_varies() -> None:
 def test_rep009_target_is_synthetic_internal() -> None:
     plan = _plan("REP-009", "low", 1337)
     rfc1918 = ipaddress.ip_network("10.0.0.0/8")
-    dst = plan.events[0].dst
+    dst = next(event for event in plan.events if event.control == "positive").dst
     assert dst is not None and ipaddress.ip_address(dst) in rfc1918
 
 

@@ -348,6 +348,7 @@ def test_dirty_progress_is_durable_before_a_long_plan_wait(tmp_path: Path, monke
             technique_id="REP-001",
             intensity="low",
             collector=CollectorProfile(host="127.0.0.1", port=5514),
+            controls="positive",
             pace="plan",
         )
     )

@@ -28,7 +28,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 from replicant.core.models import EventRecord, Technique
 from replicant.entities.model import EntityModel
@@ -255,6 +255,39 @@ _IPS_REQUESTS: tuple[str, ...] = (
 )
 
 
+def _phase_label_pools(
+    rng: Any, count: int, minimum: int, maximum: int
+) -> tuple[list[str], list[str], list[str]]:
+    """Return setup, idle and transfer DNS labels with visible local structure.
+
+    The random tail preserves the configured length and entropy envelope. The
+    short prefix gives adjacent labels within a phase a shared segment, which is
+    observable in firewall query logs without inventing packet payload, TTL or
+    response timing fields.
+    """
+
+    count = max(count, 1)
+    raw = high_entropy_labels(rng, count, minimum, maximum)
+    setup_end = max(1, count // 10)
+    idle_end = max(setup_end + 1, count * 3 // 10) if count > 1 else count
+    idle_end = min(idle_end, count)
+
+    def tagged(values: list[str], tag: str, offset: int) -> list[str]:
+        result: list[str] = []
+        for index, value in enumerate(values, start=offset):
+            prefix = f"{tag}{index:04x}"
+            result.append(prefix + value[len(prefix) :])
+        return result
+
+    setup = tagged(raw[:setup_end], "hs", 0)
+    idle = tagged(raw[setup_end:idle_end], "id", setup_end)
+    transfer = tagged(raw[idle_end:], "tx", idle_end)
+    # Tiny parameter overrides still produce a valid plan. Reusing the only
+    # available pool is preferable to an index error and does not affect shipped
+    # presets, all of which contain hundreds of unique labels.
+    return setup, idle or setup, transfer or idle or setup
+
+
 @dataclass
 class ScenarioPlan:
     technique_id: str
@@ -309,6 +342,9 @@ _BUILDER_METHOD_NAMES: dict[str, str] = {
     "REP-022": "_plan_ids_alert_chain",
     "REP-023": "_plan_tls13_c2",
     "REP-024": "_plan_proxy_relay",
+    # Research follow-up additions (docs/catalog-research-review-2026-09-08.md).
+    "REP-030": "_plan_distributed_spray",
+    "REP-043": "_plan_exploit_egress_dialog",
 }
 
 
@@ -391,6 +427,10 @@ class ScenarioEngine:
         session = int(rng.integers(10_000, 60_000))
         offset = 0.0
         truncated = False
+        # Leave room for the matched irregular control. A very long duration
+        # must not silently consume the whole safety budget with the positive
+        # stream and make a declared foil disappear.
+        positive_cap = max(1, self.max_events // 2)
         while offset <= duration_s:
             out_b = lognormal_bytes(rng, out_low, out_high)
             in_b = max(out_b, lognormal_bytes(rng, out_low, out_high))
@@ -423,11 +463,68 @@ class ScenarioEngine:
                 )
             )
             session += 1
-            if len(events) >= self.max_events:
+            if len(events) >= positive_cap:
                 truncated = True
                 break
             offset += jittered_interval(rng, interval_s, jitter_pct)
-        return events, None, truncated
+
+        foil_start = len(events)
+        positive_count = len(events)
+        alternate = [candidate for candidate in entities.adversary_external if candidate != dst]
+        foil_dst = str(rng.choice(alternate or entities.benign_external))
+        # Same count, window, endpoint class, port and byte envelope as the
+        # beacon. Only the interval shape changes. Random weights are normalized
+        # to the same observation window so duration is not a shortcut either.
+        weights = [float(rng.uniform(0.25, 1.75)) for _ in range(max(positive_count - 1, 0))]
+        weight_total = sum(weights) or 1.0
+        foil_offsets = [0.0]
+        elapsed = 0.0
+        for weight in weights:
+            elapsed += weight
+            foil_offsets.append(duration_s * elapsed / weight_total)
+        for foil_offset in foil_offsets:
+            if len(events) >= self.max_events:
+                truncated = True
+                break
+            out_b = lognormal_bytes(rng, out_low, out_high)
+            in_b = max(out_b, lognormal_bytes(rng, out_low, out_high))
+            duration = int(rng.integers(1, 180))
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action=technique.fortigate.action or "accept",
+                    level="notice",
+                    eventtime=anchor + int(foil_offset),
+                    src=src,
+                    spt=int(rng.integers(1024, 65535)),
+                    dst=foil_dst,
+                    dpt=dpt,
+                    proto=proto,
+                    session_id=session,
+                    out_bytes=out_b,
+                    in_bytes=in_b,
+                    extra={
+                        "policyid": "7",
+                        "service": service,
+                        "app": app,
+                        "trandisp": "snat",
+                        "duration": str(duration),
+                        "sentpkt": str(packet_count(out_b, session, typical_mss=150, spread=80)),
+                        "rcvdpkt": str(packet_count(in_b, session, typical_mss=150, spread=80)),
+                    },
+                )
+            )
+            session += 1
+
+        self._mark_negative(events, foil_start)
+        events.sort(key=lambda event: event.eventtime)
+        note = (
+            f"{positive_count} periodic callbacks and {len(events) - foil_start} "
+            "same-shape irregular callbacks over the same observation window. "
+            "Interval regularity is the intended discriminator."
+        )
+        return events, note, truncated
 
     # -- REP-002 vertical port scan -------------------------------------------
 
@@ -985,30 +1082,54 @@ class ScenarioEngine:
         duration_override_s: int | None,
     ) -> _BuilderResult:
         hits = int(preset["hits"])
+        signature_mode = str(preset.get("signature_mode", "mixed"))
+        if signature_mode not in {"mixed", "single"}:
+            raise ValueError("REP-009 signature_mode must be 'mixed' or 'single'")
         window_s = (
             duration_override_s
             if duration_override_s is not None
             else int(preset["window_min"]) * 60
         )
+        baseline_window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["baseline_window_min"]) * 60
+        )
 
         truncated = False
-        if hits > self.max_events:
-            hits = self.max_events
+        if hits > max(1, self.max_events // 2):
+            hits = max(1, self.max_events // 2)
             truncated = True
 
         dst = str(rng.choice(entities.internal_targets))  # the attacked host, held
         src_pool = entities.adversary_external
         gap_s = window_s / max(hits, 1)
+        baseline_gap_s = baseline_window_s / max(hits, 1)
         step = max(1, hits // 5)  # cnt escalates across five aggregation steps
 
         events: list[EventRecord] = []
         session = int(rng.integers(100, 9999))
-        for index in range(hits):
-            attack, attackid = _IPS_SIGNATURES[int(rng.integers(0, len(_IPS_SIGNATURES)))]
-            request = _IPS_REQUESTS[int(rng.integers(0, len(_IPS_REQUESTS)))]
-            src = str(rng.choice(src_pool))
-            spt = int(rng.integers(1024, 65535))
-            # Alternate high/critical: FortiOS level critical -> CEF 6, alert -> CEF 7.
+        fixed_signature = _IPS_SIGNATURES[int(rng.integers(0, len(_IPS_SIGNATURES)))]
+        signatures = [
+            (
+                fixed_signature
+                if signature_mode == "single"
+                else _IPS_SIGNATURES[int(rng.integers(0, len(_IPS_SIGNATURES)))]
+            )
+            for _ in range(hits)
+        ]
+        requests = [_IPS_REQUESTS[int(rng.integers(0, len(_IPS_REQUESTS)))] for _ in range(hits)]
+
+        def append_hit(
+            *,
+            index: int,
+            target: str,
+            when: int,
+            source: str,
+            control: Literal["positive", "negative"] = "positive",
+        ) -> None:
+            nonlocal session
+            attack, attackid = signatures[index]
             critical = index % 3 == 0
             level = "critical" if critical else "alert"
             ips_severity = "critical" if critical else "high"
@@ -1019,10 +1140,11 @@ class ScenarioEngine:
                     subtype=technique.fortigate.subtype,
                     action="reset",
                     level=level,
-                    eventtime=anchor + int(index * gap_s),
-                    src=src,
-                    spt=spt,
-                    dst=dst,
+                    eventtime=when,
+                    control=control,
+                    src=source,
+                    spt=int(rng.integers(1024, 65535)),
+                    dst=target,
                     dpt=443,
                     proto=6,
                     session_id=session,
@@ -1033,8 +1155,8 @@ class ScenarioEngine:
                         "policyid": "7",
                         "attack": attack,
                         "attackid": attackid,
-                        "hostname": dst,
-                        "request": request,
+                        "hostname": target,
+                        "request": requests[index],
                         "direction": "incoming",
                         "profile": "default",
                         "cnt": str(cnt),
@@ -1043,7 +1165,36 @@ class ScenarioEngine:
                 )
             )
             session += 1
-        return events, None, truncated
+
+        for index in range(hits):
+            append_hit(
+                index=index,
+                target=dst,
+                when=anchor + int(index * gap_s),
+                source=str(rng.choice(src_pool)),
+            )
+
+        # Same hit count, signatures, severity mix and aggregation counters on a
+        # second target, spread across a much longer window. Rate is the intended
+        # discriminator; signature cardinality and severity are unavailable as
+        # shortcuts.
+        foil_targets = [target for target in entities.internal_targets if target != dst]
+        foil_dst = str(rng.choice(foil_targets))
+        for index in range(hits):
+            append_hit(
+                index=index,
+                target=foil_dst,
+                when=anchor + int(index * baseline_gap_s),
+                source=str(rng.choice(src_pool)),
+                control="negative",
+            )
+
+        events.sort(key=lambda event: event.eventtime)
+        note = (
+            f"signature_mode={signature_mode}; {hits} spike hits over {window_s}s and "
+            f"{hits} matched baseline hits over {baseline_window_s}s."
+        )
+        return events, note, truncated
 
     # -- REP-008 newly observed external destination per host -----------------
 
@@ -1231,10 +1382,12 @@ class ScenarioEngine:
         label_lo, label_hi = (int(v) for v in preset["label_len"])
         unique_labels = int(preset["unique_labels"])
 
-        total = qps * duration_s
+        requested_total = qps * duration_s
+        # Positive and negative streams carry equal query counts. Reserve half
+        # the bounded plan for each rather than truncating the control away.
+        total = min(requested_total, max(1, self.max_events // 2))
         truncated = False
-        if total > self.max_events:
-            total = self.max_events
+        if total < requested_total:
             truncated = True
         total = max(total, 1)
 
@@ -1242,7 +1395,9 @@ class ScenarioEngine:
         dst = entities.resolver
         parent = str(rng.choice(entities.parents))
         label_count = min(unique_labels, total)
-        labels = high_entropy_labels(rng, label_count, label_lo, label_hi)
+        setup_labels, idle_labels, transfer_labels = _phase_label_pools(
+            rng, label_count, label_lo, label_hi
+        )
 
         qtypes = ["TXT", "NULL", "CNAME", "A"]
         qtypevals = {"TXT": "16", "NULL": "10", "CNAME": "5", "A": "1"}
@@ -1250,10 +1405,19 @@ class ScenarioEngine:
 
         events: list[EventRecord] = []
         session = int(rng.integers(10_000, 60_000))
+        chosen_qtypes: list[str] = []
         for index in range(total):
-            label = labels[index % len(labels)]
+            fraction = index / max(total, 1)
+            if fraction < 0.10:
+                pool = setup_labels
+            elif fraction < 0.30:
+                pool = idle_labels
+            else:
+                pool = transfer_labels
+            label = pool[index % len(pool)]
             qname = f"{label}.{parent}"
             qtype = weighted_choice(rng, qtypes, weights)
+            chosen_qtypes.append(qtype)
             spt = int(rng.integers(1024, 65535))
             xid = int(rng.integers(0, 65535))
             events.append(
@@ -1281,7 +1445,40 @@ class ScenarioEngine:
                 )
             )
             session += 1
-        return events, None, truncated
+
+        foil_start = len(events)
+        benign_parent = str(
+            rng.choice([item for item in entities.parents if item != parent] or [parent])
+        )
+        benign_unique = max(5, min(total, unique_labels // 8))
+        benign_raw = high_entropy_labels(rng, benign_unique, label_lo, label_hi)
+        benign_labels = [f"sv{index:04x}" + value[6:] for index, value in enumerate(benign_raw)]
+        # This synthetic service-discovery/cache-key stream matches query count,
+        # qtype sequence, label-length envelope and high-entropy tails. Its lower
+        # unique-label cardinality is the intended discriminator.
+        for index in range(total):
+            qname = f"{benign_labels[index % len(benign_labels)]}.{benign_parent}"
+            events.append(
+                self._dns_query_record(
+                    rng,
+                    src,
+                    dst,
+                    qname,
+                    chosen_qtypes[index],
+                    anchor + int(index / qps),
+                    session,
+                )
+            )
+            session += 1
+
+        self._mark_negative(events, foil_start)
+        events.sort(key=lambda event: event.eventtime)
+        note = (
+            f"{total} phase-aware tunnel queries and {total} matched machine-generated "
+            f"queries at {qps}/s; positive cardinality {label_count}, control cardinality "
+            f"{len(benign_labels)}."
+        )
+        return events, note, truncated
 
     # =========================================================================
     # v0.2.0 expansion. Research anchors per technique are in the catalog entry
@@ -1734,7 +1931,10 @@ class ScenarioEngine:
 
         src = str(rng.choice(entities.internal_hosts))
         parent = str(rng.choice(entities.parents))
-        labels = high_entropy_labels(rng, min(unique_labels, total), label_lo, label_hi)
+        label_count = min(unique_labels, total)
+        setup_labels, idle_labels, transfer_labels = _phase_label_pools(
+            rng, label_count, label_lo, label_hi
+        )
         gap_s = 3600.0 / max(qph, 1)
 
         events: list[EventRecord] = []
@@ -1744,15 +1944,25 @@ class ScenarioEngine:
         # this class invisible to a TXT-oriented tunnel rule.
         qtypes = ["A", "AAAA"]
         weights = [0.75, 0.25]
+        chosen_qtypes: list[str] = []
         for index in range(total):
-            qname = f"{labels[index % len(labels)]}.{parent}"
+            fraction = index / max(total, 1)
+            if fraction < 0.10:
+                pool = setup_labels
+            elif fraction < 0.30:
+                pool = idle_labels
+            else:
+                pool = transfer_labels
+            qname = f"{pool[index % len(pool)]}.{parent}"
+            qtype = weighted_choice(rng, qtypes, weights)
+            chosen_qtypes.append(qtype)
             events.append(
                 self._dns_query_record(
                     rng,
                     src,
                     entities.resolver,
                     qname,
-                    weighted_choice(rng, qtypes, weights),
+                    qtype,
                     anchor + int(index * gap_s),
                     session,
                 )
@@ -1760,10 +1970,13 @@ class ScenarioEngine:
             session += 1
 
         foil_start = len(events)
-        # Benign parent with a comparable query count but low unique-label
-        # cardinality, so per-minute rate cannot separate the two.
+        # Benign machine-generated names with a comparable query count, qtype
+        # sequence, label length and entropy tail, but lower cardinality. Familiar
+        # five-label browsing was too easy and did not test the stated analytic.
         benign_parent = str(rng.choice([p for p in entities.parents if p != parent] or [parent]))
-        benign_labels = ["www", "mail", "api", "cdn", "vpn"]
+        benign_unique = max(5, min(total, unique_labels // 8))
+        benign_raw = high_entropy_labels(rng, benign_unique, label_lo, label_hi)
+        benign_labels = [f"sv{index:04x}" + value[6:] for index, value in enumerate(benign_raw)]
         for index in range(min(total, self.max_events - len(events))):
             qname = f"{benign_labels[index % len(benign_labels)]}.{benign_parent}"
             events.append(
@@ -1772,7 +1985,7 @@ class ScenarioEngine:
                     src,
                     entities.resolver,
                     qname,
-                    "A",
+                    chosen_qtypes[index],
                     anchor + int(index * gap_s) + 7,
                     session,
                 )
@@ -1783,8 +1996,8 @@ class ScenarioEngine:
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{qph} queries/hour over {duration_s // 3600}h ({total} exfil queries), "
-            f"{len(labels)} unique labels under one parent. Deliberately below "
-            "tunnel-rate thresholds. A same-volume benign parent is included."
+            f"{label_count} phase-aware labels under one parent. Deliberately below "
+            "tunnel-rate thresholds. A same-volume machine-generated control is included."
         )
         return events, note, truncated
 
@@ -2756,5 +2969,346 @@ class ScenarioEngine:
             f"{relay_pairs} relayed request(s) through one host from {len(client_list)} "
             "external client(s): each inbound session is followed by a byte-correlated "
             "outbound session. A sanctioned proxy with the same pattern is included."
+        )
+        return events, note, truncated
+
+    # -- REP-030 distributed low-and-slow password spray ---------------------
+
+    def _plan_distributed_spray(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        failures = int(preset["failures"])
+        source_count = min(int(preset["sources"]), len(entities.adversary_external))
+        user_count = int(preset["users"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+
+        # One positive failure plus a failed-and-corrected negative pair. Keep
+        # both controls present under the materialization safety ceiling.
+        truncated = False
+        if failures * 3 > self.max_events:
+            failures = max(1, self.max_events // 3)
+            truncated = True
+        source_count = max(1, min(source_count, failures))
+        user_count = max(1, min(user_count, failures))
+
+        attack_indices = unique_ints(rng, 0, len(entities.adversary_external) - 1, source_count)
+        attack_sources = [entities.adversary_external[index] for index in attack_indices]
+        benign_indices = unique_ints(rng, 0, len(entities.benign_external) - 1, source_count)
+        benign_sources = [entities.benign_external[index] for index in benign_indices]
+        users = synthetic_usernames(user_count * 2, entities.users)
+        attack_users = users[:user_count]
+        benign_users = users[user_count:]
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+
+        def append_vpn(
+            *,
+            source: str,
+            user: str,
+            when: int,
+            success: bool,
+            control: Literal["positive", "negative"],
+        ) -> None:
+            nonlocal session
+            if success:
+                events.append(
+                    EventRecord(
+                        log_type="event",
+                        subtype="vpn",
+                        action="tunnel-up",
+                        level="notice",
+                        eventtime=when,
+                        control=control,
+                        duser=user,
+                        src=source,
+                        session_id=session,
+                        extra={
+                            "logdesc": "SSL VPN tunnel up",
+                            "fgt_action": "tunnel-up",
+                            "remip": source,
+                            "tunneltype": "ssl-tunnel",
+                            "tunnelid": str(int(rng.integers(1_000_000, 9_999_999))),
+                            "group": "vpn-users",
+                            "reason": "login-success",
+                            "msg": "SSL tunnel established",
+                        },
+                    )
+                )
+            else:
+                reason = _VPN_FAIL_REASONS[int(rng.integers(0, len(_VPN_FAIL_REASONS)))]
+                events.append(
+                    EventRecord(
+                        log_type="event",
+                        subtype="vpn",
+                        action="ssl-login-fail",
+                        level="alert",
+                        eventtime=when,
+                        control=control,
+                        duser=user,
+                        src=source,
+                        session_id=session,
+                        extra={
+                            "logdesc": "SSL VPN login fail",
+                            "fgt_action": "ssl-login-fail",
+                            "remip": source,
+                            "tunneltype": "ssl-web",
+                            "reason": reason,
+                            "msg": "SSL user failed to logged in",
+                        },
+                    )
+                )
+            session += 1
+
+        correction_delay = max(1, window_s // max(failures * 4, 1))
+        for index in range(failures):
+            when = anchor + int(index * window_s / max(failures, 1))
+            append_vpn(
+                source=attack_sources[index % len(attack_sources)],
+                user=attack_users[index % len(attack_users)],
+                when=when,
+                success=False,
+                control="positive",
+            )
+
+            benign_source = benign_sources[index % len(benign_sources)]
+            benign_user = benign_users[index % len(benign_users)]
+            append_vpn(
+                source=benign_source,
+                user=benign_user,
+                when=when,
+                success=False,
+                control="negative",
+            )
+            append_vpn(
+                source=benign_source,
+                user=benign_user,
+                when=min(anchor + window_s, when + correction_delay),
+                success=True,
+                control="negative",
+            )
+
+        events.sort(key=lambda event: event.eventtime)
+        note = (
+            f"{failures} failures distributed across {source_count} sources and "
+            f"{user_count} users over {window_s // 60} min. The control has the same "
+            "failed source-user edges followed by successful self-correction."
+        )
+        return events, note, truncated
+
+    # -- REP-043 inbound alert to victim egress dialog -----------------------
+
+    def _plan_exploit_egress_dialog(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        chains = int(preset["chains"])
+        alert_lo, alert_hi = (int(value) for value in preset["alert_hits"])
+        inbound_lo, inbound_hi = (int(value) for value in preset["inbound_sessions"])
+        outbound_lo, outbound_hi = (int(value) for value in preset["outbound_sessions"])
+        noise_alerts = int(preset["noise_alerts"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+
+        victims = [
+            entities.internal_targets[index]
+            for index in unique_ints(
+                rng,
+                0,
+                len(entities.internal_targets) - 1,
+                min(chains, len(entities.internal_targets)),
+            )
+        ]
+        attackers = entities.scanner_external or entities.adversary_external
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+        truncated = False
+
+        def append_ips(
+            *,
+            source: str,
+            target: str,
+            when: int,
+            control: Literal["positive", "negative"],
+            index: int,
+        ) -> None:
+            nonlocal session, truncated
+            if len(events) >= self.max_events:
+                truncated = True
+                return
+            attack, attackid = _IPS_SIGNATURES[index % len(_IPS_SIGNATURES)]
+            events.append(
+                EventRecord(
+                    log_type="utm",
+                    subtype="ips",
+                    action="reset",
+                    level="alert",
+                    eventtime=when,
+                    control=control,
+                    src=source,
+                    spt=int(rng.integers(1024, 65535)),
+                    dst=target,
+                    dpt=443,
+                    proto=6,
+                    session_id=session,
+                    extra={
+                        "eventtype": "signature",
+                        "ips_severity": "high",
+                        "service": "HTTPS",
+                        "policyid": "7",
+                        "attack": attack,
+                        "attackid": attackid,
+                        "hostname": target,
+                        "request": _IPS_REQUESTS[index % len(_IPS_REQUESTS)],
+                        "direction": "incoming",
+                        "profile": "default",
+                        "cnt": "1",
+                        "msg": f"applications3A {attack}",
+                    },
+                )
+            )
+            session += 1
+
+        def append_flow(
+            *,
+            source: str,
+            target: str,
+            when: int,
+            inbound: bool,
+            control: Literal["positive", "negative"],
+        ) -> None:
+            nonlocal session, truncated
+            if len(events) >= self.max_events:
+                truncated = True
+                return
+            out_b = int(rng.integers(400, 8_000))
+            in_b = int(rng.integers(800, 32_000))
+            event = self._steady_accept(
+                rng,
+                source,
+                target,
+                443,
+                when,
+                session,
+                out_b,
+                in_b,
+                int(rng.integers(1, 90)),
+                inbound=inbound,
+            )
+            event.control = control
+            events.append(event)
+            session += 1
+
+        for chain_index, victim in enumerate(victims):
+            attacker = str(rng.choice(attackers))
+            callback = str(rng.choice(entities.adversary_external))
+            chain_offset = int(chain_index * window_s / max(len(victims) * 12, 1))
+            alert_hits = int(rng.integers(alert_lo, alert_hi + 1))
+            inbound_sessions = int(rng.integers(inbound_lo, inbound_hi + 1))
+            outbound_sessions = int(rng.integers(outbound_lo, outbound_hi + 1))
+
+            for index in range(alert_hits):
+                append_ips(
+                    source=attacker,
+                    target=victim,
+                    when=anchor + chain_offset + index,
+                    control="positive",
+                    index=index,
+                )
+            for index in range(inbound_sessions):
+                append_flow(
+                    source=attacker,
+                    target=victim,
+                    when=anchor + chain_offset + window_s // 4 + index,
+                    inbound=True,
+                    control="positive",
+                )
+            for index in range(outbound_sessions):
+                append_flow(
+                    source=victim,
+                    target=callback,
+                    when=anchor + chain_offset + window_s // 2 + index,
+                    inbound=False,
+                    control="positive",
+                )
+
+        # Negative controls cover three common shortcuts: a blocked alert with
+        # no continuation, unrelated egress from another host, and the complete
+        # set of record types in reverse order. None forms the victim-role join
+        # in alert -> inbound -> outbound order.
+        used_victims = set(victims)
+        foil_hosts = [host for host in entities.internal_targets if host not in used_victims]
+        blocked_victim = foil_hosts[0]
+        unrelated_host = foil_hosts[1]
+        reversed_victim = foil_hosts[2]
+        foil_attacker = str(rng.choice(attackers))
+        append_ips(
+            source=foil_attacker,
+            target=blocked_victim,
+            when=anchor + window_s // 8,
+            control="negative",
+            index=0,
+        )
+        append_flow(
+            source=unrelated_host,
+            target=str(rng.choice(entities.benign_external)),
+            when=anchor + window_s // 2,
+            inbound=False,
+            control="negative",
+        )
+        append_flow(
+            source=reversed_victim,
+            target=str(rng.choice(entities.adversary_external)),
+            when=anchor + window_s // 8,
+            inbound=False,
+            control="negative",
+        )
+        append_flow(
+            source=foil_attacker,
+            target=reversed_victim,
+            when=anchor + window_s // 2,
+            inbound=True,
+            control="negative",
+        )
+        append_ips(
+            source=foil_attacker,
+            target=reversed_victim,
+            when=anchor + window_s * 3 // 4,
+            control="negative",
+            index=1,
+        )
+        for index in range(noise_alerts):
+            noise_target = str(rng.choice(foil_hosts[3:] or foil_hosts))
+            append_ips(
+                source=str(rng.choice(attackers)),
+                target=noise_target,
+                when=anchor + int(index * window_s / max(noise_alerts, 1)),
+                control="negative",
+                index=index,
+            )
+
+        events.sort(key=lambda event: event.eventtime)
+        note = (
+            f"{len(victims)} victim chain(s) join an IPS destination to an accepted "
+            "inbound destination and later outbound source. Negative controls break "
+            "the victim join or event order; alerts do not assert exploit success."
         )
         return events, note, truncated

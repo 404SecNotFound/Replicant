@@ -50,6 +50,8 @@ on:
       - "docs/checkpoint-cef-reference.md"
       - "docs/technique-catalog-expansion-research.md"
       - "docs/technique-catalog-expansion-research-round2.md"
+      - "docs/technique-catalog-expansion-research-round5.md"
+      - "docs/catalog-research-review-2026-09-08.md"
   pull_request:
     paths:
       - "**"
@@ -66,6 +68,8 @@ on:
       - "docs/checkpoint-cef-reference.md"
       - "docs/technique-catalog-expansion-research.md"
       - "docs/technique-catalog-expansion-research-round2.md"
+      - "docs/technique-catalog-expansion-research-round5.md"
+      - "docs/catalog-research-review-2026-09-08.md"
   workflow_dispatch:
 
 # A second push to the same branch cancels the first: these jobs spend real
@@ -398,6 +402,7 @@ jobs:
           set -euo pipefail
           python -m venv /tmp/wheelvenv
           /tmp/wheelvenv/bin/pip install "$(ls dist-wheel/*.whl)[web]"
+          expected_techniques=$(grep -cE '^  - id: REP-[0-9]{3}$' replicant/data/technique-catalog.yaml)
           mkdir -p /tmp/elsewhere
           cd /tmp/elsewhere
 
@@ -406,7 +411,8 @@ jobs:
           # list gained a transferability-notes footer that repeats a few ids, so
           # a raw line count overcounts (this is the regression that turned this
           # job red on main after the transferability property shipped).
-          test "$(/tmp/wheelvenv/bin/replicant list | grep -oE 'REP-[0-9]{3}' | sort -u | wc -l)" -eq 24
+          actual_techniques=$(/tmp/wheelvenv/bin/replicant list | grep -oE 'REP-[0-9]{3}' | sort -u | wc -l)
+          test "$actual_techniques" -eq "$expected_techniques"
           /tmp/wheelvenv/bin/replicant scenario list >/dev/null
           /tmp/wheelvenv/bin/replicant run REP-004 --intensity low --to-file ./out.log --no-send
           head -1 ./out.log | grep -q '^CEF:0|Fortinet|Fortigate'
@@ -462,8 +468,10 @@ jobs:
       - name: Smoke-test the CLI in the image
         run: |
           set -euo pipefail
+          expected_techniques=$(grep -cE '^  - id: REP-[0-9]{3}$' replicant/data/technique-catalog.yaml)
           docker run --rm replicant:ci --version
-          test "$(docker run --rm replicant:ci list | grep -oE 'REP-[0-9]{3}' | sort -u | wc -l)" -eq 24
+          actual_techniques=$(docker run --rm replicant:ci list | grep -oE 'REP-[0-9]{3}' | sort -u | wc -l)
+          test "$actual_techniques" -eq "$expected_techniques"
           docker run --rm replicant:ci scenario list >/dev/null
           # A full run to a file inside the container, read back in the same shell.
           # --entrypoint sh because the image's entrypoint is `replicant`.

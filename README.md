@@ -185,6 +185,8 @@ Emit the same technique as another vendor's CEF instead of FortiGate. `--vendor`
 ```bash
 replicant run REP-009 --intensity high --vendor paloalto   --to-file ./out/panos.log      --no-send
 replicant run REP-009 --intensity high --vendor checkpoint --to-file ./out/checkpoint.log --no-send
+replicant run REP-009 --intensity high --signature-mode single --to-file ./out/targeted-ips.log --no-send
+replicant run REP-030 --intensity medium --to-file ./out/distributed-spray.log --no-send
 ```
 
 Palo Alto renders to PAN-OS CEF ([`docs/paloalto-cef-reference.md`](docs/paloalto-cef-reference.md)) and Check Point to Log Exporter CEF ([`docs/checkpoint-cef-reference.md`](docs/checkpoint-cef-reference.md)). Both reference docs are `[Unverified]` against a live build and each carries eight golden sample lines that reuse the same synthetic entities as the FortiGate oracle for direct comparison.
@@ -257,6 +259,8 @@ status.
 | REP-022 | Multi-stage IDS alert chain | utm:ips | UC-021 | T1595, T1190, T1071 | Implemented |
 | REP-023 | TLS 1.3 C2 with flow-only signal | traffic:forward accept | UC-022 | T1071.001, T1573.002 | Implemented |
 | REP-024 | Internal host as proxy relay node | traffic:forward | UC-023 | T1090, T1090.001 | Implemented |
+| REP-030 | Distributed low-and-slow password spray | event:vpn | UC-024 | T1110.003 | Implemented |
+| REP-043 | Inbound alert to egress callback dialog correlation | utm:ips + traffic:forward | UC-025 | T1190, T1071 | Implemented |
 
 REP-012 through REP-024 are each anchored to a peer-reviewed detection paper with
 measured results, so the generated pattern reflects what a published detector
@@ -264,6 +268,13 @@ actually keys on rather than a plausible guess. The anchors, the evidence, and t
 ideas that were considered and rejected are recorded in
 [docs/technique-catalog-expansion-research.md](docs/technique-catalog-expansion-research.md)
 and [round 2](docs/technique-catalog-expansion-research-round2.md).
+
+The [2026-09-08 research follow-up](docs/technique-catalog-expansion-research-round5.md)
+reviews eight additional papers. Its implemented slice adds harder benign
+comparisons, phase-aware DNS sequences, beacon observation-window checks,
+REP-030's distributed spray and REP-043's cross-log dialog correlation. The
+[all-round review](docs/catalog-research-review-2026-09-08.md) records the corrected
+source claims, telemetry boundaries and deferred candidates.
 
 Several of them are deliberately the hard version of an earlier entry, so the pair
 grades a detection rather than just firing it. REP-001 is a fixed-interval callback
@@ -277,8 +288,9 @@ Where a detection depends on separating the signal from a look-alike, the plan
 emits the look-alike too. A run that contained only the malicious pattern would let
 any rule score perfectly and teach you nothing, so REP-014 ships a bursty benign
 long session, REP-018 an admin star pattern against its chain, REP-022 unrelated
-alert noise around its ordered chain, and REP-024 a sanctioned proxy with an
-identical traffic shape.
+alert noise around its ordered chain, REP-024 a sanctioned proxy with an
+identical traffic shape, REP-030 self-correcting distributed failures, and
+REP-043 broken-join and reversed-order dialogs.
 
 The current catalog contract, corrected defects, per-technique limitations, and
 remaining negative-control work are recorded in the
@@ -321,7 +333,7 @@ The launch token is printed on startup, persists in `~/.config/replicant/web-tok
 
 The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser. Because it is a real PTY, it is **off by default** whenever the bind address is not loopback; `--enable-terminal` turns it back on. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
 
-At 24 techniques the Techniques library is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, and ATT&CK technique id at the same time, so whichever identifier your detection backlog happens to use will find the entry. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
+At 26 techniques the Techniques library is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, and ATT&CK technique id at the same time, so whichever identifier your detection backlog happens to use will find the entry. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
 
 <img src="docs/images/webui-techniques.jpg" alt="The technique library with its search box, log-type filters, and expandable ATT&CK tactic groups" width="900" />
 
@@ -355,8 +367,8 @@ An early Stop cannot be cleared between worker scheduling and entry, and an SSE
 stream remains open until its terminal item has been published to that reader.
 
 The **Documentation** view renders the maintained reference material in `docs/` in the
-browser: the run-manifest contract, three vendor CEF references, and two catalog
-expansion research notes. Those files ship with the repository rather than the
+browser: the run-manifest contract, three vendor CEF references, the catalog
+expansion research, and the all-round research correction. Those files ship with the repository rather than the
 installed package, so the tab is populated from a git checkout or an editable
 install and says so plainly if they are absent.
 
@@ -379,11 +391,11 @@ The banner prints the token only when it is attached to a terminal. Under system
 
 A run streams live CEF while it emits, plots the emission rate, and updates a manifest that was written before emission began. The readout says `uncapped` here because this run has no collector: the events-per-second cap governs sending, so a dry run or a file-only run is not throttled and the rate goes as fast as the machine allows. Point the same run at a collector and the readout shows `cap 2000` instead.
 
-<img src="docs/images/webui-run.jpg" alt="A completed no-send DNS tunneling run: 108,000 of 108,000 events emitted, an uncapped rate chart, elapsed time, the CEF stream, and confirmation that the manifest was written" width="900" />
+<img src="docs/images/webui-run.jpg" alt="A completed no-send DNS tunneling run: 180,000 of 180,000 positive and control events emitted, an uncapped rate chart, elapsed time, the CEF stream, and confirmation that the manifest was written" width="900" />
 
 The Terminal tab, when enabled, runs the Rich menu inside the browser:
 
-<img src="docs/images/webui-terminal.jpg" alt="The embedded Terminal view running the Rich menu, with all 24 techniques and the technique, scenario, connection, vendor, seed, and quit prompts" width="900" />
+<img src="docs/images/webui-terminal.jpg" alt="The embedded Terminal view running the Rich menu, with all 26 techniques and the technique, scenario, connection, vendor, seed, and quit prompts" width="900" />
 
 The UI uses charcoal surfaces, silver text, and saturated red actions and selection outlines. Geist carries interface labels and prose; JetBrains Mono carries technical values. The run workspace separates technique selection, settings, and output, with an adjacent signal preview and on-demand references. Navigation and profile changes retain draft settings and completed-run evidence. The design contract is [the silver-and-red design](docs/webui-silver-red-design.md).
 
@@ -455,7 +467,7 @@ The web UI exposes the same choice as an **Anchor** control in the run form, def
 
 The anchor decides what time an event *claims*. Pacing decides when it *arrives*, and the two have to agree or an interval-keyed rule has nothing to work with.
 
-A plan carries a per-event time. REP-001 at low intensity is 49 events spread over 238 minutes, and Replicant used to send all 49 as fast as the rate cap allowed: a three second burst carrying four hours of timestamps. A beacon rule asking for N callbacks at a regular interval over M minutes sees every callback at once, so it never fires, or fires on the wrong shape.
+A plan carries a per-event time. REP-001 at low intensity is 49 callback events spread over 238 minutes plus 49 irregular control events in the same four-hour window. Replicant used to send a whole plan as fast as the rate cap allowed: a short burst carrying hours of timestamps. A beacon rule asking for N callbacks at a regular interval over M minutes sees every callback at once, so it never fires, or fires on the wrong shape.
 
 ```bash
 replicant run REP-001 --anchor now --pace plan --host 10.20.0.50   # 4h beacon takes 4h
@@ -471,7 +483,7 @@ replicant run REP-001 --anchor now --pace burst --host 10.20.0.50  # all at once
 
 ### Duration: how much of the behaviour to emulate
 
-`--duration` says how long the simulated activity should last. It works on every one of the 24 techniques and on scenarios:
+`--duration` says how long the simulated activity should last. It works on every one of the 26 techniques and on scenarios:
 
 ```bash
 replicant run REP-001 --duration 2h --anchor now --pace plan --host 10.20.0.50        # 2h of C2 beacon
@@ -514,7 +526,7 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 - **Phase 2 (complete):** all eleven techniques implemented (REP-001 through REP-011), the off-hours (00:00-06:00) start pinning used by REP-005, TLS syslog transport, and a warm-up baseline for REP-008 whose boundary is recorded in the run manifest.
 - **Phase 3 (complete):** multi-vendor. Palo Alto (PAN-OS) and Check Point (Log Exporter) profiles join FortiGate, each with an `[Unverified]` reference doc and byte-for-byte golden lines. Select the vendor with `--vendor {fortigate,paloalto,checkpoint}`, in the Rich menu (`[v]`), or in the web UI; one technique catalog and one scenario engine drive every vendor, only the serialization differs.
 - **Phase 4 (complete):** ATT&CK scenario composition. Curated scenarios compose the existing techniques into one deterministic, multi-stage CEF timeline with a shared synthetic through-line, plus an advisory coverage document that maps the chain to ATT&CK tactics and flags gaps. Any AI assistance stays advisory while a human authors the detection design. Driven from `replicant scenario` (list/show/run) and the Rich menu `[a]`.
-- **Catalog expansion (complete):** the catalog grew from 11 techniques to 24 (REP-012 through REP-024), each anchored to a peer-reviewed detection paper with measured results rather than to a plausible guess. Added the `dns:dns-response` render path on all three vendors, which also makes fast-flux and DNS TTL techniques possible later, and a dedicated inbound-scanner entity pool. Several new entries are the graded, harder counterpart of an existing one, and techniques whose detection depends on separating a signal from a look-alike now emit the look-alike as well.
+- **Catalog expansion (complete):** the catalog grew from 11 techniques to 24 in v0.2.0, then to 26 after the 2026-09-08 all-round research review. The latest additions cover a distributed credential spray and role-aware IPS-to-egress correlation. The same pass strengthened beacon, DNS and IPS negative controls and added phase-aware DNS behavior.
 - **Web UI access and navigation (complete):** the UI serves on a fixed port and can bind an address the rest of the segment can reach, with a persistent token, an httpOnly session cookie, a Host allowlist that follows the bind address, and the embedded terminal off by default once the bind is not loopback. The left rail is grouped by ATT&CK tactic with a filter box and log-type toggles, a Docs tab renders the vendor CEF references in the browser, and the event-time anchor is a visible control in the run form.
 - **Light theme and responsive layout (complete, light theme since removed):** the web UI briefly shipped a measured light palette alongside the dark one; the Factory redesign below made the UI dark-only and removed it. The responsive half survives: below 1024px the fixed-viewport shell becomes an ordinary scrolling page and the left rail becomes a disclosure panel; wide content such as CEF samples and the reference tables scrolls inside its own container rather than pushing the page sideways.
 - **Silver-and-red workspace (complete):** persistent navigation, a three-step run form, separate technique library and collector view, plan and CEF previews, readable silver text, saturated red selections, and retained drafts and run evidence. Design contract: `docs/webui-silver-red-design.md`.

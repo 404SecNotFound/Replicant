@@ -220,6 +220,11 @@ def build_parser() -> argparse.ArgumentParser:
         "false positives). Only techniques with emits_foil have a negative stream.",
     )
     run.add_argument(
+        "--signature-mode",
+        choices=["mixed", "single"],
+        help="REP-009 only: vary IPS signatures or repeat one signature for the whole run",
+    )
+    run.add_argument(
         "--mark-synthetic",
         action="store_true",
         help="force the ReplicantSynthetic marker (with the run id) onto every line, "
@@ -448,6 +453,10 @@ def cmd_run(
             "so --controls negative will emit nothing."
         )
 
+    if args.signature_mode is not None and args.id != "REP-009":
+        _fail("[red]run refused[/red]: --signature-mode applies only to REP-009")
+        return 1
+
     try:
         request = RunRequest(
             technique_id=args.id,
@@ -460,6 +469,9 @@ def cmd_run(
             rate_override=args.rate,
             collector=collector,
             anchor_epoch=anchor,
+            param_overrides=(
+                {"signature_mode": args.signature_mode} if args.signature_mode is not None else {}
+            ),
             pace=args.pace,
             speed=args.speed,
         )

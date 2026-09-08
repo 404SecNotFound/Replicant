@@ -49,6 +49,8 @@ def test_index_lists_the_allowlisted_pages(client: TestClient) -> None:
     assert "fortigate-cef" in ids
     assert "paloalto-cef" in ids
     assert "checkpoint-cef" in ids
+    assert "catalog-research-5" in ids
+    assert "catalog-research-review" in ids
     assert all(page["title"] for page in pages)
 
 

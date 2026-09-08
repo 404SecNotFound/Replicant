@@ -54,7 +54,7 @@ import webbrowser
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -129,6 +129,16 @@ DOC_PAGES: tuple[DocPage, ...] = (
         "catalog-research-2",
         "Catalog expansion research, round 2",
         "technique-catalog-expansion-research-round2.md",
+    ),
+    DocPage(
+        "catalog-research-5",
+        "Catalog research, round 5",
+        "technique-catalog-expansion-research-round5.md",
+    ),
+    DocPage(
+        "catalog-research-review",
+        "Catalog research review, rounds 1 through 5",
+        "catalog-research-review-2026-09-08.md",
     ),
 )
 _DOC_BY_ID = {page.id: page for page in DOC_PAGES}
@@ -466,6 +476,16 @@ class RunBody(BaseModel):
     # cannot drift. See replicant.core.pacing.resolve_pace.
     pace: Pace | None = None
     speed: float = Field(default=1.0, gt=0, le=MAX_SPEED)
+    # REP-009 can exercise a broad mixed-signature spike or a targeted spike
+    # that repeats one signature. Other techniques reject the option rather
+    # than accepting an inert control.
+    signature_mode: Literal["mixed", "single"] | None = None
+
+    @model_validator(mode="after")
+    def _signature_mode_is_rep009_only(self) -> RunBody:
+        if self.signature_mode is not None and self.technique_id != "REP-009":
+            raise ValueError("signature_mode applies only to REP-009")
+        return self
 
     @model_validator(mode="after")
     def _speed_needs_a_timeline(self) -> RunBody:
@@ -568,7 +588,7 @@ def _technique_json(catalog: Catalog, profile: VendorProfile) -> list[dict[str, 
                 "ndr_uc": technique.ndr_uc,
                 # What running this establishes. The UI used to synthesise a
                 # sentence from log_type and rule id, which read as specific and
-                # was identical in meaning for all 24 entries.
+                # was identical in meaning for every catalog entry.
                 "objective": technique.objective,
                 "logical_log_type": binding.log_type,
                 "logical_subtype": binding.subtype,
@@ -808,7 +828,7 @@ def create_app(
     # Caching is exact rather than approximate: the request is built from a fixed
     # seed and a fixed intensity, so (technique, intensity, vendor) determines the
     # output completely. Bounded because a server is long-lived and the catalog
-    # times intensities times vendors is 24 * 3 * 3, which fits comfortably.
+    # times intensities times vendors is 26 * 3 * 3, which fits comfortably.
     sample_cache: dict[tuple[str, str, str], list[str]] = {}
     SAMPLE_CACHE_MAX = 256
 
@@ -1021,6 +1041,9 @@ def create_app(
             collector=collector,
             anchor_epoch=anchor,
             rate_override=body.rate,
+            param_overrides=(
+                {"signature_mode": body.signature_mode} if body.signature_mode is not None else {}
+            ),
             pace=body.pace,
             speed=body.speed,
         )

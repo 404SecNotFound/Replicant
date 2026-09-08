@@ -133,7 +133,7 @@ class Technique(BaseModel):
     #:
     #: The catalog described *what a technique emits* in detail and never said
     #: *what it is for*. The UI filled the gap with a template ("emits synthetic
-    #: X telemetry that exercises Y"), which is true of all 24 entries and
+    #: X telemetry that exercises Y"), which is true of every entry and
     #: therefore tells an operator nothing about which one to pick. Every entry
     #: states its own objective, and a parametrized test asserts none is missing.
     objective: str = ""
@@ -151,7 +151,7 @@ class Technique(BaseModel):
     #: Whether the builder emits a labelled, isolable benign foil, i.e. whether
     #: ``--controls negative`` yields this technique's benign traffic on its own.
     #: ``benign_baseline`` above is prose describing production normality and is
-    #: present on all 24; it does NOT mean the plan contains a foil. This does,
+    #: present on every catalog entry; it does NOT mean the plan contains a foil. This does,
     #: and a parametrized test asserts it matches what the builder actually
     #: produces (safety against a foil that is documented but never generated).
     emits_foil: bool = False

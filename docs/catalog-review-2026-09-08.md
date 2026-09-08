@@ -5,7 +5,7 @@
 **Scope:** `replicant/data/technique-catalog.yaml` and
 `replicant/data/scenario-catalog.yaml`
 
-**Outcome:** all 24 technique presets and all three curated scenarios build, but
+**Outcome:** all 26 technique presets and all three curated scenarios build, but
 the review found and corrected runtime, metadata, ATT&CK, and scenario-definition
 defects. Remaining limitations are listed below rather than treated as coverage.
 
@@ -46,6 +46,11 @@ also retain their `[Unverified]` markers until a live-vendor pass is completed.
 | SCEN-001 | An internal REP-003 horizontal sweep was named and labeled as perimeter or external reconnaissance. | Renamed it to “Internal discovery to exfiltration” and labeled the first stage “internal discovery.” |
 | SCEN-003 | A stage labeled “password spray” selected REP-007 high intensity, whose preset mode is brute force. | Changed the stage to medium intensity, whose mode is spray. |
 | Scenario loading | Empty chains, malformed offsets, and misspelled parameter override keys could survive catalog loading. | These now fail before composition with a targeted validation error. |
+| REP-001 | No negative control existed. | Added a same-count, same-window irregular callback control with matching port and byte envelope. |
+| REP-004 | Query volume alone could distinguish the positive plan because no control existed. | Added an equal-count machine-generated DNS control and phase-aware positive names; shortened medium/high preset durations to preserve QPS within the event cap. |
+| REP-009 | The catalog called single versus mixed signatures selectable, but the engine always mixed them and emitted no rate control. | Added `--signature-mode` to every run surface and an equal-hit, longer-window IPS control. |
+| REP-030 | Round 3 proposal had no verified primary anchor. | Re-anchored the distributed spray to Araña and MITRE DET0487, then implemented it with a self-correcting authentication foil. |
+| REP-043 | Round 4 carried a wrong BotHunter statistic, unsupported T1105 mapping and invalid held destination. | Corrected the source claim and mapping, then implemented role-aware IPS-to-egress correlation with broken-join and reversed-order controls. |
 
 ## Per-technique disposition
 
@@ -54,15 +59,15 @@ contract. It does not mean detection-validated.
 
 | Technique | Review disposition | Remaining work |
 |---|---|---|
-| REP-001 | No generator-contract defect found. | Needs a genuine same-shape benign foil. |
+| REP-001 | Same-shape irregular callback foil added. | Live detection validation only. |
 | REP-002 | No generator-contract defect found. | Needs a sparse vertical-scan foil. |
 | REP-003 | No generator-contract defect found. | Needs a sparse horizontal-sweep foil. |
-| REP-004 | DNS safety wording corrected. | Needs a foil that prevents query volume alone from passing. |
+| REP-004 | DNS safety wording corrected; equal-volume machine-generated foil and phase-aware names added. | Live detection validation only. |
 | REP-005 | Destination signal metadata corrected. | Needs the host's own benign volume baseline as a negative control. |
 | REP-006 | No generator-contract defect found; structural proxy foil is present. | Live detection validation only. |
 | REP-007 | No generator-contract defect found; NAT/source-collapse foil is present. | Live detection validation only. |
 | REP-008 | No generator-contract defect found; warm-up history establishes per-host novelty. | No standalone negative stream. |
-| REP-009 | No generator-contract defect found. | Needs a steady benign IPS-rate foil. |
+| REP-009 | Single/mixed selector and steady matched IPS-rate foil added. | Live detection validation only. |
 | REP-010 | Non-emitted signal metadata corrected. | Needs routine policy denials as a negative control. |
 | REP-011 | No generator-contract defect found. | Parser-only until real GeoIP enrichment is exercised; also lacks a credible foil. |
 | REP-012 | No generator-contract defect found; benign jittered traffic foil is present. | Live detection validation only. |
@@ -78,6 +83,8 @@ contract. It does not mean detection-validated.
 | REP-022 | No generator-contract defect found; unrelated alert noise is present. | Live detection validation only. |
 | REP-023 | No generator-contract defect found; benign TLS flow foil is present. | Live detection validation only. |
 | REP-024 | No generator-contract defect found; sanctioned-proxy foil is present. | Integer-second event time limits subsecond fidelity, as already disclosed. |
+| REP-030 | Distributed source-user failures and self-correcting foil agree with the new contract. | Source study covers web authentication; the VPN-field transfer boundary is disclosed. |
+| REP-043 | Role-aware alert, inbound and egress order agrees with the mixed-family contract. | Observable progression only; no exploit-success claim. |
 
 ## Per-scenario disposition
 
@@ -89,8 +96,8 @@ contract. It does not mean detection-validated.
 
 ## Recommended enhancement order
 
-1. Build and machine-check the eight missing negative controls: REP-001 through
-   REP-005, then REP-009 through REP-011. A trivially separable foil should remain
+1. Build and machine-check the five remaining negative controls: REP-002,
+   REP-003, REP-005, REP-010 and REP-011. A trivially separable foil should remain
    absent rather than create false confidence.
 2. Run the existing LogRhythm pilot and capture an observed ingest and rule-fire
    result before describing any technique as detection-validated.
@@ -99,7 +106,16 @@ contract. It does not mean detection-validated.
 4. Add user and victim continuity controls to SCEN-003 if it is promoted from a
    mixed-domain demonstration to a tightly correlated campaign replay.
 
-The current `emits_foil` state remains honest: 12 techniques expose a separate
+The current `emits_foil` state remains honest: 17 techniques expose a separate
 negative stream; REP-008, REP-017, and REP-020 carry required history inside the
-positive plan; REP-021 is itself a calibration baseline; and the eight entries
-listed above still need purpose-designed controls.
+positive plan; REP-021 is itself a calibration baseline; and five entries remain
+without purpose-designed controls.
+
+## Additional research follow-up
+
+The [round 5 research review](technique-catalog-expansion-research-round5.md) and
+[all-round correction](catalog-research-review-2026-09-08.md) compare the source
+claims with this implementation. The approved slice added harder benign
+comparisons, DNS phases, beacon observation-window tests, REP-030 and REP-043.
+A peer-community candidate remains conditional on a detector contract compatible
+with synthetic address ranges.

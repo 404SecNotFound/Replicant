@@ -54,7 +54,7 @@ def test_catalog_requires_token(client: TestClient) -> None:
     assert client.get("/api/catalog").status_code == 401
     resp = client.get("/api/catalog", headers=HEADERS)
     assert resp.status_code == 200
-    assert len(resp.json()["techniques"]) == 24
+    assert len(resp.json()["techniques"]) == 26
 
 
 def test_catalog_exposes_detail_fields(client: TestClient) -> None:

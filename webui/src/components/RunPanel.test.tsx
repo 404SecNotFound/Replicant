@@ -128,6 +128,36 @@ function renderPanel(
   );
 }
 
+describe("REP-009 signature shape", () => {
+  it("shows the selector only for the IPS spike technique", async () => {
+    vi.mocked(getActiveRun).mockResolvedValue(NO_ACTIVE_RUN);
+    vi.mocked(getPlanPreview).mockResolvedValue({
+      event_count: 40,
+      plan_span_s: 3600,
+      compressed_span_s: 3600,
+      projected_s: 3600,
+      projected_by_pace: { plan: 3600, burst: 0.02 },
+      pace: "plan",
+      speed: 1,
+    });
+    const props = {
+      defaultSeed: 1337,
+      collector: COLLECTOR,
+      vendor: "fortigate",
+      epsCap: 2000,
+      anchorEpoch: 1752537600,
+    };
+    const view = render(
+      <RunPanel technique={makeTechnique({ id: "REP-009" })} {...props} />,
+    );
+
+    expect(await screen.findByRole("combobox", { name: "IPS signature mode" })).toBeVisible();
+
+    view.rerender(<RunPanel technique={makeTechnique({ id: "REP-001" })} {...props} />);
+    expect(screen.queryByRole("combobox", { name: "IPS signature mode" })).toBeNull();
+  });
+});
+
 beforeEach(() => {
   vi.mocked(reserveRun).mockImplementation(async (request) =>
     reservation(request.admission_id),

@@ -97,7 +97,7 @@ def test_the_confirmation_says_how_long_the_run_will_take(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The defect this guards: the prompt showed an event count and nothing else,
-    so "Start run?" on a 238 minute plan looked identical to one on a 3 second
+        so "Start run?" on a four-hour plan looked identical to one on a 3 second
     plan. An operator cannot consent to a cost they are not shown."""
 
     console = Console(record=True, width=100)
@@ -111,4 +111,4 @@ def test_the_confirmation_says_how_long_the_run_will_take(
     )
 
     output = console.export_text()
-    assert "3h 58m" in output, output
+    assert "4h 00m" in output, output

@@ -14,7 +14,7 @@
 """Benign foils are labelled, addressable, and honestly declared.
 
 Every technique carries a benign_baseline prose line describing production
-normality, and the catalog read as if all 24 emitted a matching foil. Measured,
+normality, and the catalog read as if every entry emitted a matching foil. Measured,
 only some do: a run of a foil-less technique is pure attack traffic, against
 which any detection scores perfectly, and nothing in the catalog said which
 techniques those were.
@@ -24,7 +24,7 @@ Two things are now true and tested here:
 1. Foil events carry control="negative", so --controls can emit them alone (to
    measure a detection's false-positive rate) or exclude them.
 2. Technique.emits_foil declares whether a foil exists, and this test asserts it
-   equals what the builder actually produces, for all 24 at every intensity over
+   equals what the builder actually produces, for every entry at every intensity over
    several seeds. A foil documented in prose but never generated (the original
    defect) fails this, and so does a foil generated but not declared.
 
@@ -55,6 +55,9 @@ EXPECTED_FOIL = frozenset(
     {
         "REP-006",
         "REP-007",
+        "REP-001",
+        "REP-004",
+        "REP-009",
         "REP-012",
         "REP-013",
         "REP-014",
@@ -65,6 +68,8 @@ EXPECTED_FOIL = frozenset(
         "REP-022",
         "REP-023",
         "REP-024",
+        "REP-030",
+        "REP-043",
     }
 )
 
@@ -173,12 +178,12 @@ def test_positive_plus_negative_equals_both() -> None:
 
 
 def test_controls_negative_on_a_foil_less_technique_is_empty() -> None:
-    """REP-001 has no foil; asking for the negative stream yields nothing rather
+    """REP-002 has no foil; asking for the negative stream yields nothing rather
     than silently sending the attack."""
 
     orch = Orchestrator(CATALOG, Settings())
     plan = orch.build_plan(
-        RunRequest(technique_id="REP-001", intensity="low", controls="negative", no_send=True)
+        RunRequest(technique_id="REP-002", intensity="low", controls="negative", no_send=True)
     )
     assert plan.events == []
 

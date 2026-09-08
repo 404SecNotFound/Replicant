@@ -49,7 +49,7 @@ def test_readme_table_covers_every_catalog_entry() -> None:
     rows = _readme_rows()
     catalog_ids = {technique.id for technique in CATALOG.techniques}
     assert set(rows) == catalog_ids
-    assert len(rows) == 24
+    assert len(rows) == 26
 
 
 def test_readme_rows_match_catalog_uc_and_attack_ids() -> None:

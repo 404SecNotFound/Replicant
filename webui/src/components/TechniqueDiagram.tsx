@@ -118,6 +118,8 @@ export const DIAGRAM_SPECS: Record<string, DiagramSpec> = {
   "REP-022": { glyph: "stages" },
   "REP-023": { glyph: "periodic", caption: "regular flow timing, no payload" },
   "REP-024": { glyph: "relay" },
+  "REP-030": { glyph: "auth", caption: "many sources, one failure per user" },
+  "REP-043": { glyph: "stages", caption: "IPS alert → inbound → victim egress" },
 };
 const YC = 112; // vertical center line of the signal path
 

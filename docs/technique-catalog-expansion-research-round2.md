@@ -398,6 +398,7 @@ Thirteen new techniques across both rounds, taking the catalog from 11 to 24.
 - [Beyond RTT: An Adversarially Robust Two-Tiered Approach for Residential Proxy Detection (NDSS)](https://www.ndss-symposium.org/wp-content/uploads/2026-f2086-paper.pdf)
 - [Multi-Stage Attack Detection via Kill Chain State Machines (Wilkens et al.)](https://arxiv.org/abs/2103.14628)
 - [Combating alert fatigue with AlertPro: context-aware alert prioritization using reinforcement learning for multi-step attack detection (Computers & Security, 2023)](https://www.sciencedirect.com/science/article/abs/pii/S0167404823004935)
+- [AACT: AI-Assisted Cybersecurity Triage (Turcotte et al. 2025)](https://arxiv.org/abs/2505.09843)
 - [AI-Driven Security Alert Screening and Alert Fatigue Mitigation in Security Operations Centers: A Survey (covers AACT and ALERTPRO)](https://arxiv.org/html/2605.08316)
 - [Lateral Movement Detection via Time-aware Subgraph Classification on Authentication Logs (LMDetect, 2024)](https://arxiv.org/abs/2411.10279)
 - [The evolution of Mirai botnet scans over a six-year period](https://www.sciencedirect.com/science/article/pii/S2214212623002132)

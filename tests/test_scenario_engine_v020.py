@@ -382,7 +382,9 @@ def test_rep015_high_cardinality_under_one_parent_with_lookalike() -> None:
         by_parent.setdefault(parent, set()).add(label)
     cardinalities = sorted(len(labels) for labels in by_parent.values())
     assert cardinalities[-1] >= 100, "exfil parent must have high label cardinality"
-    assert cardinalities[0] <= 10, "a same-volume low-cardinality benign parent must exist"
+    assert (
+        cardinalities[0] * 4 < cardinalities[-1]
+    ), "a same-volume lower-cardinality machine-generated parent must exist"
 
 
 def test_rep015_qtypes_avoid_txt() -> None:

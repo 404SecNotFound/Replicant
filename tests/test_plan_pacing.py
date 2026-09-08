@@ -364,7 +364,7 @@ def test_speed_compresses_the_event_times_that_get_rendered(tmp_path: Path) -> N
 
     ``on_event`` receives the record as rendered, after compression, so the claim
     can be checked exactly. No collector means no emitter and therefore no
-    sleeping, which is the only way to assert a 60x compression of a 238 minute
+    sleeping, which is the only way to assert a 60x compression of a 240 minute
     beacon inside a test.
     """
 
@@ -382,7 +382,7 @@ def test_speed_compresses_the_event_times_that_get_rendered(tmp_path: Path) -> N
         on_event=lambda _line, event: seen.append(event.eventtime),
     )
 
-    planned_span = 14_280  # REP-001 low: 49 events across 238 minutes
+    planned_span = 14_400  # callback plus irregular control over four hours
     assert seen[-1] - seen[0] == pytest.approx(planned_span / 60, abs=1)
 
 

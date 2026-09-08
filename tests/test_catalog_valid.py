@@ -32,8 +32,8 @@ def test_catalog_loads() -> None:
 
 
 def test_catalog_technique_count() -> None:
-    # 11 original + 13 from the v0.2.0 expansion (REP-012 .. REP-024).
-    assert len(CATALOG.techniques) == 24
+    # 11 original + 13 from v0.2.0 + two from the 2026-09-08 research review.
+    assert len(CATALOG.techniques) == 26
 
 
 def test_ids_and_uc_unique() -> None:
