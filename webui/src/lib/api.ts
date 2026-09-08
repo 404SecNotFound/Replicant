@@ -398,6 +398,7 @@ export const startRun = (body: RunBody) =>
     speed: number;
     projected_s: number;
     plan_span_s: number;
+    output_path?: string | null;
   }>("/api/runs", {
     method: "POST",
     body: JSON.stringify(body),

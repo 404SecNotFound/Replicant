@@ -61,6 +61,6 @@ Apache-2.0: github.com/404SecNotFound/Replicant
 - **First two lines are the hook.** LinkedIn truncates around there, so the two questions have to carry the click. Do not add a preamble above them.
 - **The repo link in the post body suppresses reach.** If that matters, move the URL to the first comment and put "link in the comments" in the body.
 - **Best window for this audience:** Tuesday to Thursday morning your time. Avoid Friday.
-- **Consider attaching `docs/images/webui-run.png`.** LinkedIn weights posts with a native image, and it is a real screenshot of a live run rather than a stock graphic.
+- **Consider attaching `docs/images/webui-run.jpg`.** The image shows a real completed no-send run in the current workspace.
 - **Expect three kinds of reply.** Is it safe to run in production (it emits only to the collector you configure and every entity is synthetic). Which SIEMs (SIEM-agnostic, standard CEF over syslog; validated against LogRhythm first). And at least one person asking whether this is just a poor man's BAS platform (it is not a control-validation platform; it produces the telemetry so you can test the detection logic itself, and it costs nothing).
 - **Do not post before the repo is public.** The link 404s for everyone but you until visibility flips.

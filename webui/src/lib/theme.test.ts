@@ -20,10 +20,10 @@ import { hslTripletToHex } from "./theme";
 
 describe("hslTripletToHex", () => {
   // The palette is written as HSL triplets so Tailwind can compose them with an
-  // alpha, but the design contract is stated in hex (#101010, #ee6018, ...).
+  // alpha, but the design contract is stated in hex (#101214, #d71919, ...).
   // Each token in index.css names its intended hex in a trailing comment; this
   // extracts every such pair and asserts the triplet really is that color, so a
-  // token cannot silently drift from the Factory palette it claims to encode.
+  // token cannot silently drift from the documented palette it claims to encode.
   const pairs = [...indexCss.matchAll(/(--[\w-]+):\s*([\d.]+ [\d.]+% [\d.]+%);\s*\/\*\s*(#[0-9a-f]{6})/g)].map(
     (m) => [m[1], m[2], m[3]] as const,
   );
@@ -56,7 +56,7 @@ describe("hslTripletToHex", () => {
 
 describe("dark-only", () => {
   it("index.html carries no pre-paint theme script any more", () => {
-    // The Factory system is dark-only. The old light theme lived partly in an
+    // The approved palette is dark-only. The old light theme lived partly in an
     // inline script that ran before first paint; if one reappears, either the
     // light theme is coming back (bring back the parity guard with it) or
     // something else has claimed the pre-bundle slot and deserves a look.

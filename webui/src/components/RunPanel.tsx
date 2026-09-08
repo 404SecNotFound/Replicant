@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Check, ChevronRight, Play, Square } from "lucide-react";
+import { TechniquePreview } from "@/components/TechniquePreview";
 import { Input } from "@/components/ui/input";
 import { CefLine } from "@/components/CefLine";
 import { Switch } from "@/components/ui/switch";
@@ -35,6 +37,7 @@ import {
   runEventsUrl,
   startRun,
   stopRun,
+  vendorShortLabel,
   type ActiveRun,
   type Collector,
   type Manifest,
@@ -59,6 +62,9 @@ export interface RunAdmission {
 }
 
 interface Props {
+  vendorControls?: ReactNode;
+  onChooseTechnique?: () => void;
+  onConfigureCollector?: () => void;
   technique: Technique | null;
   defaultSeed: number;
   collector: Collector | null;
@@ -111,6 +117,9 @@ function fmtDur(sec: number): string {
 }
 
 export function RunPanel({
+  vendorControls,
+  onChooseTechnique,
+  onConfigureCollector,
   technique,
   defaultSeed,
   collector,
@@ -136,7 +145,7 @@ export function RunPanel({
   const [sendChoice, setSendChoice] = useState<boolean | null>(null);
   const sendToCollector = sendChoice ?? collector !== null;
   const [toFile, setToFile] = useState(false);
-  const [filePath, setFilePath] = useState("./out/replicant.log");
+  const [filePath, setFilePath] = useState("replicant.log");
   const [anchor, setAnchor] = useState<AnchorChoice>(defaultAnchor(false));
   // Events per second, blank meaning the configured cap. Exposed because the
   // default is a ceiling suited to protecting a collector from a flood, not a
@@ -149,6 +158,9 @@ export function RunPanel({
   const [pace, setPace] = useState<PaceChoice>(defaultPace(false));
   const [speed, setSpeed] = useState("1");
   const [preview, setPreview] = useState<PlanPreview | null>(null);
+  const [previewPending, setPreviewPending] = useState(false);
+
+  const [runDraft, setRunDraft] = useState<{ body: RunBody; name: string; outputPath?: string | null } | null>(null);
 
   const [starting, setStarting] = useState(false);
   const [running, setRunning] = useState(false);
@@ -171,6 +183,7 @@ export function RunPanel({
   const [count, setCount] = useState(0);
   const [total, setTotal] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
+  const [manifestOwnerId, setManifestOwnerId] = useState<string | null>(null);
   // Whether the run in flight is actually being throttled. Frozen when the run
   // starts rather than read live from the form, so toggling the destination
   // mid-run cannot relabel a run that is already emitting.
@@ -429,7 +442,7 @@ export function RunPanel({
             status: snapshot.status,
             event_count: snapshot.event_count,
           });
-          if (snapshot.manifest) setManifest(snapshot.manifest as Manifest);
+          if (snapshot.manifest) { setManifest(snapshot.manifest as Manifest); setManifestOwnerId(runId); }
           void confirmActiveOwner();
         },
         sleep,
@@ -551,18 +564,21 @@ export function RunPanel({
     const body = buildBody();
     if (!body) {
       setPreview(null);
+      setPreviewPending(false);
       return;
     }
+    setPreviewPending(true);
+    setPreview(null);
     let cancelled = false;
     const timer = setTimeout(() => {
       getPlanPreview(body)
         .then((next) => {
-          if (!cancelled) setPreview(next);
+          if (!cancelled) { setPreview(next); setPreviewPending(false); }
         })
         .catch(() => {
           // A failed preview leaves the control describing the shape of the
           // answer without inventing numbers for it.
-          if (!cancelled) setPreview(null);
+          if (!cancelled) { setPreview(null); setPreviewPending(false); }
         });
     }, 250);
     return () => {
@@ -617,6 +633,7 @@ export function RunPanel({
     setCount(0);
     setTotal(0);
     setManifest(null);
+    setManifestOwnerId(null);
     setError(null);
     setEps(0);
     setSamples([]);
@@ -829,7 +846,7 @@ export function RunPanel({
           countRef.current = snapshot.event_count;
           setCount(snapshot.event_count);
           setTotal(snapshot.total);
-          if (snapshot.manifest) setManifest(snapshot.manifest);
+          if (snapshot.manifest) { setManifest(snapshot.manifest); setManifestOwnerId(snapshot.run_id); }
           if (!isTerminalStatus(snapshot.status)) {
             settleAdmissionWithOwner(
               {
@@ -888,6 +905,7 @@ export function RunPanel({
     setRunSending(sending);
     const body = buildBody();
     if (!body) return;
+    setRunDraft({ body, name: technique.name });
     let admissionId: string;
     try {
       admissionId = createAdmissionId();
@@ -912,7 +930,7 @@ export function RunPanel({
         vendor,
       );
       if (!reservation || !attemptIsCurrent(attempt)) return;
-      const { run_id, vendor: startedVendor, total: est } = await startRun({
+      const { run_id, vendor: startedVendor, total: est, output_path: outputPath } = await startRun({
         ...body,
         admission_id: reservation.admission_id,
       });
@@ -924,6 +942,7 @@ export function RunPanel({
       runIdRef.current = run_id;
       runTechniqueRef.current = technique.id;
       runVendorRef.current = startedVendor;
+      setRunDraft((current) => current ? { ...current, outputPath } : current);
       // The server accepted this run, so any external owner committed by a
       // pre-start /active response is stale. Clear it before setting `running`;
       // React batches these updates and the parent sees B directly, never A or
@@ -965,6 +984,7 @@ export function RunPanel({
           countRef.current = item.count;
           setCount(item.count);
           setManifest(item.manifest);
+          setManifestOwnerId(run_id);
           holdLocalTerminalUntilOwnerConfirmed(
             run_id,
             item.status ?? "done",
@@ -975,7 +995,7 @@ export function RunPanel({
         } else if (item.type === "error") {
           countRef.current = Math.max(countRef.current, item.count ?? 0);
           setCount((current) => Math.max(current, item.count ?? 0));
-          if (item.manifest) setManifest(item.manifest);
+          if (item.manifest) { setManifest(item.manifest); setManifestOwnerId(run_id); }
           setError(item.message);
           holdLocalTerminalUntilOwnerConfirmed(run_id, "error", countRef.current, est);
           es.close();
@@ -999,7 +1019,7 @@ export function RunPanel({
             if (!mountedRef.current || runIdRef.current !== run_id) return;
             countRef.current = Math.max(countRef.current, snap.event_count);
             setCount((x) => Math.max(x, snap.event_count));
-            if (snap.manifest) setManifest(snap.manifest as Manifest);
+            if (snap.manifest) { setManifest(snap.manifest as Manifest); setManifestOwnerId(run_id); }
             setError(snap.status === "error" ? "run failed" : null);
             holdLocalTerminalUntilOwnerConfirmed(
               run_id,
@@ -1186,115 +1206,159 @@ export function RunPanel({
       ? "Run and write to file"
       : "Run without sending";
 
-  return (
-    <div className="mx-auto max-w-[900px]">
-      <div className="u-label mb-3">Arm run</div>
+  const remoteManifest = manifestOwnerId !== null && manifestOwnerId !== runIdRef.current;
+  const draftChanged = !remoteManifest && runDraft !== null && JSON.stringify(buildBody()) !== JSON.stringify(runDraft.body);
+  const hasResult = runDraft !== null || running || manifest !== null || count > 0;
+  const resultVendor = typeof manifest?.vendor === "string" && manifest.vendor
+    ? manifest.vendor : runDraft?.body.vendor ?? lockedBy?.vendor ?? vendor;
+  const manifestElapsed = manifest?.ended_at
+    ? (Date.parse(manifest.ended_at) - Date.parse(manifest.started_at)) / 1000 : NaN;
+  const resultTechnique = manifest?.technique_id ?? runDraft?.body.technique_id;
+  const outputSummary = sending
+    ? `${collector?.host}:${collector?.port} · ${collector?.transport.toUpperCase()}${toFile ? ` + ${filePath}` : ""}`
+    : toFile ? filePath : "Browser events only · no send";
 
-      {/* controls */}
-      {/* Six controls. At lg they sit on one row at their natural widths; below
-          that the fixed track list is wider than the viewport, so it reflows to
-          four and then two columns rather than overflowing sideways. */}
-      <div className="mt-[18px] grid grid-cols-2 items-end gap-3 border-y py-[18px] sm:grid-cols-4 lg:grid-cols-[132px_92px_92px_92px_112px_1fr]">
-        <div>
-          <label className="u-label mb-1.5 block">Intensity</label>
-          <Select value={intensity} onValueChange={setIntensity}>
-            <SelectTrigger className="h-9 text-body">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(technique.intensities.length ? technique.intensities : ["low", "medium", "high"]).map((i) => (
-                <SelectItem key={i} value={i}>
-                  {i}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+  const intensityChoices = ["low", "medium", "high"].filter((value) =>
+    technique.intensities.length === 0 || technique.intensities.includes(value));
+
+  return (
+    <div className="mx-auto max-w-[1240px]">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-5">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-medium tracking-tight">New detection test</h1>
+          <p className="mt-2 text-body text-muted-foreground">Choose a technique, shape the signal, and inspect the result.</p>
         </div>
-        <div>
-          <label className="u-label mb-1.5 block" htmlFor="duration">
-            Duration
-          </label>
-          <Input
-            id="duration"
-            className="h-9 font-mono text-data"
-            placeholder="preset"
-            value={duration}
-            onChange={(e) => setDuration(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="u-label mb-1.5 block" htmlFor="seed">
-            Seed
-          </label>
-          <Input
-            id="seed"
-            className="h-9 font-mono text-data"
-            value={seed}
-            onChange={(e) => setSeed(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="u-label mb-1.5 block" htmlFor="rate">
-            Rate
-          </label>
-          <Input
-            id="rate"
-            type="number"
-            min={1}
-            max={epsCap}
-            step={1}
-            className="h-9 font-mono text-data"
-            placeholder={`${epsCap}/s`}
-            inputMode="numeric"
-            title="Events per second. Blank uses the configured cap. Lower it if your collector drops events."
-            aria-invalid={rateError ? true : undefined}
-            aria-describedby={rateError ? "rate-error" : undefined}
-            value={rate}
-            onChange={(e) => setRate(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="u-label mb-1.5 block">Anchor</label>
-          <Select value={anchor} onValueChange={(v) => setAnchor(v as AnchorChoice)}>
-            <SelectTrigger className="h-9 text-body" aria-label="Event time anchor">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="now">now</SelectItem>
-              <SelectItem value="fixed">fixed</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="col-span-2 flex flex-col gap-2 sm:col-span-4 lg:col-span-1 lg:items-end">
-          <span className="u-label">Destination</span>
-          <div className="flex gap-4">
-            <label className={cn("flex items-center gap-2 text-body", collector ? "text-muted-foreground" : "text-text-4")}>
-              <Switch checked={sendToCollector} onCheckedChange={setSendChoice} disabled={!collector} />
-              Collector
-            </label>
-            <label className="flex items-center gap-2 text-body text-muted-foreground">
-              <Switch checked={toFile} onCheckedChange={setToFile} />
-              File
-            </label>
+        <div className="min-w-0 max-w-full space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <button onClick={handleStart} disabled={!canRun} className="action-button max-w-full">
+              <Play aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />{destinationLabel}
+            </button>
+            <button onClick={handleStop} disabled={!running} className="quiet-button">
+              <Square aria-hidden="true" className="h-3 w-3" />Stop run
+            </button>
           </div>
+          <p className="font-mono text-micro text-muted-foreground">{technique.id} · {vendorShortLabel(vendor)}</p>
         </div>
       </div>
+      {/* Another run holds the single-run lock. Stated here, beside the button it
+          disables, because the previous behaviour was a dead button and a 409
+          quoting a hex id: the operator had no way to tell a busy server from a
+          broken one, and reported it as "I press start and nothing happens". */}
+      {lockedBy && (
+        <div
+          role="status"
+          className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-btn border border-destructive/50 p-3 text-body leading-relaxed text-destructive"
+        >
+          <span>
+            {lockedRunIsTerminal
+              ? `${lockedBy.technique_id ?? "The active run"} reached ${lockedBy.status}. Confirming active run ownership with the backend.`
+              : lockedRunIsStopping
+              ? `Stop requested for ${lockedBy.technique_id ?? "the active run"}. Waiting for the backend to report a terminal state.`
+              : lockedRunIsReconciling
+              ? `${lockedBy.technique_id ?? "The previous run"} no longer has a status record. Confirming current run ownership with the backend.`
+              : lockedRunIsReserved
+              ? `${lockedBy.technique_id ?? "Another run"} holds an unclaimed run admission awaiting start. Cancel it if the request was abandoned.`
+              : lockedRunIsAdmitting
+              ? `${lockedBy.technique_id ?? "Another run"} holds run admission while the server prepares it.`
+              : `${lockedBy.technique_id ?? "Another run"} is already running, and only one run may be active at a time so the events-per-second cap still means something.`}
+            {typeof lockedBy.total === "number" && lockedBy.total > 0
+              ? ` ${lockedBy.event_count ?? 0} of ${lockedBy.total} events so far.`
+              : ""}
+          </span>
+          <button
+            onClick={handleStopLocked}
+            disabled={lockedRunControlDisabled}
+            aria-busy={lockedRunControlDisabled || undefined}
+            className="inline-flex items-center rounded-btn border border-destructive/50 px-2.5 py-1.5 font-mono text-label uppercase tracking-[-0.24px] transition-colors enabled:hover:border-destructive disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {lockedRunIsTerminal
+              ? `Checking ${lockedBy.technique_id ?? "run"}…`
+              : lockedRunIsStopping
+              ? `Stopping ${lockedBy.technique_id ?? "run"}…`
+              : lockedRunIsReconciling
+              ? `Checking ${lockedBy.technique_id ?? "run"}…`
+              : lockedRunIsAdmission
+              ? `Cancel admission for ${lockedBy.technique_id ?? "run"}`
+              : `Stop the running ${lockedBy.technique_id ?? "run"}`}
+          </button>
+        </div>
+      )}
 
-      {rateError && (
-        <p id="rate-error" role="alert" className="mt-2.5 text-body text-destructive">
-          {rateError}
+      {!lockProbeComplete && !lockedBy && (
+        <p
+          data-testid="active-owner-discovery"
+          className="mt-4 text-body leading-relaxed text-text-3"
+        >
+          Confirming active run ownership with the backend. Run controls remain locked until
+          the server responds.
         </p>
       )}
 
-      {/* Pacing.
-          Its own row rather than a seventh column in the grid above: the choice
-          is only meaningful with its consequence written beside it, and a
-          sentence does not fit in a 92px cell.
 
-          Radio buttons rather than a dropdown. A dropdown shows one option and
-          hides the other, and the entire value here is the comparison: the same
-          plan is four hours one way and a fifth of a second the other. Both
-          durations are on screen at once for that reason. */}
+      {error && <div role="alert" className="mb-4 mt-4 rounded-btn border border-destructive/50 p-3 text-body text-destructive">{error}</div>}
+      <div className="mt-4 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4">
+          <section className="panel">
+            <div className="section-title"><span className="step-number">01</span><h2>Technique</h2>
+              {onChooseTechnique && <button onClick={onChooseTechnique} disabled={starting} className="disabled:opacity-50 ml-auto flex items-center gap-1 text-label text-muted-foreground hover:text-foreground">Change <ChevronRight aria-hidden="true" className="h-3.5 w-3.5" /></button>}
+            </div>
+            <div className="rounded-btn border border-selection bg-selected p-4">
+              <div className="flex items-center justify-between gap-2 font-mono text-micro text-muted-foreground">
+                <span>{technique.id} · {technique.tactics.map((t) => t.replace(/^TA\d{4}\s+/, "")).join(", ")}</span>
+                <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-signal" />
+              </div>
+              <h3 className="mb-2 mt-2 text-lg font-medium leading-snug">{technique.name}</h3>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {[...technique.attack, ...technique.logical_families].map((tag) => <span key={tag} className="rounded border border-border bg-well px-2 py-0.5 font-mono text-micro">{tag}</span>)}
+              </div>
+            </div>
+            {!technique.implemented && <p className="mt-3 text-body text-destructive">This catalog entry is not available to run yet.</p>}
+          </section>
+          <section className="panel">
+            <div className="section-title"><span className="step-number">02</span><h2>Run settings</h2></div>
+            {vendorControls}
+            <div className="mt-4 grid grid-cols-1 items-end gap-3 min-[460px]:grid-cols-[minmax(0,1fr)_100px]">
+              <div>
+                <div className="u-label mb-2">Intensity</div>
+                <div role="radiogroup" aria-label="Intensity" className="flex flex-wrap gap-1.5">
+                  {intensityChoices.map((value) => <button key={value}
+                    role="radio" aria-checked={intensity === value} onClick={() => setIntensity(value)} className="selection-button min-w-fit flex-auto whitespace-nowrap capitalize">
+                    {intensity === value && <Check aria-hidden="true" className="h-3 w-3 shrink-0 text-signal" />}{value}
+                  </button>)}
+                </div>
+              </div>
+              <div><label className="u-label mb-2 block" htmlFor="duration">Duration</label>
+                <Input id="duration" className="h-10 font-mono text-data" placeholder="preset" value={duration} onChange={(e) => setDuration(e.target.value)} />
+              </div>
+            </div>
+            <p className="mt-2 text-label text-muted-foreground">Duration sets the event-time span. Pacing controls how long the run takes.</p>
+            <details className="mt-3 rounded-btn border bg-well p-3">
+              <summary className="text-label text-muted-foreground">{intensity.charAt(0).toUpperCase() + intensity.slice(1)} preset parameters</summary>
+              <dl className="mt-3 grid grid-cols-2 gap-3 text-label">
+                {Object.entries(technique.params[intensity] ?? {}).map(([key, value]) => <div key={key} className="min-w-0">
+                  <dt className="text-muted-foreground">{key.replace(/_/g, " ")}</dt><dd className="break-words font-mono text-foreground">{typeof value === "object" ? JSON.stringify(value) : String(value)}</dd>
+                </div>)}
+              </dl>
+              <p className="mt-2 text-label text-muted-foreground">Catalog defaults. An entered duration overrides the preset span.</p>
+            </details>
+            <details className="mt-4 border-t pt-4">
+              <summary className="text-sm font-medium">Advanced settings <span className="ml-1 text-label font-normal text-muted-foreground">Seed, rate, event time</span></summary>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div><label className="u-label mb-2 block" htmlFor="seed">Seed</label>
+                  <Input id="seed" className="font-mono text-data" value={seed} onChange={(e) => setSeed(e.target.value)} /></div>
+                <div><label className="u-label mb-2 block" htmlFor="rate">Rate</label>
+                  <Input id="rate" type="number" min={1} max={epsCap} step={1} inputMode="numeric" className="font-mono text-data"
+                    placeholder={`${epsCap}/s`} title="Events per second. Blank uses the configured cap. Lower it if your collector drops events."
+                    aria-invalid={rateError ? true : undefined} aria-describedby={rateError ? "rate-error" : undefined} value={rate} onChange={(e) => setRate(e.target.value)} /></div>
+                <div><label className="u-label mb-2 block">Anchor</label>
+                  <Select value={anchor} onValueChange={(value) => setAnchor(value as AnchorChoice)}>
+                    <SelectTrigger aria-label="Event time anchor"><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="now">now</SelectItem><SelectItem value="fixed">fixed</SelectItem></SelectContent>
+                  </Select></div>
+              </div>
+              <p className="mt-2 text-label text-muted-foreground">The same seed and settings reproduce the same plan. The sending ceiling is {epsCap} events/s.</p>
+            </details>
+            {rateError && <p id="rate-error" role="alert" className="mt-3 text-body text-destructive">{rateError}</p>}
       <div className="mt-3 rounded-lg border p-3">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <span className="u-label">Pacing</span>
@@ -1309,7 +1373,7 @@ export function RunPanel({
                   <input
                     type="radio"
                     name="pace"
-                    className="h-3.5 w-3.5 accent-foreground"
+                    className="h-3.5 w-3.5 accent-signal"
                     checked={pace === choice}
                     onChange={() => setPace(choice)}
                   />
@@ -1350,156 +1414,63 @@ export function RunPanel({
         </p>
       </div>
 
-      {!collector && (
-        <p className="mt-2.5 font-mono text-micro leading-relaxed text-text-3">
-          No collector configured. Sends fail closed. Connect one, or write to file.
-        </p>
-      )}
-      {/* Stated before the run, not after it. The same warning goes in the Logs
-          tab from the orchestrator, so it is present wherever the operator looks. */}
-      {collector && !sending && !toFile && (
-        <div
-          role="status"
-          className="mt-2.5 rounded-btn border border-signal/50 p-3 text-body leading-relaxed text-signal"
-        >
-          No destination selected. This run will render events and neither send nor write
-          them, and the readout will still show a rate, because it measures rendering. Turn
-          on Collector to send to {collector.host}:{collector.port}.
-        </div>
-      )}
-      {anchorNotice(anchor, sending, anchorEpoch) && (
-        <div
-          role="status"
-          className="mt-2.5 rounded-btn border border-signal/50 p-3 text-body leading-relaxed text-signal"
-        >
-          {anchorNotice(anchor, sending, anchorEpoch)}
-        </div>
-      )}
-      {toFile && (
-        <Input
-          className="mt-2.5 h-8 max-w-xs font-mono text-data"
-          value={filePath}
-          onChange={(e) => setFilePath(e.target.value)}
-        />
-      )}
 
-      {/* Another run holds the single-run lock. Stated here, beside the button it
-          disables, because the previous behaviour was a dead button and a 409
-          quoting a hex id: the operator had no way to tell a busy server from a
-          broken one, and reported it as "I press start and nothing happens". */}
-      {lockedBy && (
-        <div
-          role="status"
-          className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-btn border border-signal/50 p-3 text-body leading-relaxed text-signal"
-        >
-          <span>
-            {lockedRunIsTerminal
-              ? `${lockedBy.technique_id ?? "The active run"} reached ${lockedBy.status}. Confirming active run ownership with the backend.`
-              : lockedRunIsStopping
-              ? `Stop requested for ${lockedBy.technique_id ?? "the active run"}. Waiting for the backend to report a terminal state.`
-              : lockedRunIsReconciling
-              ? `${lockedBy.technique_id ?? "The previous run"} no longer has a status record. Confirming current run ownership with the backend.`
-              : lockedRunIsReserved
-              ? `${lockedBy.technique_id ?? "Another run"} holds an unclaimed run admission awaiting start. Cancel it if the request was abandoned.`
-              : lockedRunIsAdmitting
-              ? `${lockedBy.technique_id ?? "Another run"} holds run admission while the server prepares it.`
-              : `${lockedBy.technique_id ?? "Another run"} is already running, and only one run may be active at a time so the events-per-second cap still means something.`}
-            {typeof lockedBy.total === "number" && lockedBy.total > 0
-              ? ` ${lockedBy.event_count ?? 0} of ${lockedBy.total} events so far.`
-              : ""}
-          </span>
-          <button
-            onClick={handleStopLocked}
-            disabled={lockedRunControlDisabled}
-            aria-busy={lockedRunControlDisabled || undefined}
-            className="inline-flex items-center rounded-btn border border-signal/50 px-2.5 py-1.5 font-mono text-label uppercase tracking-[-0.24px] transition-colors enabled:hover:border-signal disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {lockedRunIsTerminal
-              ? `Checking ${lockedBy.technique_id ?? "run"}…`
-              : lockedRunIsStopping
-              ? `Stopping ${lockedBy.technique_id ?? "run"}…`
-              : lockedRunIsReconciling
-              ? `Checking ${lockedBy.technique_id ?? "run"}…`
-              : lockedRunIsAdmission
-              ? `Cancel admission for ${lockedBy.technique_id ?? "run"}`
-              : `Stop the running ${lockedBy.technique_id ?? "run"}`}
-          </button>
-        </div>
-      )}
-
-      {!lockProbeComplete && !lockedBy && (
-        <p
-          data-testid="active-owner-discovery"
-          className="mt-4 text-body leading-relaxed text-text-3"
-        >
-          Confirming active run ownership with the backend. Run controls remain locked until
-          the server responds.
-        </p>
-      )}
-
-      {/* run controls, in the machine voice: the primary states the destination */}
-      <div className="mt-4 flex flex-wrap gap-3">
-        <button
-          onClick={handleStart}
-          disabled={!canRun}
-          className="inline-flex items-center rounded-btn bg-primary px-5 py-2.5 font-mono text-label uppercase tracking-[-0.24px] text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {destinationLabel}
-        </button>
-        <button
-          onClick={handleStop}
-          disabled={!running}
-          className="inline-flex items-center rounded-btn border px-5 py-2.5 font-mono text-label uppercase tracking-[-0.24px] text-foreground transition-colors hover:border-muted-foreground disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          Stop run
-        </button>
-      </div>
-
-      {error && (
-        <div className="mt-4 rounded-btn border border-destructive/50 p-3 text-body text-destructive">
-          {error}
-        </div>
-      )}
-
-      <SignalReadout
-        eps={eps}
-        cap={epsCap}
-        capApplies={running ? runSending : sending}
-        samples={samples}
-        windowSeconds={Math.round((SAMPLE_WINDOW * SAMPLE_MS) / 1000)}
-        pct={pct}
-        running={running}
-        count={count}
-        total={total}
-        elapsedLabel={elapsed}
-      />
-
-      {/* live stream: the mock's event stream, an outlined canvas card. Emphasis
-          inside a line is brightness only: header bone, extension gray. */}
-      <div className="mt-6 rounded-lg border bg-background p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="u-label">Event stream · {vendor}</span>
-          <span className="font-mono text-label uppercase tracking-[-0.24px] text-text-4">
-            tail · last {MAX_VISIBLE}
-          </span>
-        </div>
-        <div
-          ref={logRef}
-          className="scroll-thin h-[132px] overflow-y-auto font-mono text-data leading-[1.7] text-text-3"
-        >
-          {linesRef.current.length === 0 ? (
-            <div className="grid h-full place-items-center text-text-4">
-              {running ? "waiting for events…" : "Streamed CEF appears here on run."}
+          </section>
+          <section className="panel">
+            <div className="section-title"><span className="step-number">03</span><h2>Output</h2></div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className={cn("flex items-center justify-between gap-3 rounded-btn border p-3 text-body", sending && "border-selection bg-selected")}>
+                Collector<Switch checked={sendToCollector} onCheckedChange={setSendChoice} disabled={!collector} />
+              </label>
+              <label className={cn("flex items-center justify-between gap-3 rounded-btn border p-3 text-body", toFile && "border-selection bg-selected")}>
+                File<Switch checked={toFile} onCheckedChange={setToFile} />
+              </label>
             </div>
-          ) : (
-            linesRef.current.map((line, i) => <CefLine key={i} line={line} className="truncate" />)
-          )}
+            <p className="mt-3 break-all font-mono text-data">{outputSummary}</p>
+            <p className="mt-2 text-label text-muted-foreground">Every run records a manifest. Collector and file output can be enabled together.</p>
+            {toFile && <div className="mt-3"><label htmlFor="file-path" className="u-label mb-2 block">Output file name</label>
+              <Input id="file-path" className="font-mono text-data" value={filePath} onChange={(e) => setFilePath(e.target.value)} />
+              <p className="mt-2 text-label text-muted-foreground">Files go in the server’s output directory. The resolved path appears with the run.</p></div>}
+            {!collector && <p className="mt-3 text-label text-muted-foreground">No collector configured. Sends fail closed. Connect one, or write to file.</p>}
+            {onConfigureCollector && <button onClick={onConfigureCollector} disabled={starting} className="quiet-button mt-3">{collector ? "Edit collector" : "Configure collector"}<ChevronRight aria-hidden="true" className="h-3.5 w-3.5" /></button>}
+            {collector && !sending && !toFile && <div role="status" className="mt-3 rounded-btn border border-destructive/50 p-3 text-body text-destructive">
+              No destination selected. This run will render events and neither send nor write
+              them, and the readout will still show a rate, because it measures rendering. Turn
+              on Collector to send to {collector.host}:{collector.port}.
+            </div>}
+            {anchorNotice(anchor, sending, anchorEpoch) && <div role="status" className="mt-3 rounded-btn border border-destructive/50 p-3 text-body text-destructive">{anchorNotice(anchor, sending, anchorEpoch)}</div>}
+          </section>
         </div>
-      </div>
-
+        <div className="min-w-0 space-y-4">
+          {hasResult && <section aria-label="Run result" className="min-w-0">
+            <div className="panel">
+              <h2 className="text-sm font-medium">{running ? "Active run" : "Latest run evidence"}</h2>
+              <p className="mt-2 break-words font-mono text-label">{resultTechnique} · {vendorShortLabel(resultVendor)}</p>
+              {!remoteManifest && runDraft && <p data-testid="run-destination" className="mt-2 break-all text-label text-muted-foreground">
+                {runDraft.body.no_send ? "No send" : `${runDraft.body.collector?.host}:${runDraft.body.collector?.port} · ${runDraft.body.collector?.transport.toUpperCase()}`}
+                {runDraft.body.to_file ? ` · File: ${runDraft.outputPath ?? (manifest?.transport === "file" ? manifest.target : "awaiting resolved path")}` : ""}
+              </p>}
+              {draftChanged && <p role="status" className="mt-3 border-t pt-3 text-label text-muted-foreground">The draft has changed. Run evidence retains its original technique, profile, and destination.</p>}
+            </div>
+            <SignalReadout eps={remoteManifest ? 0 : eps} cap={typeof manifest?.rate === "number" ? manifest.rate : runDraft?.body.rate ?? epsCap}
+              capApplies={manifest ? ["udp", "tcp", "tls"].includes(manifest.transport) : runDraft ? !runDraft.body.no_send : runSending}
+              samples={remoteManifest ? [] : samples} windowSeconds={Math.round((SAMPLE_WINDOW * SAMPLE_MS) / 1000)} pct={manifest?.planned_event_count ? Math.min(100, Math.round(manifest.event_count / manifest.planned_event_count * 100)) : pct}
+              running={running} count={manifest?.event_count ?? count} total={manifest?.planned_event_count ?? total}
+              elapsedLabel={remoteManifest ? (Number.isFinite(manifestElapsed) ? fmtDur(manifestElapsed) : "Unknown") : elapsed}
+              rateAvailable={!remoteManifest} />
+            {!remoteManifest && <div className="rounded-lg border bg-well p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="u-label">Event stream · {runDraft?.body.vendor ?? resultVendor}</span>
+                <span className="font-mono text-micro text-muted-foreground">last {MAX_VISIBLE}</span>
+              </div>
+              <div ref={logRef} tabIndex={0} aria-label="Event stream" className="scroll-thin h-40 overflow-auto font-mono text-data leading-[1.7] text-text-3">
+                {linesRef.current.length === 0 ? <div className="text-label text-muted-foreground">{running ? "Waiting for events…" : "No streamed events captured in this browser."}</div>
+                  : linesRef.current.map((line, i) => <CefLine key={i} line={line} className="whitespace-pre" />)}
+              </div>
+            </div>}
       {/* manifest */}
       {manifest && (
-        <div className="mt-4 rounded-lg bg-card p-6">
+        <div className="mt-4 rounded-lg border bg-card p-4">
           <div className="mb-4 flex items-center gap-2 text-body">
             {manifest.status === undefined || manifest.status === "done" ? (
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-muted-foreground">
@@ -1512,7 +1483,7 @@ export function RunPanel({
           </div>
           {/* Audit fields. Two columns is the floor: these are short mono values
               and one column per row would make a seven-field manifest a scroll. */}
-          <div className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 xl:grid-cols-2">
             {[
               [
                 "events",
@@ -1521,6 +1492,8 @@ export function RunPanel({
                   : manifest.event_count,
               ],
               ["status", manifest.status ?? "done"],
+              ["technique", manifest.technique_id],
+              ["profile", typeof manifest.vendor === "string" ? vendorShortLabel(manifest.vendor) : resultVendor],
               ["seed", manifest.seed],
               ["intensity", manifest.intensity],
               ["use case", manifest.ndr_uc],
@@ -1534,7 +1507,7 @@ export function RunPanel({
                 data-testid={k === "events" ? "manifest-events" : undefined}
               >
                 {k}
-                <b className="mt-0.5 block font-mono text-data font-normal normal-case tracking-normal text-foreground">
+                <b className="mt-0.5 block break-all font-mono text-data font-normal normal-case tracking-normal text-foreground">
                   {String(v)}
                 </b>
               </div>
@@ -1545,6 +1518,11 @@ export function RunPanel({
           )}
         </div>
       )}
+
+          </section>}
+          <TechniquePreview technique={technique} vendor={vendor} preview={preview} pending={previewPending} />
+        </div>
+      </div>
     </div>
   );
 }

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { filterTechniques, groupByTactic, logTypeOf, logTypesOf } from "@/lib/catalogView";
 import type { Technique } from "@/lib/api";
@@ -70,10 +70,10 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
         <input
           type="text"
           aria-label="Filter techniques"
-          placeholder="id, name, use case, ATT&CK"
+          placeholder="Search by name, ID, use case, or ATT&CK"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full rounded-btn border bg-transparent px-3 py-2 font-mono text-label tracking-[-0.24px] placeholder:uppercase placeholder:text-text-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="w-full rounded-btn border bg-well px-3 py-2 text-body placeholder:text-text-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </div>
 
@@ -86,12 +86,9 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
               onClick={() => toggleLogType(value)}
               aria-pressed={on}
               className={cn(
-                // An active filter is a control state, not live data, so it never
-                // takes the signal color: it recesses to the canvas like the
-                // active vendor segment.
-                "rounded-btn border px-1.5 py-0.5 font-mono text-micro uppercase tracking-[-0.24px] transition-colors",
+                "rounded-btn border px-2.5 py-1.5 text-label transition-colors",
                 on
-                  ? "border-muted-foreground bg-background text-foreground"
+                  ? "border-selection bg-selected text-foreground"
                   : "text-text-4 hover:text-foreground",
               )}
             >
@@ -111,7 +108,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
         {groups.map((group) => {
           const open = !collapsed.has(group.tactic);
           return (
-            <div key={group.tactic} className="mb-1">
+            <div key={group.tactic} className="mb-4">
               <button
                 onClick={() => toggleGroup(group.tactic)}
                 aria-expanded={open}
@@ -135,16 +132,16 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
                       aria-current={sel ? "true" : undefined}
                       onClick={() => onSelect(t)}
                       className={cn(
-                        "relative grid w-full grid-cols-[1fr_auto] items-center gap-x-2.5 gap-y-1 rounded-btn border-b border-elev py-3 pl-6 pr-2.5 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        sel && "bg-secondary",
+                        "relative grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1 rounded-btn border border-transparent py-3 pl-6 pr-2.5 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        sel && "border-selection bg-selected",
                       )}
                     >
                       {sel && (
-                        <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded bg-foreground" />
+                        <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded bg-signal" />
                       )}
                       <span className="col-start-1 row-start-1 text-body">{t.name}</span>
                       <span className="col-start-2 row-start-1 justify-self-end font-mono text-micro text-text-4">
-                        {t.attack[0] ?? ""}
+                        {sel && <Check aria-hidden="true" className="mb-1 ml-auto h-3.5 w-3.5 text-signal" />}{t.attack[0] ?? ""}
                       </span>
                       <span className="col-start-1 row-start-2 font-mono text-label uppercase tracking-[-0.24px] text-text-4">
                         {t.id} · {logTypeOf(t)}

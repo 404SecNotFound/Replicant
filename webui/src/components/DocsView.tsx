@@ -142,8 +142,8 @@ export function DocsView() {
             disabled={!page.available}
             aria-current={page.id === current ? "true" : undefined}
             className={cn(
-              "whitespace-nowrap rounded-md px-2.5 py-2 text-left text-body transition-colors hover:bg-secondary disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              page.id === current && "bg-secondary",
+              "whitespace-nowrap rounded-md border border-transparent px-2.5 py-2 text-left text-body transition-colors hover:bg-secondary disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              page.id === current && "border-selection bg-selected",
             )}
           >
             {page.title}
@@ -151,7 +151,7 @@ export function DocsView() {
         ))}
       </nav>
 
-      <article className="min-h-0 flex-1 overflow-y-auto scroll-thin px-4 py-5 sm:px-8 sm:py-6">
+      <article className="min-w-0 min-h-0 flex-1 overflow-y-auto scroll-thin px-4 py-5 sm:px-8 sm:py-6">
         {error && (
           <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-body text-destructive">
             {error}

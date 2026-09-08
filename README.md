@@ -17,7 +17,7 @@ Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS
 
 <br />
 
-<img src="docs/images/webui-emitter.png" alt="Replicant web UI: the technique catalog grouped by ATT&CK tactic with a filter box and log-type toggles, beside the selected technique's detail panel and its signal path diagram" width="900" />
+<img src="docs/images/webui-emitter.jpg" alt="Replicant's silver-and-red workspace: persistent navigation, a selected periodic C2 technique, firewall profile and intensity controls, and a signal preview with real plan estimates" width="900" />
 
 <sub>Every technique carries its detection use case, the fields it holds constant, the fields it varies, and the shape of the signal a rule has to catch.</sub>
 
@@ -321,11 +321,13 @@ The launch token is printed on startup, persists in `~/.config/replicant/web-tok
 
 The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser. Because it is a real PTY, it is **off by default** whenever the bind address is not loopback; `--enable-terminal` turns it back on. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
 
-At 24 techniques the left rail is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, and ATT&CK technique id at the same time, so whichever identifier your detection backlog happens to use will find the entry. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
+At 24 techniques the Techniques library is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, and ATT&CK technique id at the same time, so whichever identifier your detection backlog happens to use will find the entry. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
+
+<img src="docs/images/webui-techniques.jpg" alt="The technique library with its search box, log-type filters, and expandable ATT&CK tactic groups" width="900" />
 
 The vendor selector is locked from the moment run admission is requested and
 while a locally started or server-reported run is active. Navigation also stays
-on the Emitter during admission, so the component receiving the response cannot
+on the Run workspace during admission, so the component receiving the response cannot
 be detached. Before the potentially expensive plan preview, the browser submits
 a client-generated idempotency key to `POST /api/run-admissions` and waits for
 the server to acknowledge a `reserved` owner. `POST /api/runs` claims that same
@@ -352,15 +354,15 @@ keeps the previous owner locked while it reconciles the current active owner.
 An early Stop cannot be cleared between worker scheduling and entry, and an SSE
 stream remains open until its terminal item has been published to that reader.
 
-The **Docs** tab renders the maintained reference material in `docs/` in the
+The **Documentation** view renders the maintained reference material in `docs/` in the
 browser: the run-manifest contract, three vendor CEF references, and two catalog
 expansion research notes. Those files ship with the repository rather than the
 installed package, so the tab is populated from a git checkout or an editable
 install and says so plainly if they are absent.
 
-<img src="docs/images/webui-docs.png" alt="The Docs tab rendering the FortiGate CEF reference in the browser, with its heading structure, the CEF header format code block, and the field reference table" width="900" />
+<img src="docs/images/webui-docs.jpg" alt="The Documentation view with the FortiGate CEF reference selected, showing its safety context, CEF header format, and field reference table" width="900" />
 
-The run form exposes the event-time anchor as a visible control, `now` or `fixed`, defaulting to `now` for a live send and `fixed` for file output, and warns before the run if a live send is about to go out with a fixed anchor. See [Event times, and when to override the anchor](#event-times-and-when-to-override-the-anchor) for why that matters.
+Advanced settings expose the event-time anchor as a control, `now` or `fixed`, defaulting to `now` for a live send and `fixed` for file output, and warns before the run if a live send is about to go out with a fixed anchor. See [Event times, and when to override the anchor](#event-times-and-when-to-override-the-anchor) for why that matters.
 
 To run it as a service, `scripts/replicant-web.service` is a systemd unit template. Edit the user and the two paths at the top, then:
 
@@ -377,15 +379,17 @@ The banner prints the token only when it is attached to a terminal. Under system
 
 A run streams live CEF while it emits, plots the emission rate, and updates a manifest that was written before emission began. The readout says `uncapped` here because this run has no collector: the events-per-second cap governs sending, so a dry run or a file-only run is not throttled and the rate goes as fast as the machine allows. Point the same run at a collector and the readout shows `cap 2000` instead.
 
-<img src="docs/images/webui-run.png" alt="A finished run in the web UI's war-room frame: metric tiles showing 108,000 of 108,000 events emitted, the uncapped emission rate with an instrumented sparkline, elapsed time, and the full progress track" width="900" />
+<img src="docs/images/webui-run.jpg" alt="A completed no-send DNS tunneling run: 108,000 of 108,000 events emitted, an uncapped rate chart, elapsed time, the CEF stream, and confirmation that the manifest was written" width="900" />
 
 The Terminal tab, when enabled, runs the Rich menu inside the browser:
 
-<img src="docs/images/webui-terminal.png" alt="The embedded terminal tab running the Rich menu, showing the technique table and the technique, scenario, connection, vendor, seed, and quit prompts" width="900" />
+<img src="docs/images/webui-terminal.jpg" alt="The embedded Terminal view running the Rich menu, with all 24 techniques and the technique, scenario, connection, vendor, seed, and quit prompts" width="900" />
 
-The UI is deliberately dark-only: a terminal war room built to sit beside a dark SIEM console. Machine values, labels, and status tags speak in JetBrains Mono; human sentences and hero numerics in Geist; and the two chromatic colors, signal orange and metric green, are reserved for live data and never appear on buttons, navigation, or headings. Every contrast pair was measured on the rendered page, not on the token table. The design contract is `docs/webui-factory-design.md`.
+The UI uses charcoal surfaces, silver text, and saturated red actions and selection outlines. Geist carries interface labels and prose; JetBrains Mono carries technical values. The run workspace separates technique selection, settings, and output, with an adjacent signal preview and on-demand references. Navigation and profile changes retain draft settings and completed-run evidence. The design contract is [the silver-and-red design](docs/webui-silver-red-design.md).
 
-Below 1024px the fixed-viewport shell becomes an ordinary scrolling page and the left rail becomes a disclosure panel labelled with the armed technique, so the run stage is not squeezed into a few hundred pixels on a laptop or a tablet. Wide content, a long CEF line or a vendor reference table, scrolls inside its own container rather than dragging the page sideways.
+Below 1024px the page scrolls normally, the workspace stacks, and navigation becomes a Menu disclosure. Wide CEF lines and reference tables scroll inside their own containers.
+
+<img src="docs/images/webui-mobile.jpg" alt="The run workspace at 360 pixels wide, with a Menu disclosure and stacked technique, profile, intensity, and duration controls" width="360" />
 
 The frontend is React, Vite, TypeScript, and Tailwind with shadcn-style components.
 
@@ -513,7 +517,8 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 - **Catalog expansion (complete):** the catalog grew from 11 techniques to 24 (REP-012 through REP-024), each anchored to a peer-reviewed detection paper with measured results rather than to a plausible guess. Added the `dns:dns-response` render path on all three vendors, which also makes fast-flux and DNS TTL techniques possible later, and a dedicated inbound-scanner entity pool. Several new entries are the graded, harder counterpart of an existing one, and techniques whose detection depends on separating a signal from a look-alike now emit the look-alike as well.
 - **Web UI access and navigation (complete):** the UI serves on a fixed port and can bind an address the rest of the segment can reach, with a persistent token, an httpOnly session cookie, a Host allowlist that follows the bind address, and the embedded terminal off by default once the bind is not loopback. The left rail is grouped by ATT&CK tactic with a filter box and log-type toggles, a Docs tab renders the vendor CEF references in the browser, and the event-time anchor is a visible control in the run form.
 - **Light theme and responsive layout (complete, light theme since removed):** the web UI briefly shipped a measured light palette alongside the dark one; the Factory redesign below made the UI dark-only and removed it. The responsive half survives: below 1024px the fixed-viewport shell becomes an ordinary scrolling page and the left rail becomes a disclosure panel; wide content such as CEF samples and the reference tables scrolls inside its own container rather than pushing the page sideways.
-- **Factory redesign (complete):** the web UI's visual system is the archived dark-era Factory design, "terminal war room at midnight": Geist and JetBrains Mono (both OFL, self-hosted with their licenses), the #101010/#ee6018 palette on a single dark theme, weight 400 everywhere, no gradients or shadows, chromatic color reserved for live data, and the run panel rebuilt as a dashboard frame with an instrumented sparkline. Design contract: `docs/webui-factory-design.md`.
+- **Silver-and-red workspace (complete):** persistent navigation, a three-step run form, separate technique library and collector view, plan and CEF previews, readable silver text, saturated red selections, and retained drafts and run evidence. Design contract: `docs/webui-silver-red-design.md`.
+- **Factory redesign (complete, superseded):** the previous web UI visual system was the archived dark-era Factory design, "terminal war room at midnight": Geist and JetBrains Mono (both OFL, self-hosted with their licenses), the #101010/#ee6018 palette on a single dark theme, weight 400 everywhere, no gradients or shadows, chromatic color reserved for live data, and the run panel rebuilt as a dashboard frame with an instrumented sparkline. Design contract: `docs/webui-factory-design.md`.
 - **Roadmap 2026-09 executed (v0.10.0):** the five-persona roadmap in [`docs/roadmap-2026-09.md`](docs/roadmap-2026-09.md) shipped its 13 buildable items, including the per-technique validation-transferability property, the per-run analyst validation card, the statistical fidelity suite, two structural false-positive foils, a CLI-first container image, the first reference detection spec, and the destination-conditional synthetic marker. The three remaining items are gated on the lab test below.
 - **Next (hard launch gate):** the LogRhythm lab test. Every timing and delivery claim above is loopback-only; the headline "exercises the matching detection" has never been observed end to end. Until the first observed rule fire, the honest posture is "generates vendor-accurate CEF, detection-unverified." Nothing that adds surface ships before the pipe is proven. Decision record: [`docs/roadmap-2026-09.md`](docs/roadmap-2026-09.md).
 - **Community ask:** the Palo Alto and Check Point profiles stay beta until their `[Unverified]` references are confirmed against a live appliance. FortiGate is already the verified oracle; clearing the other two needs real hardware, so it is an open contribution path for anyone who runs those platforms.

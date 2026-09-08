@@ -569,6 +569,7 @@ describe("RunPanel single-run lock", () => {
     expect(screen.queryByRole("button", { name: /checking REP-004/i })).toBeNull();
     expect(screen.getByText(/Run complete.*manifest written/i)).toBeVisible();
     expect(screen.getByTestId("manifest-events")).toHaveTextContent("900 / 900");
+    expect(screen.getByText("Events emitted").parentElement).toHaveTextContent("900");
   });
 
   it("retains a restored lock through transient status and active-probe failures", async () => {

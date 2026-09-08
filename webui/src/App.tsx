@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { lazy, Suspense, useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Activity, BookOpen, ChevronDown, Layers, List, Radio, Terminal, type LucideIcon } from "lucide-react";
 import { ConnectionCard } from "@/components/ConnectionCard";
 import { CatalogTable } from "@/components/CatalogTable";
 import { RunPanel, type RunAdmission } from "@/components/RunPanel";
-import { TechniqueDetail } from "@/components/TechniqueDetail";
+import { VendorPicker } from "@/components/VendorPicker";
 import { cn } from "@/lib/utils";
 import {
   getActiveRun,
@@ -50,7 +50,7 @@ const LogsView = lazy(() =>
   import("@/components/LogsView").then((m) => ({ default: m.LogsView })),
 );
 
-type Tab = "emitter" | "docs" | "logs" | "terminal";
+type Tab = "emitter" | "techniques" | "collector" | "docs" | "logs" | "terminal";
 const ACTIVE_DISCOVERY_RETRY_MS = 1000;
 
 export default function App() {
@@ -64,10 +64,17 @@ export default function App() {
   const [runAdmission, setRunAdmission] = useState<RunAdmission | null>(null);
   const [selected, setSelected] = useState<Technique | null>(null);
   const [tab, setTab] = useState<Tab>("emitter");
-  // Below the lg breakpoint the left rail is a disclosure rather than a column.
-  // Closed by default there: the run stage is what the operator came for, and a
-  // 24-entry technique list above it would push it off the first screen.
+  // Navigation becomes a disclosure on narrow screens.
   const [railOpen, setRailOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!mainRef.current) return;
+    mainRef.current.scrollTop = 0;
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    mainRef.current.focus({ preventScroll: true });
+  }, [tab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -161,8 +168,6 @@ export default function App() {
   if (
     !catalog
     || !config
-    || catalog.vendor_profile !== vendor
-    || (ownerVendor !== null && ownerVendor !== vendor)
   ) {
     return (
       <div className="flex h-screen items-center justify-center font-mono text-sm text-muted-foreground">
@@ -175,199 +180,105 @@ export default function App() {
     activeRun?.status && isTerminalStatus(activeRun.status),
   );
 
-  // The machine voice for navigation: mono, uppercase, weight 400. The active
-  // tab is a one-pixel hairline in the text color, not a bolder weight; the
-  // Factory system never reaches for bold.
-  const navItem = (id: Tab, label: string) => {
+  const catalogReady = catalog.vendor_profile === vendor
+    && (ownerVendor === null || ownerVendor === vendor);
+  const vendorLocked = Boolean(activeRun?.run_id || runAdmission || activeRunDiscoveryPending);
+  const vendorLockReason = activeRun?.run_id
+    ? activeRunIsTerminal
+      ? `Vendor profile remains locked while Replicant confirms the active owner after ${activeRun.technique_id ?? "the run"} reached ${activeRun.status}.`
+      : activeRun.status === "reserved" || activeRun.status === "admitting"
+        ? `Vendor profile is locked while ${activeRun.technique_id ?? "a run"} holds run admission under ${vendorShortLabel(activeRun.vendor ?? vendor)}. Cancel that admission before switching profiles.`
+        : `Vendor profile is locked while ${activeRun.technique_id ?? "a run"} is running under ${vendorShortLabel(activeRun.vendor ?? vendor)}. Stop the active run before switching profiles.`
+    : runAdmission
+      ? `Vendor profile is locked while Replicant requests admission for ${runAdmission.technique_id} under ${vendorShortLabel(runAdmission.vendor)}.`
+      : activeRunDiscoveryPending
+        ? "Vendor profile is locked while Replicant confirms active run ownership with the backend."
+        : undefined;
+
+  const navigate = (next: Tab) => {
+    if (runAdmission && next !== "emitter") return;
+    setTab(next);
+    setRailOpen(false);
+  };
+  const navItem = (id: Tab, label: string, Icon: LucideIcon) => {
     const disabledForAdmission = Boolean(runAdmission) && id !== "emitter";
-    return (
-      <button
-        onClick={() => setTab(id)}
-        disabled={disabledForAdmission}
-        title={
-          disabledForAdmission
-            ? "Wait for the pending run admission before leaving the Emitter."
-            : undefined
-        }
-        className={cn(
-          "flex h-full items-center border-b font-mono text-label uppercase tracking-[-0.24px] transition-colors disabled:cursor-wait disabled:opacity-40",
-          tab === id
-            ? "border-foreground text-foreground"
-            : "border-transparent text-text-4 enabled:hover:text-foreground",
-        )}
-      >
-        {label}
-      </button>
-    );
+    return <button onClick={() => navigate(id)} disabled={disabledForAdmission}
+      aria-current={tab === id ? "page" : undefined}
+      title={disabledForAdmission ? "Wait for the pending run admission before leaving the workspace." : undefined}
+      className={cn("relative flex w-full items-center gap-3 rounded-btn border border-transparent px-3 py-2.5 text-left text-[13px] transition-colors disabled:cursor-wait disabled:opacity-40",
+        tab === id ? "border-selection/60 bg-selected text-foreground before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:bg-signal" : "text-muted-foreground enabled:hover:bg-card enabled:hover:text-foreground")}>
+      <Icon aria-hidden="true" className={cn("h-4 w-4 shrink-0", tab === id && "text-signal")} />{label}
+    </button>;
   };
 
   return (
-    // Below lg this is an ordinary scrolling page. The fixed-viewport shell with
-    // independently scrolling panes is a desktop affordance: on a short or narrow
-    // screen it traps the run stage in a few hundred pixels with no way out.
     <div className="flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
-      {/* top bar */}
-      <header className="flex h-16 flex-none items-center justify-between gap-3 border-b px-3.5 sm:px-8">
-        <div className="flex h-full min-w-0 items-center gap-2.5">
-          <span className="font-mono text-label uppercase tracking-[0.08em]">Replicant</span>
-          {/* The environment chip is orientation, not state. It is the first thing
-              to go when the bar runs out of room. */}
-          <span className="ml-1 hidden font-mono text-micro uppercase tracking-[-0.24px] text-text-4 lg:inline">
-            lab · 10.20.0.0/16
-          </span>
-        </div>
-        <nav className="flex h-full gap-4 sm:gap-6">
-          {navItem("emitter", "Emitter")}
-          {navItem("docs", "Docs")}
-          {/* Always available. Unlike the terminal this needs no websocket and no
-              loopback bind, and it is most wanted precisely when a remote bind
-              means the operator cannot see the process's own output. */}
-          {navItem("logs", "Logs")}
-          {/* The server refuses the terminal websocket on a non-loopback bind, so
-              showing the tab there would offer a control that can only fail. */}
-          {config.terminal_enabled && navItem("terminal", "Terminal")}
-        </nav>
-        <div className="flex items-center gap-2.5 sm:gap-4">
-          <span className="flex items-center gap-2 font-mono text-micro uppercase tracking-[-0.24px] text-text-3">
-            {collector ? (
-              <>
-                {/* Bone, not orange and not green: an armed collector is a fact,
-                    not live emission and not confirmed delivery. Chromatic color
-                    is reserved for live data. */}
-                <span className="h-1.5 w-1.5 flex-none rounded-full bg-foreground" />
-                {/* The dot survives at every width; the address is what gets
-                    dropped, since the Collector card below states it in full. */}
-                <span className="hidden md:inline">
-                  {collector.host}:{collector.port} · {collector.transport}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="h-1.5 w-1.5 flex-none rounded-full bg-text-4" />
-                <span className="hidden md:inline">no collector</span>
-              </>
-            )}
-          </span>
-        </div>
+      <a href="#workspace" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded focus:bg-card focus:p-3">Skip to workspace</a>
+      <header className="flex h-16 flex-none items-center gap-3 border-b bg-background px-4 sm:px-6">
+        <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-lg border bg-card text-signal"><Activity className="h-5 w-5" /></span>
+        <span className="text-lg font-medium tracking-tight">Replicant</span>
+        <span className="ml-2 hidden border-l pl-4 text-label text-muted-foreground sm:block">Synthetic telemetry workspace</span>
+        <span className="ml-auto hidden font-mono text-micro text-muted-foreground md:block">CEF · {vendorShortLabel(vendor)}</span>
+        <button onClick={() => setRailOpen((open) => !open)} aria-expanded={railOpen} aria-controls="workspace-navigation"
+          className="quiet-button ml-auto lg:hidden">Menu <ChevronDown aria-hidden="true" className={cn("h-4 w-4", railOpen && "rotate-180")} /></button>
       </header>
-
-      {tab === "emitter" ? (
-        <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[340px_minmax(0,1fr)]">
-          {/* Below lg the rail is a disclosure instead of a column. One mechanism
-              rather than the drawer-and-bottom-sheet pair the design spec sketched:
-              two mechanisms is twice the surface to keep correct for a tool that is
-              used at a desk, and the spec was written before the rail grew a filter
-              box and 24 grouped entries. Recorded in the design doc. */}
-          <button
-            type="button"
-            onClick={() => setRailOpen((open) => !open)}
-            aria-expanded={railOpen}
-            aria-controls="setup-rail"
-            className="flex items-center justify-between gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:hidden"
-          >
-            <span className="u-label">Collector and techniques</span>
-            <span className="flex items-center gap-2 font-mono text-micro text-text-3">
-              {/* Naming the selection keeps the collapsed state informative: what
-                  is armed is the one thing you lose by closing this. */}
-              {selected?.id ?? "none selected"}
-              <ChevronDown
-                className={cn("h-3.5 w-3.5 transition-transform", railOpen && "rotate-180")}
-              />
-            </span>
-          </button>
-          <aside
-            id="setup-rail"
-            className={cn(
-              "flex-col gap-6 border-b p-6 lg:flex lg:min-h-0 lg:animate-rise lg:overflow-y-auto lg:scroll-thin lg:border-b-0 lg:border-r",
-              railOpen ? "flex" : "hidden",
-            )}
-          >
-            <ConnectionCard
-              epsCap={config.eps_cap}
-              collector={collector}
-              onCollectorChange={setCollector}
-              vendor={vendor}
-              vendors={config.vendors}
-              onVendorChange={setVendor}
-              vendorChangeDisabled={Boolean(
-                activeRun?.run_id || runAdmission || activeRunDiscoveryPending
-              )}
-              vendorChangeDisabledReason={
-                activeRun?.run_id
-                  ? activeRunIsTerminal
-                    ? `Vendor profile remains locked while Replicant confirms the active owner after ${activeRun.technique_id ?? "the run"} reached ${activeRun.status}.`
-                    : activeRun.status === "reserved" || activeRun.status === "admitting"
-                      ? `Vendor profile is locked while ${activeRun.technique_id ?? "a run"} holds run admission under ${vendorShortLabel(activeRun.vendor ?? vendor)}. Cancel that admission before switching profiles.`
-                      : `Vendor profile is locked while ${activeRun.technique_id ?? "a run"} is running under ${vendorShortLabel(activeRun.vendor ?? vendor)}. Stop the active run before switching profiles.`
-                  : runAdmission
-                    ? `Vendor profile is locked while Replicant requests admission for ${runAdmission.technique_id} under ${vendorShortLabel(runAdmission.vendor)}.`
-                    : activeRunDiscoveryPending
-                      ? "Vendor profile is locked while Replicant confirms active run ownership with the backend."
-                      : undefined
-              }
-            />
-            <CatalogTable
-              key={catalog.vendor_profile}
-              techniques={catalog.techniques}
-              selectedId={selected?.id ?? null}
-              onSelect={setSelected}
-            />
-          </aside>
-          <main className="animate-rise px-4 py-5 sm:px-7 sm:py-6 lg:min-h-0 lg:overflow-y-auto lg:scroll-thin [animation-delay:0.1s]">
-            {selected && <TechniqueDetail technique={selected} vendor={vendor} />}
-            <RunPanel
-              technique={selected}
-              defaultSeed={config.default_seed}
-              collector={collector}
-              vendor={vendor}
-              epsCap={config.eps_cap}
-              anchorEpoch={config.anchor_epoch}
-              initialActiveRun={activeRun}
-              onActiveRunChange={setActiveRun}
-              onActiveRunDiscoveryChange={setActiveRunDiscoveryPending}
-              onRunAdmissionChange={setRunAdmission}
-            />
-          </main>
-        </div>
-      ) : tab === "docs" ? (
-        <div className="flex min-h-[420px] flex-1 lg:min-h-0">
-          <Suspense
-            fallback={
-              <div className="grid h-full w-full place-items-center text-sm text-muted-foreground">
-                Loading docs…
-              </div>
-            }
-          >
-            <DocsView />
-          </Suspense>
-        </div>
-      ) : tab === "logs" ? (
-        <div className="flex min-h-[420px] flex-1 p-3 sm:p-4 lg:min-h-0">
-          <Suspense
-            fallback={
-              <div className="grid h-full w-full place-items-center text-sm text-muted-foreground">
-                Loading logs…
-              </div>
-            }
-          >
-            <LogsView />
-          </Suspense>
-        </div>
-      ) : (
-        <div className="flex min-h-[420px] flex-1 p-3 sm:p-4 lg:min-h-0">
-          <div className="h-full w-full overflow-hidden rounded-lg border bg-card p-2">
-            <Suspense
-              fallback={
-                <div className="grid h-full place-items-center text-sm text-muted-foreground">
-                  Loading terminal…
-                </div>
-              }
-            >
-              <TerminalView />
-            </Suspense>
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <aside id="workspace-navigation" className={cn("flex-none flex-col border-b bg-background p-3 lg:flex lg:w-[192px] lg:border-b-0 lg:border-r lg:py-6", railOpen ? "flex" : "hidden")}>
+          <div className="mb-4 px-3 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Workspace</div>
+          <nav aria-label="Main navigation" className="space-y-1">
+            {navItem("emitter", "Run workspace", Activity)}
+            {navItem("techniques", "Techniques", Layers)}
+            {navItem("logs", "Process logs", List)}
+            {navItem("docs", "Documentation", BookOpen)}
+            {config.terminal_enabled && navItem("terminal", "Terminal", Terminal)}
+          </nav>
+          <div className="mt-6 border-t pt-4 lg:mt-auto">
+            {navItem("collector", "Collector", Radio)}
+            <p className="mt-2 break-all px-3 font-mono text-micro leading-relaxed text-muted-foreground">
+              {collector ? `${collector.host}:${collector.port} · ${collector.transport.toUpperCase()}` : "Not configured"}
+            </p>
+            <p className="mt-2 px-3 text-label text-muted-foreground">{collector ? "Receipt remains unconfirmed." : "Runs default to no send."}</p>
           </div>
-        </div>
-      )}
+        </aside>
+        <main ref={mainRef} id="workspace" tabIndex={-1} className="min-w-0 flex-1 p-4 outline-none sm:p-6 lg:overflow-y-auto lg:scroll-thin xl:p-8">
+          {/* Keep drafts, evidence, and admission ownership mounted across navigation
+              and profile loading. Lazy auxiliary views still poll only when open. */}
+          <section hidden={tab !== "emitter"} aria-label="Run workspace">
+            {!catalogReady && <p role="status" className="mb-4 text-muted-foreground">Loading the {vendorShortLabel(vendor)} catalog…</p>}
+            <RunPanel technique={catalogReady ? selected : null} defaultSeed={config.default_seed}
+              collector={collector} vendor={vendor} epsCap={config.eps_cap} anchorEpoch={config.anchor_epoch}
+              initialActiveRun={activeRun} onActiveRunChange={setActiveRun}
+              onActiveRunDiscoveryChange={setActiveRunDiscoveryPending} onRunAdmissionChange={setRunAdmission}
+              onChooseTechnique={() => navigate("techniques")} onConfigureCollector={() => navigate("collector")}
+              vendorControls={<VendorPicker vendor={vendor} vendors={config.vendors} onVendorChange={setVendor}
+                disabled={vendorLocked} reason={vendorLockReason} />} />
+          </section>
+          <section hidden={tab !== "techniques"} className="mx-auto max-w-[1160px]">
+            <div className="mb-6"><h1 className="text-3xl font-medium tracking-tight">Technique library</h1>
+              <p className="mt-2 text-body text-muted-foreground">Choose the behavior you want to exercise. Each technique includes its signal, field coverage, and detection context.</p></div>
+            <div className="panel">
+              <CatalogTable techniques={catalogReady ? catalog.techniques : []} selectedId={selected?.id ?? null}
+                onSelect={(technique) => { setSelected(technique); navigate("emitter"); }} />
+            </div>
+          </section>
+          <section hidden={tab !== "collector"} className="mx-auto max-w-[680px]">
+            <h1 className="text-3xl font-medium tracking-tight">Collector connection</h1>
+            <p className="mb-6 mt-2 text-body text-muted-foreground">Set your syslog destination and send a synthetic test log. Confirm receipt and parsing in your SIEM.</p>
+            <ConnectionCard showVendorPicker={false} epsCap={config.eps_cap} collector={collector}
+              onCollectorChange={setCollector} vendor={vendor} vendors={config.vendors} onVendorChange={setVendor} />
+            <button className="quiet-button mt-4" onClick={() => navigate("emitter")}>Back to run workspace</button>
+          </section>
+          {tab === "docs" && <div className="flex min-h-[600px] lg:h-full lg:min-h-0">
+            <Suspense fallback={<p className="text-muted-foreground">Loading docs…</p>}><DocsView /></Suspense>
+          </div>}
+          {tab === "logs" && <div className="flex min-h-[500px] lg:h-full lg:min-h-0">
+            <Suspense fallback={<p className="text-muted-foreground">Loading logs…</p>}><LogsView /></Suspense>
+          </div>}
+          {tab === "terminal" && config.terminal_enabled && <div className="h-[70vh] min-w-0 overflow-hidden rounded-lg border bg-card p-2 lg:h-full">
+            <Suspense fallback={<p className="text-muted-foreground">Loading terminal…</p>}><TerminalView /></Suspense>
+          </div>}
+        </main>
+      </div>
     </div>
   );
 }

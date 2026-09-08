@@ -33,6 +33,17 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ### Changed
 
+- **Silver-and-red web workspace.** Charcoal panels and silver reading text now
+  use saturated red actions and selections. A persistent sidebar separates the
+  technique library, collector configuration, process logs, documentation, and
+  server-permitted terminal. The run form groups technique, settings, and output
+  beside real plan estimates, CEF samples, and on-demand detection references.
+  Narrow screens use a navigation disclosure and stacked controls.
+- **Drafts and run evidence survive workspace navigation and profile changes.**
+  Completed results retain their original technique, profile, and destination.
+  File results show the server-resolved output path and remain correctly labeled
+  uncapped; stale plan estimates clear while updated settings are calculated.
+
 - **REP-019 now carries only the ATT&CK behavior its telemetry represents.** An
   internal source scanning internal targets maps to Discovery and `T1046`, not
   pre-compromise Reconnaissance and `T1595.001`.

@@ -5,57 +5,47 @@
 @tailwind utilities;
 
 /* Geist (sans) and JetBrains Mono, self-hosted, both OFL 1.1; the license texts
-   ship beside the .woff2 files in /fonts. Design system: docs/webui-factory-design.md */
+   ship beside the .woff2 files in /fonts. Design system: docs/webui-silver-red-design.md */
 @font-face{font-family:"Geist";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/geist-400.woff2") format("woff2")}
 @font-face{font-family:"Geist";font-weight:500;font-style:normal;font-display:swap;src:url("/fonts/geist-500.woff2") format("woff2")}
 @font-face{font-family:"JetBrains Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/jetbrains-mono-400.woff2") format("woff2")}
 
 @layer base {
-  /* The Factory palette: terminal war room at midnight. Dark-only by design,
-     which is why there is exactly one block here and no theme class. Values are
-     bare HSL triplets so Tailwind can compose them with an alpha; each converts
-     back to the hex named beside it (theme.test.ts holds that to be true).
-
-     Two chromatics only: signal orange for live emission and status, metric
-     green for positive live data. A connected data series counts as one
-     chromatic element, at most two per card, and neither color ever appears on
-     buttons, navigation, or headings. */
+  /* Silver reading text, true red actions and selections, charcoal surfaces.
+     HSL values round-trip to the adjacent hex values (theme.test.ts).
+     Errors and warnings use warm amber; color never carries status alone. */
   :root {
     color-scheme: dark;
-    --background: 0 0% 6.3%; /* #101010 canvas */
-    --foreground: 0 0% 93.3%; /* #eeeeee bone */
-    --card: 24 9.4% 10.4%; /* #1d1a18 raised surface */
-    --card-foreground: 0 0% 93.3%;
-    --primary: 0 0% 98%; /* #fafafa primary button fill */
-    --primary-foreground: 0 0% 6.3%;
-    --secondary: 24 9.4% 10.4%;
-    --secondary-foreground: 22.5 5.3% 70.6%; /* #b8b3b0 */
-    --muted: 24 9.4% 10.4%;
-    --muted-foreground: 18 4.1% 52.2%; /* #8a8380 */
-    --accent: 20 4.1% 29%; /* #4d4947 mid fill */
-    --accent-foreground: 0 0% 93.3%;
-    /* The palette has no red. An error is a status, and status here speaks in
-       the one signal color; the ink on it is the same canvas dark the primary
-       button uses. */
-    --destructive: 20.2 86.3% 51.4%; /* #ee6018 */
-    --destructive-foreground: 0 0% 6.3%;
-    --border: 15 3.4% 23.1%; /* #3d3a39 outline hairline */
-    --input: 15 3.4% 23.1%;
-    --ring: 18 4.1% 52.2%;
-    --radius: 10px; /* cards; buttons and nav take 3px (rounded-btn) */
-    /* signal system (custom, not part of the shadcn set) */
-    --signal: 20.2 86.3% 51.4%; /* #ee6018 live data and status only */
-    --signal-foreground: 0 0% 6.3%;
-    --metric: 105 34.6% 68.2%; /* #a0ca92 positive live data only */
-    --elev: 24 9.4% 10.4%; /* #1d1a18 doubles as the inner hairline */
-    --frame: 0 0% 5.1%; /* #0d0d0d the war-room dashboard frame */
-    --text-3: 22.5 5.3% 70.6%; /* #b8b3b0 tertiary, eyebrows */
-    --text-4: 18 4.1% 52.2%; /* #8a8380 muted */
-    /* The recessed telemetry well (CEF tail, sample line, progress track) is
-       the canvas showing through the raised card, exactly as in the mocks. */
-    --well: 0 0% 6.3%;
-    --signal-dim: rgba(238, 96, 24, 0.12);
-    --signal-line: rgba(238, 96, 24, 0.45);
+    --background: 210.000 11.111% 7.059%; /* #101214 */
+    --foreground: 217.500 14.815% 89.412%; /* #e0e3e8 */
+    --card: 210.000 11.111% 10.588%; /* #181b1e */
+    --card-foreground: 217.500 14.815% 89.412%; /* #e0e3e8 */
+    --primary: 0.000 79.167% 47.059%; /* #d71919 */
+    --primary-foreground: 0.000 0.000% 100.000%; /* #ffffff */
+    --secondary: 210.000 13.514% 14.510%; /* #20252a */
+    --secondary-foreground: 217.500 14.815% 89.412%; /* #e0e3e8 */
+    --muted: 210.000 13.514% 14.510%; /* #20252a */
+    --muted-foreground: 216.667 11.842% 70.196%; /* #aab1bc */
+    --accent: 212.308 11.111% 22.941%; /* #343a41 */
+    --accent-foreground: 217.500 14.815% 89.412%; /* #e0e3e8 */
+    --destructive: 27.097 74.400% 75.490%; /* #efbc92 */
+    --destructive-foreground: 210.000 11.111% 7.059%; /* #101214 */
+    --border: 212.308 11.111% 22.941%; /* #343a41 */
+    --input: 213.333 9.184% 38.431%; /* #59616b */
+    --ring: 213.333 14.754% 88.039%; /* #dce0e5 */
+    --signal: 0.000 100.000% 59.412%; /* #ff3030 */
+    --signal-foreground: 0.000 0.000% 100.000%; /* #ffffff */
+    --selection: 0.000 74.502% 49.216%; /* #db2020 */
+    --selected: 0.000 32.258% 12.157%; /* #291515 */
+    --metric: 149.143 51.471% 73.333%; /* #98deba */
+    --elev: 212.308 11.111% 22.941%; /* #343a41 */
+    --frame: 210.000 14.286% 8.235%; /* #121518 */
+    --text-3: 215.294 13.821% 75.882%; /* #b9c0ca */
+    --text-4: 216.667 11.842% 70.196%; /* #aab1bc */
+    --well: 210.000 14.286% 8.235%; /* #121518 */
+    --radius: 8px;
+    --signal-dim: rgba(255, 48, 48, 0.12);
+    --signal-line: rgba(255, 48, 48, 0.45);
   }
 
   * {
@@ -64,35 +54,38 @@
 
   body {
     background-color: hsl(var(--background));
-    /* The one sanctioned image in the system (operator request): a near-black
-       circuit/topology backdrop generated to this palette, behind everything.
-       The flat scrim on top keeps every canvas-level text pair at its measured
-       ratio; the image's own brightest points are a few small orange trace
-       endpoints. Cards are opaque and unaffected. */
-    background-image:
-      linear-gradient(hsl(var(--background) / 0.4), hsl(var(--background) / 0.4)),
-      url("/war-room-bg.webp");
-    background-size: cover;
-    background-position: center top;
-    background-attachment: fixed;
     color: hsl(var(--foreground));
     font-family: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
     font-feature-settings: "calt" 1;
   }
 }
 
-/* The machine voice: labels, eyebrows, tags, units. Mono, uppercase, weight 400
-   (the Factory system is weight 400 everywhere, 500 at most once per screen).
-   Machine values (IPs, ports, ids, log types, status tags) take this voice;
-   a human sentence in mono is a violation. */
+/* Human-readable interface labels. Technical values opt into font-mono. */
 .u-label {
-  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-family: "Geist", system-ui, sans-serif;
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: -0.24px;
-  font-weight: 400;
+  font-weight: 500;
   color: hsl(var(--text-3));
 }
+
+@layer components {
+  .panel { @apply min-w-0 rounded-lg border bg-card p-4 sm:p-5; }
+  .section-title { @apply mb-4 flex items-center gap-3 text-sm font-medium; }
+  .step-number { @apply flex h-6 w-6 shrink-0 items-center justify-center rounded border border-selection bg-selected font-mono text-micro text-foreground; }
+  .action-button { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-btn bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors enabled:hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50; }
+  .quiet-button { @apply inline-flex min-h-9 items-center justify-center gap-2 rounded-btn border px-3 py-2 text-sm text-foreground transition-colors enabled:hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50; }
+  .selection-button { @apply flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-btn border bg-well px-3 py-2 text-sm text-muted-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+  .selection-button[aria-checked="true"] { @apply border-selection bg-selected text-foreground; }
+  .selection-button[aria-checked="false"]:hover { @apply border-muted-foreground text-foreground; }
+}
+
+button:focus-visible, summary:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+summary { cursor: pointer; }
+.compact-signal svg text { font-size: 13px; }
+[hidden] { display: none !important; }
 
 /* Thin scrollbars for the log and terminal panes. */
 .scroll-thin::-webkit-scrollbar {
@@ -153,7 +146,7 @@
   margin: 0.25em 0;
 }
 .doc-prose a {
-  color: hsl(var(--signal));
+  color: hsl(var(--foreground));
   text-decoration: underline;
   text-underline-offset: 2px;
 }
