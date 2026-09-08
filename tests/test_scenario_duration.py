@@ -50,7 +50,7 @@ SCENARIOS = load_scenario_catalog(SCENARIO_CATALOG, CATALOG)
 SETTINGS = Settings()
 TWO_HOURS = 7200
 
-# SCEN-003 is the one to assert timing on: four stages, 653 events, and no stage
+# SCEN-003 is the one to assert timing on: four stages and no stage
 # pinned to an absolute window, so the composition is free to be scaled. SCEN-001
 # carries the off-hours stage and is used below for exactly that reason.
 FREE = "SCEN-003"

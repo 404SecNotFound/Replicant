@@ -251,7 +251,7 @@ status.
 | REP-016 | DGA NXDOMAIN cluster | dns:dns-response | UC-015 | T1568.002, T1071.004 | Implemented |
 | REP-017 | Encrypted DNS (DoH) policy bypass | traffic:forward + dns:dns-query | UC-016 | T1572, T1071.004 | Implemented |
 | REP-018 | Lateral movement login chain | event:vpn + event:system + traffic:forward | UC-017 | T1021, T1078, T1550 | Implemented |
-| REP-019 | Stealth scan below rate threshold | traffic:forward deny | UC-018 | T1046, T1595.001 | Implemented |
+| REP-019 | Stealth scan below rate threshold | traffic:forward deny | UC-018 | T1046 | Implemented |
 | REP-020 | First contact with a newly registered domain | dns:dns-query | UC-019 | T1583.001, T1071 | Implemented |
 | REP-021 | Inbound perimeter scan reception | traffic:forward deny (inbound) | UC-020 | T1595.001, T1595.002 | Implemented |
 | REP-022 | Multi-stage IDS alert chain | utm:ips | UC-021 | T1595, T1190, T1071 | Implemented |
@@ -279,6 +279,11 @@ any rule score perfectly and teach you nothing, so REP-014 ships a bursty benign
 long session, REP-018 an admin star pattern against its chain, REP-022 unrelated
 alert noise around its ordered chain, and REP-024 a sanctioned proxy with an
 identical traffic shape.
+
+The current catalog contract, corrected defects, per-technique limitations, and
+remaining negative-control work are recorded in the
+[2026-09-08 catalog review](docs/catalog-review-2026-09-08.md). An objective is a
+test hypothesis, not a claim that a production detection has fired.
 
 Each technique produces a statistically shaped stream rather than flat constants. REP-001 holds the source, destination, port, and protocol constant while varying byte sizes and session identifiers on a fixed interval with jitter. REP-003 holds one source and one port while sweeping many unique destination hosts, mostly denied. REP-004 emits high-entropy query names under one synthetic parent domain with query types weighted toward TXT and NULL.
 

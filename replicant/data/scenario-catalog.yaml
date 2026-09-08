@@ -4,10 +4,10 @@
 version: 0.1.0
 scenarios:
   - id: SCEN-001
-    name: "Perimeter intrusion to exfiltration"
-    description: "External recon, then low-and-slow C2, then bulk exfil from the same host."
+    name: "Internal discovery to exfiltration"
+    description: "Internal horizontal discovery, then low-and-slow C2, then bulk exfil from the same host."
     stages:
-      - { technique_id: REP-003, label: "external recon", intensity: medium, start_offset: "0s" }
+      - { technique_id: REP-003, label: "internal discovery", intensity: medium, start_offset: "0s" }
       - { technique_id: REP-001, label: "C2 established",  intensity: low,    start_offset: "1h" }
       # REP-005 anchors to the off-hours window (00:00-06:00) of its anchor's day, so without
       # align it would emit before the recon that precedes it. "next-off-hours" advances the
@@ -29,7 +29,7 @@ scenarios:
     description: "Scanning noise, password spray, an anomalous VPN login, then an internal beacon."
     stages:
       - { technique_id: REP-009, label: "ids spike",        intensity: medium, start_offset: "0s" }
-      - { technique_id: REP-007, label: "password spray",   intensity: high,   start_offset: "30m" }
+      - { technique_id: REP-007, label: "password spray",   intensity: medium, start_offset: "30m" }
       - { technique_id: REP-011, label: "geo anomaly",      intensity: medium, start_offset: "2h" }
       - { technique_id: REP-001, label: "internal beacon",  intensity: low,    start_offset: "3h" }
     references: ["ATT&CK chain: TA0043 Recon -> TA0006 Credential Access -> TA0001 Initial Access -> TA0011 C2"]

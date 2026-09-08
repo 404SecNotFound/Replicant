@@ -28,6 +28,7 @@ legitimate thing to ask for, and it still produces a plan, a count and a manifes
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -81,10 +82,29 @@ def _post_run(tmp_path: Path, body: dict[str, object]) -> dict[str, object]:
     from replicant.web.server import create_app
 
     app = create_app(CATALOG, Settings(manifest_dir=str(tmp_path)), token="test-token")
-    client = TestClient(app, base_url="http://localhost")
-    resp = client.post("/api/runs", headers={"x-replicant-token": "test-token"}, json=body)
-    assert resp.status_code == 200, resp.text
-    return dict(resp.json())
+    with TestClient(app, base_url="http://localhost") as client:
+        resp = client.post("/api/runs", headers={"x-replicant-token": "test-token"}, json=body)
+        assert resp.status_code == 200, resp.text
+        started = dict(resp.json())
+        run_id = started["run_id"]
+        # These tests assert destination resolution, not pacing. A collector run
+        # defaults to the multi-hour plan timeline, so stop it after admission
+        # and wait for the worker before the autouse fixture replaces the shared
+        # log buffer. Returning immediately left a worker from one test able to
+        # append a warning to the next test's freshly installed buffer.
+        stopped = client.post(
+            f"/api/runs/{run_id}/stop", headers={"x-replicant-token": "test-token"}
+        )
+        assert stopped.status_code == 200 and stopped.json()["ok"] is True
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            status = client.get(
+                f"/api/runs/{run_id}", headers={"x-replicant-token": "test-token"}
+            ).json()["status"]
+            if status in {"done", "stopped", "error"}:
+                return started
+            time.sleep(0.01)
+    pytest.fail(f"web run {run_id} did not finish before the test log buffer was reset")
 
 
 COLLECTOR = {"host": "127.0.0.1", "port": 9, "transport": "udp"}
