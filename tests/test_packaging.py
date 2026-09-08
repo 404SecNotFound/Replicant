@@ -40,7 +40,11 @@ PYPROJECT = PACKAGE.parent / "pyproject.toml"
 
 
 def test_catalogs_are_inside_the_package() -> None:
-    for path in (resources.TECHNIQUE_CATALOG, resources.SCENARIO_CATALOG):
+    for path in (
+        resources.TECHNIQUE_CATALOG,
+        resources.SCENARIO_CATALOG,
+        resources.DETECTION_CONTRACTS,
+    ):
         assert path.is_file(), f"missing runtime file: {path}"
         assert PACKAGE in path.parents, f"{path} is outside the package, so a wheel omits it"
 
@@ -60,7 +64,11 @@ def test_package_data_covers_every_runtime_file() -> None:
     ]
     covered = {match.resolve() for pattern in patterns for match in PACKAGE.glob(pattern)}
 
-    for required in (resources.TECHNIQUE_CATALOG, resources.SCENARIO_CATALOG):
+    for required in (
+        resources.TECHNIQUE_CATALOG,
+        resources.SCENARIO_CATALOG,
+        resources.DETECTION_CONTRACTS,
+    ):
         assert required.resolve() in covered, f"{required.name} is not matched by package-data"
 
 
