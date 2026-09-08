@@ -357,15 +357,19 @@ def cmd_list(catalog: Catalog, console: Console) -> int:
 def cmd_connect(
     args: argparse.Namespace, catalog: Catalog, settings: Settings, console: Console
 ) -> int:
-    profile = CollectorProfile(
-        name=args.save or "default",
-        host=args.host,
-        port=args.port,
-        transport=args.transport,
-        facility=args.facility,
-        tls_verify=not args.tls_insecure,
-        tls_cafile=args.tls_cafile,
-    )
+    try:
+        profile = CollectorProfile(
+            name=args.save or "default",
+            host=args.host,
+            port=args.port,
+            transport=args.transport,
+            facility=args.facility,
+            tls_verify=not args.tls_insecure,
+            tls_cafile=args.tls_cafile,
+        )
+    except ValidationError as exc:
+        _fail(f"[red]connect refused[/red]: {_first_error(exc)}")
+        return 1
     if args.save:
         path = save_profile(profile)
         console.print(f"[green]saved profile[/green] '{profile.name}' -> {path}")
@@ -394,17 +398,21 @@ def _resolve_collector(
             return None, False
         return profiles[args.profile], True
     if args.host:
-        return (
-            CollectorProfile(
-                name="adhoc",
-                host=args.host,
-                port=args.port,
-                transport=args.transport,
-                tls_verify=not args.tls_insecure,
-                tls_cafile=args.tls_cafile,
-            ),
-            True,
-        )
+        try:
+            return (
+                CollectorProfile(
+                    name="adhoc",
+                    host=args.host,
+                    port=args.port,
+                    transport=args.transport,
+                    tls_verify=not args.tls_insecure,
+                    tls_cafile=args.tls_cafile,
+                ),
+                True,
+            )
+        except ValidationError as exc:
+            _fail(f"[red]collector refused[/red]: {_first_error(exc)}")
+            return None, False
     return None, True
 
 

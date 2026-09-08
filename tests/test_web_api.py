@@ -186,6 +186,26 @@ def test_config_endpoint(client: TestClient) -> None:
     assert resp.json()["eps_cap"] == 2000
 
 
+def test_negative_seed_is_rejected_at_the_http_boundary(client: TestClient) -> None:
+    resp = client.post(
+        "/api/plan",
+        headers=HEADERS,
+        json={"technique_id": "REP-001", "no_send": True, "seed": -1},
+    )
+
+    assert resp.status_code == 422
+
+
+def test_empty_collector_host_is_rejected_at_the_http_boundary(client: TestClient) -> None:
+    resp = client.post(
+        "/api/connect/test",
+        headers=HEADERS,
+        json={"host": "", "port": 514, "transport": "udp"},
+    )
+
+    assert resp.status_code == 422
+
+
 def test_config_reports_vendor_options(client: TestClient) -> None:
     data = client.get("/api/config", headers=HEADERS).json()
     assert data["vendor"] == "fortigate"
