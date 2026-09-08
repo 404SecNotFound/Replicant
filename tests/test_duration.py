@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Asking for a two hour simulation has to produce two hours of telemetry.
+"""Asking for a two hour simulation has to produce at most two hours of telemetry.
 
 Replicant emulates a TTP by writing the logs it would have produced. That only
 works if the shape is faithful, and duration is half the shape: a two hour C2
@@ -70,7 +70,7 @@ def orch(tmp_path_factory: pytest.TempPathFactory) -> Orchestrator:
 def test_every_use_case_honours_a_two_hour_duration(
     orch: Orchestrator, technique: Technique
 ) -> None:
-    """All 24, not the ones that happened to work.
+    """All catalog entries, not the ones that happened to work.
 
     A catalogue where the flag works on 20 entries is worse than one where it
     works on none: the operator learns to trust it and is then wrong four times
