@@ -107,3 +107,17 @@ The separate advisory Markdown file is written only after emission and manifest
 finalization return without an emission error, including a handled stop. An error
 manifest is therefore guaranteed when finalization succeeds; a paired advisory
 is not.
+
+## Validation evidence relationship
+
+Tier 0 and Tier 1 validation runs use the same individual-run manifest lifecycle.
+The manifest remains execution evidence only. Validation then writes a separate
+bounded directory under `evidence/<run-id>/` containing the resolved contract,
+validation result, observed telemetry sample, derived renderer mapping, report,
+and replay recipe.
+
+For Tier 0, `send_stats` is `null` and the report opening states that no collector
+was configured. For Tier 1, `send_stats` describes handoff to the loopback
+receiver only. Neither state proves a live collector accepted the records or a
+SIEM rule fired. See [offline detection validation](offline-detection-validation.md)
+for the eight-file evidence contract and replay semantics.

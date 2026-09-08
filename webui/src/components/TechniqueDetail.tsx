@@ -16,7 +16,17 @@ import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { CefLine } from "@/components/CefLine";
 import { TechniqueDiagram } from "@/components/TechniqueDiagram";
-import { getSample, vendorLabel, type Technique, type TechniqueSample } from "@/lib/api";
+import {
+  getSample,
+  getValidationContract,
+  validateTechnique,
+  vendorLabel,
+  type Technique,
+  type TechniqueSample,
+  type ValidationContract,
+  type ValidationDimension,
+  type ValidationResult,
+} from "@/lib/api";
 
 interface Props {
   technique: Technique;
@@ -86,6 +96,137 @@ function Tile({ k, v, context }: { k: string; v: string; context?: string }) {
         </span>
       )}
     </div>
+  );
+}
+
+function VerdictCell({ label, status }: { label: string; status: ValidationDimension }) {
+  const isNotRun = status === "not_run";
+  const isPass = status === "pass";
+  return (
+    <div
+      data-testid={`validation-dimension-${label}`}
+      className={cn(
+        "rounded-btn border px-3 py-2",
+        isNotRun && "border-dashed bg-background text-muted-foreground",
+        isPass && "border-metric/40 text-metric",
+        !isNotRun && !isPass && "border-destructive/50 text-destructive",
+      )}
+    >
+      <span className="block font-mono text-micro uppercase text-text-4">{label}</span>
+      <span className="mt-1 block font-mono text-label uppercase">
+        {isNotRun ? "NOT RUN" : status.replace(/_/g, " ")}
+      </span>
+    </div>
+  );
+}
+
+function ValidationPanel({ technique, vendor }: Props) {
+  const [contract, setContract] = useState<ValidationContract | null>(null);
+  const [result, setResult] = useState<ValidationResult | null>(null);
+  const [pending, setPending] = useState<"plan" | "ingest" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setContract(null);
+    setResult(null);
+    setError(null);
+    getValidationContract(technique.id)
+      .then((value) => live && setContract(value))
+      .catch((reason) => live && setError((reason as Error).message));
+    return () => { live = false; };
+  }, [technique.id, vendor]);
+
+  const run = async (tier: "plan" | "ingest") => {
+    setPending(tier);
+    setError(null);
+    try {
+      setResult(await validateTechnique(technique.id, tier, "medium", vendor));
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setPending(null);
+    }
+  };
+
+  if (error && !contract) {
+    return <Card title="Validation contract"><p className="text-destructive">{error}</p></Card>;
+  }
+  if (!contract) {
+    return <Card title="Validation contract"><p className="text-text-4">Loading contract…</p></Card>;
+  }
+  return (
+    <Card title="Validation contract" className="mt-6">
+      <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
+        <div className="min-w-0 space-y-4">
+          <p className="text-body leading-relaxed text-foreground">
+            {contract.positive_control.expectation}
+          </p>
+          <div>
+            <div className="mb-2 font-mono text-label uppercase text-text-4">Expected families</div>
+            <div className="flex flex-wrap gap-2">
+              {contract.expected_event_families.map((family) => <Chip key={family} label={family} />)}
+            </div>
+          </div>
+          <div>
+            <div className="mb-2 font-mono text-label uppercase text-text-4">Normalized fields</div>
+            <div className="flex flex-wrap gap-2">
+              {contract.signal_fields.varied.map((field) => <Chip key={field} label={field} tone="varied" />)}
+              {contract.signal_fields.held.map((field) => <Chip key={field} label={field} tone="held" />)}
+            </div>
+          </div>
+          <p className="text-body leading-relaxed text-text-4">
+            <span className="text-text-3">Window · </span>{contract.observation_window.description}
+          </p>
+          <p className="text-body leading-relaxed text-text-4">
+            <span className="text-text-3">Negative control · </span>
+            {contract.negative_control.mode.toUpperCase()} · {contract.negative_control.reason}
+          </p>
+          <ul className="space-y-1 text-label leading-relaxed text-text-4">
+            {contract.measurable_axes.map((axis) => <li key={axis.id}>• {axis.description}</li>)}
+          </ul>
+        </div>
+        <div className="min-w-0 rounded-btn border bg-well p-4">
+          <div className="mb-3 font-mono text-label uppercase text-text-4">Run validation</div>
+          <div className="grid gap-2">
+            <button className="quiet-button" disabled={pending !== null} onClick={() => void run("plan")}>
+              {pending === "plan" ? "Evaluating…" : "Run Tier 0 · plan"}
+            </button>
+            <button className="quiet-button" disabled={pending !== null} onClick={() => void run("ingest")}>
+              {pending === "ingest" ? "Receiving…" : "Run Tier 1 · ingest"}
+            </button>
+          </div>
+          {result ? (
+            <div className="mt-4" data-testid="validation-result">
+              <div className="mb-3 font-mono text-label uppercase text-foreground">
+                {result.verdict.replace(/_/g, " ")} · Tier {result.tier === "plan" ? "0" : "1"}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(result.dimensions).map(([label, status]) => (
+                  <VerdictCell key={label} label={label} status={status} />
+                ))}
+              </div>
+              <p className="mt-3 text-label leading-relaxed text-text-3">{result.proves}</p>
+              <p className="mt-2 text-label leading-relaxed text-text-4">{result.does_not_prove}</p>
+              <a className="quiet-button mt-3 w-full" href={result.evidence_url}>Download evidence pack</a>
+            </div>
+          ) : (
+            <div className="mt-4 grid grid-cols-2 gap-2" data-testid="validation-not-run">
+              <VerdictCell label="plan" status="not_run" />
+              <VerdictCell label="delivery" status="not_run" />
+              <VerdictCell label="detection" status="not_run" />
+            </div>
+          )}
+          {error && contract && <p className="mt-3 text-label text-destructive">{error}</p>}
+        </div>
+      </div>
+      <div className="mt-4 border-t pt-4">
+        <div className="mb-2 font-mono text-label uppercase text-text-4">Limitations</div>
+        <ul className="space-y-1 text-label leading-relaxed text-text-4">
+          {contract.limitations.map((limitation) => <li key={limitation}>• {limitation}</li>)}
+        </ul>
+      </div>
+    </Card>
   );
 }
 
@@ -183,6 +324,8 @@ export function TechniqueDetail({ technique, vendor }: Props) {
           </div>
         </div>
       </div>
+
+      <ValidationPanel technique={technique} vendor={vendor} />
 
       {/* detail cards */}
       <div className="mt-6 grid gap-6 2xl:grid-cols-2">

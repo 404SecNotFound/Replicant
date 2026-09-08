@@ -7,12 +7,17 @@ against `main @ af5a9bd` (v0.8.0), Python suite green at 972 passed / 3 skipped.
 `docs/round3-expansion-triage.md`, `docs/security-review-2026-08-response.md`.
 
 **2026-09 status addendum:** Run identity, synthetic marking, control selection,
-reference-spec scaffolding, and vendor-selected logical/native metadata have landed
-outside this milestone checklist. The checklist below remains the original decision
-record, not a claim that shipped work is still absent. The current external gate is
-the LogRhythm pilot. Its lab owner must author or enable the REP-001 AIE rule from
-`docs/detection-specs/REP-001.md`; Replicant still does not auto-author, install, or
-tune SIEM rules.
+reference-spec scaffolding, vendor-selected logical/native metadata, all 26
+machine-readable contracts, Tier 0 plan evaluation, Tier 1 loopback ingestion,
+bounded evidence packs, and deterministic replay have landed outside this
+milestone checklist. REP-002, REP-003, REP-005, and REP-010 now have measured
+standalone controls. REP-011 remains explicitly unsupported because its GeoIP or
+ASN dependency cannot be represented credibly without external enrichment. The
+checklist below remains the original decision record, not a claim that shipped
+work is still absent. The current external gate is the LogRhythm pilot. Its lab
+owner must author or enable the REP-001 AIE rule from
+`docs/detection-specs/REP-001.md`; Replicant still does not auto-author, install,
+or tune SIEM rules.
 
 The product shift in one line:
 

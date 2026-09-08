@@ -57,6 +57,43 @@ def test_catalog_requires_token(client: TestClient) -> None:
     assert len(resp.json()["techniques"]) == 26
 
 
+def test_validation_contract_endpoint_is_authenticated_and_resolved(client: TestClient) -> None:
+    assert client.get("/api/validation/contracts/REP-001").status_code == 401
+    response = client.get("/api/validation/contracts/REP-001", headers=HEADERS)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["expected_event_families"] == ["traffic:forward"]
+    assert body["signal_fields"]["held"] == ["src", "dst", "dpt", "proto"]
+    assert body["negative_control"]["present"] is True
+
+
+def test_plan_validation_endpoint_returns_vector_and_download(client: TestClient) -> None:
+    response = client.post(
+        "/api/validate",
+        headers=HEADERS,
+        json={"technique_id": "REP-011", "tier": "plan", "intensity": "low"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["verdict"] == "pass"
+    assert body["dimensions"]["plan"] == "pass"
+    assert body["dimensions"]["delivery"] == "not_run"
+    assert body["dimensions"]["detection"] == "not_run"
+    assert "does not prove" in body["does_not_prove"].lower()
+    download = client.get(body["evidence_url"], headers=HEADERS)
+    assert download.status_code == 200
+    assert download.headers["content-type"] == "application/zip"
+
+
+def test_validation_endpoint_unknown_technique_is_404(client: TestClient) -> None:
+    response = client.post(
+        "/api/validate",
+        headers=HEADERS,
+        json={"technique_id": "REP-999", "tier": "plan"},
+    )
+    assert response.status_code == 404
+
+
 def test_catalog_exposes_detail_fields(client: TestClient) -> None:
     techniques = client.get("/api/catalog", headers=HEADERS).json()["techniques"]
     rep001 = next(t for t in techniques if t["id"] == "REP-001")

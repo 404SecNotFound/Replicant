@@ -6,7 +6,7 @@
 
 Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS, and Check Point, streams them over syslog to your SIEM, and lets a detection engineer pick an ATT&CK-grounded technique from a menu to exercise the matching detection. It writes log text only. It never runs commands, scans hosts, resolves domains, or moves data.
 
-> **Maturity: generator-verified, delivery-unverified.** Replicant's FortiGate CEF is byte-checked field-for-field against a golden oracle, so the *generator* is verified. End-to-end *delivery* to a live SIEM, and a detection actually firing on the result, have not been observed yet: every timing and delivery claim here is loopback-only until the first observed rule fire. See the [roadmap](#roadmap).
+> **Maturity: offline validation available, live SIEM delivery unverified.** Every catalog preset has a machine-readable plan contract, and UDP/TCP delivery can be observed through the local Tier 1 receiver. Those results prove generated plan structure or loopback delivery and parseability only. End-to-end delivery to a live SIEM and a detection actually firing have not been observed. See [offline detection validation](#offline-detection-validation) and the [roadmap](#roadmap).
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](pyproject.toml)
@@ -33,6 +33,7 @@ Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS
 - [Quick start](#quick-start)
 - [What the output looks like](#what-the-output-looks-like)
 - [Technique catalog](#technique-catalog)
+- [Offline detection validation](#offline-detection-validation)
 - [Three ways to run it](#three-ways-to-run-it)
 - [Safety model](#safety-model)
 - [Determinism and testing](#determinism-and-testing)
@@ -76,7 +77,7 @@ flowchart TD
         MENU["Rich terminal menu"]
         WEB["Web UI + embedded terminal"]
     end
-    ORCH["Orchestrator<br/>request to plan to emit, kill switch, manifest"]
+    ORCH["Orchestrator<br/>plan, emit, validate, evidence, manifest"]
     ENGINE["Scenario Engine<br/>deterministic, no I/O, seeded"]
     ENT["Entity Model<br/>synthetic hosts, users, ports"]
     PROFILE["FortiGate Vendor Profile<br/>field dictionary, signature IDs, severity"]
@@ -292,6 +293,12 @@ alert noise around its ordered chain, REP-024 a sanctioned proxy with an
 identical traffic shape, REP-030 self-correcting distributed failures, and
 REP-043 broken-join and reversed-order dialogs.
 
+REP-002, REP-003, REP-005, and REP-010 now also carry matched controls for the
+per-pair scan cardinality, per-source sweep cardinality, per-host volume history,
+and per-source deny burst axes. REP-011 deliberately does not: a credible VPN
+geovelocity control requires observed GeoIP or ASN enrichment and approved-travel
+context that synthetic address ranges cannot supply.
+
 The current catalog contract, corrected defects, per-technique limitations, and
 remaining negative-control work are recorded in the
 [2026-09-08 catalog review](docs/catalog-review-2026-09-08.md). An objective is a
@@ -299,13 +306,41 @@ test hypothesis, not a claim that a production detection has fired.
 
 Each technique produces a statistically shaped stream rather than flat constants. REP-001 holds the source, destination, port, and protocol constant while varying byte sizes and session identifiers on a fixed interval with jitter. REP-003 holds one source and one port while sweeping many unique destination hosts, mostly denied. REP-004 emits high-entropy query names under one synthetic parent domain with query types weighted toward TXT and NULL.
 
+## Offline detection validation
+
+Every technique has a packaged validation contract. Tier 0 checks the
+deterministic plan without I/O. Tier 1 sends the same plan through the real UDP
+or TCP emitter to a loopback receiver, reads the records back, and checks exact
+run-tagged counts plus required selected-profile fields.
+
+```bash
+replicant validate show REP-001
+replicant validate REP-001 --tier plan
+replicant validate REP-001 --tier ingest --transport udp
+replicant replay manifests/evidence/RUN-.../
+```
+
+Tier 0 does not prove collector receipt or a detection alert. Tier 1 proves
+delivery and parseability on the observed local receiver path only; it does not
+prove that any SIEM rule fired. Each run writes a bounded eight-file evidence
+directory and a web-downloadable ZIP. Telemetry above 10,000 records uses an
+explicit deterministic sample with original and sample counts. Replay verifies
+the canonical plan digest from the stored seed, parameters, anchor, technique,
+vendor, controls, and version.
+
+See the [offline validation contract and evidence reference](docs/offline-detection-validation.md).
+
+<img src="docs/images/webui-validation.jpg" alt="A technique validation contract with expected event family and fields, Tier 0 and Tier 1 actions, a Tier 0 pass, and delivery and detection dimensions clearly marked NOT RUN" width="900" />
+
 ## Three ways to run it
 
 All three call the same Orchestrator. Anything the menu can do, `replicant run` can do headless.
 
 ### Headless CLI
 
-`replicant list`, `replicant connect`, `replicant run`, and `replicant scenario` cover the full workflow for scripting and CI.
+`replicant list`, `replicant connect`, `replicant run`, `replicant scenario`,
+`replicant validate`, and `replicant replay` cover the full workflow for
+scripting and CI.
 
 <img src="docs/images/cli-list.png" alt="Output of replicant list: a table of techniques with their IDs, names, detection use cases, log types, and ATT&CK mappings" width="860" />
 
@@ -337,6 +372,11 @@ At 26 techniques the Techniques library is grouped by ATT&CK tactic, collapsible
 
 <img src="docs/images/webui-techniques.jpg" alt="The technique library with its search box, log-type filters, and expandable ATT&CK tactic groups" width="900" />
 
+Each technique detail also exposes the resolved validation contract and
+selected-profile native fields. Tier 0 and Tier 1 can be run from that panel;
+the verdict vector keeps `NOT RUN` visually distinct from `PASS`, repeats the
+tier limitations, and links to the authenticated evidence ZIP.
+
 The vendor selector is locked from the moment run admission is requested and
 while a locally started or server-reported run is active. Navigation also stays
 on the Run workspace during admission, so the component receiving the response cannot
@@ -367,7 +407,7 @@ An early Stop cannot be cleared between worker scheduling and entry, and an SSE
 stream remains open until its terminal item has been published to that reader.
 
 The **Documentation** view renders the maintained reference material in `docs/` in the
-browser: the run-manifest contract, three vendor CEF references, the catalog
+browser: the offline-validation and run-manifest contracts, three vendor CEF references, the catalog
 expansion research, and the all-round research correction. Those files ship with the repository rather than the
 installed package, so the tab is populated from a git checkout or an editable
 install and says so plainly if they are absent.
@@ -532,6 +572,11 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 - **Silver-and-red workspace (complete):** persistent navigation, a three-step run form, separate technique library and collector view, plan and CEF previews, readable silver text, saturated red selections, and retained drafts and run evidence. Design contract: `docs/webui-silver-red-design.md`.
 - **Factory redesign (complete, superseded):** the previous web UI visual system was the archived dark-era Factory design, "terminal war room at midnight": Geist and JetBrains Mono (both OFL, self-hosted with their licenses), the #101010/#ee6018 palette on a single dark theme, weight 400 everywhere, no gradients or shadows, chromatic color reserved for live data, and the run panel rebuilt as a dashboard frame with an instrumented sparkline. Design contract: `docs/webui-factory-design.md`.
 - **Roadmap 2026-09 executed (v0.10.0):** the five-persona roadmap in [`docs/roadmap-2026-09.md`](docs/roadmap-2026-09.md) shipped its 13 buildable items, including the per-technique validation-transferability property, the per-run analyst validation card, the statistical fidelity suite, two structural false-positive foils, a CLI-first container image, the first reference detection spec, and the destination-conditional synthetic marker. The three remaining items are gated on the lab test below.
+- **Offline detection-validation track (complete):** all 26 techniques have
+  packaged contracts; Tier 0 evaluates deterministic plans; Tier 1 observes the
+  real UDP/TCP emitter on loopback; bounded evidence packs and deterministic
+  replay are available from CLI and web. These tiers do not replace the live
+  LogRhythm gate.
 - **Next (hard launch gate):** the LogRhythm lab test. Every timing and delivery claim above is loopback-only; the headline "exercises the matching detection" has never been observed end to end. Until the first observed rule fire, the honest posture is "generates vendor-accurate CEF, detection-unverified." Nothing that adds surface ships before the pipe is proven. Decision record: [`docs/roadmap-2026-09.md`](docs/roadmap-2026-09.md).
 - **Community ask:** the Palo Alto and Check Point profiles stay beta until their `[Unverified]` references are confirmed against a live appliance. FortiGate is already the verified oracle; clearing the other two needs real hardware, so it is an open contribution path for anyone who runs those platforms.
 - **Direction (not shipped):** detection-as-code teams live in CI, and a check that fails a build when a firewall detection stops firing is a category none of Atomic Red Team, CALDERA, Attack Range, or flightsim occupy. The intended framing is "unit tests for your firewall detections": Replicant emits the telemetry, an offline detection-regression check asserts the rule still fires, and a GitHub Action gates the build. The check and the Action are planned, not built, and their claim is scoped to **offline** regression against a local pipeline; neither implies production SIEM assurance, which stays behind the lab-test gate above.
