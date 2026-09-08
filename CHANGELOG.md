@@ -8,6 +8,33 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ### Added
 
+- **Offline validation contracts for all 26 techniques.** `replicant validate
+  show REP-NNN` resolves event families, signal fields, control requirements,
+  measurement axes, observation windows, and transferability from one packaged
+  registry plus the catalog source of truth. `replicant validate REP-NNN --tier
+  plan` runs a deterministic, I/O-free evaluator and reports exactly what the
+  tier proves and does not prove.
+- **Observed loopback ingestion validation.** `--tier ingest` sends through the
+  real UDP or TCP syslog implementation, reads run-tagged records back through a
+  file telemetry source, and checks exact counts and required native fields.
+  Separate telemetry and detection-source protocols prevent a delivery failure
+  from becoming a false no-alert result. Tier 1 does not claim a SIEM rule fired.
+- **Bounded evidence packs and replay.** Every validation writes the manifest,
+  resolved contract, result, sampled CEF and canonical telemetry, derived field
+  mapping, report, and replay recipe. Samples are capped at 10,000 records with
+  explicit original counts and truncation. `replicant replay PATH` verifies the
+  stored canonical plan digest without sending.
+- **Web validation panel and evidence download.** Authenticated endpoints mirror
+  the Orchestrator validation path. The silver/red technique view shows the
+  contract, fields, control mode, axes, limitations, tier, verdict vector, and
+  evidence ZIP; `NOT RUN` is neutral and dashed rather than styled as `PASS`.
+- **Matched controls for REP-002, REP-003, REP-005, and REP-010.** The controls
+  preserve irrelevant counts and field distributions while separating on
+  per-pair port cardinality, per-source destination cardinality, per-host volume
+  history, or per-source burst shape. REP-011 remains explicitly unsupported
+  because credible geovelocity validation needs observed GeoIP or ASN enrichment
+  and approved-travel context.
+
 - **Two research-backed catalog exercises.** REP-030 emits distributed,
   low-and-slow VPN failures with a self-correcting authentication control.
   REP-043 correlates an IPS alert and inbound session with later victim egress,
