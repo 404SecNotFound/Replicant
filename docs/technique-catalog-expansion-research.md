@@ -495,6 +495,12 @@ REP-019 gives an honest negative control.
     safety_notes: "synthetic targets only; run durations are long by design"
 ```
 
+**2026-09-08 correction:** This block preserves the original proposal. The shipped
+catalog maps REP-019 only to Discovery (`TA0007`) and Network Service Discovery
+(`T1046`). Its builder emits internal sources probing internal targets, so the
+pre-compromise Reconnaissance mapping to `T1595.001` was not supported by the
+generated telemetry. REP-021 is the separate inbound perimeter-scanning case.
+
 ### REP-020 First contact with a newly registered domain
 
 **Distinct from REP-008.** REP-008 is newly observed *destination IP* relative to

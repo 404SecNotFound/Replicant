@@ -425,7 +425,7 @@ class Scenario(BaseModel):
     id: str
     name: str
     description: str
-    stages: list[ScenarioStage]
+    stages: list[ScenarioStage] = Field(min_length=1)
     kill_chain: list[str] = Field(default_factory=list)
     references: list[str] = Field(default_factory=list)
     safety_notes: str | None = None
@@ -455,14 +455,33 @@ class ScenarioCatalog(BaseModel):
 def load_scenario_catalog(path: str | Path, technique_catalog: Catalog) -> ScenarioCatalog:
     """Load the scenario catalog and validate every stage reference against the techniques."""
 
+    # Imported lazily because settings imports request models from this module.
+    # Catalog loading happens only after both modules have initialized.
+    from replicant.config.settings import parse_duration
+
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     catalog = ScenarioCatalog.model_validate(raw)
-    known = {technique.id for technique in technique_catalog.techniques}
+    known = {technique.id: technique for technique in technique_catalog.techniques}
     for scenario in catalog.scenarios:
         for stage in scenario.stages:
             if stage.technique_id not in known:
                 raise ValueError(
                     f"scenario {scenario.id} references unknown technique {stage.technique_id}"
+                )
+            try:
+                parse_duration(stage.start_offset)
+            except ValueError as exc:
+                raise ValueError(
+                    f"scenario {scenario.id} has invalid start_offset "
+                    f"{stage.start_offset!r} for {stage.technique_id}"
+                ) from exc
+            preset = known[stage.technique_id].params[stage.intensity]
+            unknown_overrides = set(stage.param_overrides) - set(preset)
+            if unknown_overrides:
+                names = ", ".join(sorted(unknown_overrides))
+                raise ValueError(
+                    f"scenario {scenario.id} has unknown parameter override(s) "
+                    f"for {stage.technique_id}: {names}"
                 )
     return catalog
 

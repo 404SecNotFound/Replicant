@@ -182,7 +182,7 @@ techniques:
       parent_domain: "synthetic, from docs range (example.net) or a *.invalid parent"
     benign_baseline: "normal resolvers show low unique-label cardinality per parent per hour"
     references: ["UC-003 MPE prereqs", "fortigate-cef-reference: dns:dns-query"]
-    safety_notes: "qname parents must be non-resolvable synthetic domains; never real C2"
+    safety_notes: "qname parents stay under IANA documentation domains or .invalid; Replicant performs no DNS lookup or connection and never uses real C2"
 
   - id: REP-005
     name: "Outbound exfil volume anomaly"
@@ -198,8 +198,8 @@ techniques:
       subtype: "forward"
       signature_id: "00013"
       action: "accept"
-    cef_fields_held: ["src", "dst", "dpt"]
-    cef_fields_varied: ["out", "in", "rt", "externalId", "FTNTFGTduration"]
+    cef_fields_held: ["src", "dpt"]
+    cef_fields_varied: ["dst", "out", "in", "rt", "externalId", "FTNTFGTduration"]
     params:
       low:    { total_out_mb: 500,   sessions: 20,  dst_count: 1 }
       medium: { total_out_mb: 2000,  sessions: 40,  dst_count: 2 }
@@ -337,7 +337,7 @@ techniques:
       signature_id: "00013"
       action: "deny"
     cef_fields_held: ["src"]
-    cef_fields_varied: ["dst", "dpt", "rt", "cnt"]
+    cef_fields_varied: ["dst", "dpt", "proto", "rt", "externalId"]
     params:
       low:    { denies: 50,   window_s: 60 }
       medium: { denies: 300,  window_s: 60 }
@@ -506,7 +506,7 @@ techniques:
     benign_baseline: "a benign parent with a comparable total query count but low unique-label cardinality, so query rate alone cannot separate them"
     emits_foil: true
     references: ["Nadler, Aminov, Shabtai, Computers & Security 80 (2019) 36-53"]
-    safety_notes: "parents stay non-resolvable synthetic. Runs are long (up to 72h of simulated time); the duration is stated in the run summary"
+    safety_notes: "parents stay under IANA documentation domains or .invalid; Replicant performs no DNS lookup or connection. Runs are long (up to 72h of simulated time); the duration is stated in the run summary"
 
   - id: REP-016
     name: "DGA NXDOMAIN cluster"
@@ -556,8 +556,8 @@ techniques:
       action: "accept"
     additional_log_families:
       - { log_type: "dns", subtype: "dns-query" }
-    cef_fields_held: ["src", "dpt", "proto"]
-    cef_fields_varied: ["dst", "rt", "out", "in", "externalId"]
+    cef_fields_held: ["src"]
+    cef_fields_varied: ["dst", "dpt", "proto", "rt", "out", "in", "externalId"]
     params:
       low:    { baseline_min: 120, switch_at_min: 60, doh_sessions: 20,  resolvers: 1 }
       medium: { baseline_min: 240, switch_at_min: 90, doh_sessions: 80,  resolvers: 2 }
@@ -616,8 +616,8 @@ techniques:
     objective: >-
       Prove a scan rule still fires below its rate threshold, which needs long-window aggregation across the whole source pool.
     attack:
-      tactics: ["TA0007 Discovery", "TA0043 Reconnaissance"]
-      techniques: ["T1046", "T1595.001"]
+      tactics: ["TA0007 Discovery"]
+      techniques: ["T1046"]
     fortigate:
       log_type: "traffic"
       subtype: "forward"

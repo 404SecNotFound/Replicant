@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from replicant.core.models import Catalog, load_catalog
+from replicant.core.models import Catalog, Technique, load_catalog
 
 CATALOG_PATH = Path(__file__).resolve().parents[1] / "replicant" / "data" / "technique-catalog.yaml"
 CATALOG = load_catalog(CATALOG_PATH)
@@ -41,6 +41,25 @@ def test_ids_and_uc_unique() -> None:
     ucs = [t.ndr_uc for t in CATALOG.techniques]
     assert len(set(ids)) == len(ids)
     assert len(set(ucs)) == len(ucs)
+
+
+@pytest.mark.parametrize("technique", CATALOG.techniques, ids=lambda item: item.id)
+def test_every_entry_has_complete_consistent_intensity_presets(technique: Technique) -> None:
+    """The CLI offers exactly these presets, so every one must be runnable."""
+
+    params = technique.params
+    assert set(params) == {"low", "medium", "high"}
+    parameter_sets = {frozenset(preset) for preset in params.values()}
+    assert len(parameter_sets) == 1, "parameter names drift between intensity presets"
+
+
+@pytest.mark.parametrize("technique", CATALOG.techniques, ids=lambda item: item.id)
+def test_signal_contract_fields_are_unique_and_disjoint(technique: Technique) -> None:
+    held = technique.cef_fields_held
+    varied = technique.cef_fields_varied
+    assert len(held) == len(set(held))
+    assert len(varied) == len(set(varied))
+    assert set(held).isdisjoint(varied)
 
 
 def test_every_entry_has_fortigate_binding() -> None:

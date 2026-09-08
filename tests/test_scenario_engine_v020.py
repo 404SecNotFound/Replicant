@@ -432,6 +432,39 @@ def test_rep018_credential_switches_partway_along_the_path() -> None:
     assert len({e.duser for e in logins}) >= 2
 
 
+@pytest.mark.parametrize("intensity", ["low", "medium", "high"])
+def test_rep018_emits_the_requested_number_of_causal_users(intensity: str) -> None:
+    preset = CATALOG.by_id("REP-018").params[intensity]
+    plan = _plan("REP-018", intensity, 1337)
+    users = {
+        event.duser
+        for event in plan.events
+        if event.control == "positive" and event.log_type == "event"
+    }
+    assert len(users) == int(preset["users"])
+    assert plan.warmup_note is not None
+    assert f"with {preset['users']} user(s)" in plan.warmup_note
+
+
+def test_rep018_clamps_an_over_late_switch_to_emit_every_identity() -> None:
+    technique = CATALOG.by_id("REP-018")
+    plan = ScenarioEngine().plan(
+        technique,
+        "low",
+        ENTITIES,
+        1337,
+        param_overrides={"path_len": 3, "users": 3, "switch_at_hop": 99},
+    )
+    users = {
+        event.duser
+        for event in plan.events
+        if event.control == "positive" and event.log_type == "event"
+    }
+    assert len(users) == 3
+    assert plan.warmup_note is not None
+    assert "credential switch at hop 1" in plan.warmup_note
+
+
 def test_rep018_chain_hops_are_connected() -> None:
     """Each hop's source is the previous hop's target. A path, not a star."""
     plan = _plan("REP-018", "medium", 1337)
@@ -473,15 +506,32 @@ def test_rep019_all_probes_denied() -> None:
     assert {e.action for e in plan.events} == {"deny"}
 
 
+def test_rep019_internal_scan_maps_to_discovery_not_precompromise_recon() -> None:
+    mapping = CATALOG.by_id("REP-019").attack
+    assert mapping.tactics == ["TA0007 Discovery"]
+    assert mapping.techniques == ["T1046"]
+
+
 def test_rep019_stays_under_rate_thresholds() -> None:
     """Long gaps and source rotation are the evasion of a TRW-style detector."""
     preset = CATALOG.by_id("REP-019").params["low"]
     plan = _plan("REP-019", "low", 1337)
-    span = max(e.eventtime for e in plan.events) - min(e.eventtime for e in plan.events)
+    probes = [event for event in plan.events if event.control == "positive"]
+    span = max(e.eventtime for e in probes) - min(e.eventtime for e in probes)
     gap_lo = int(preset["gap_s"][0])
     assert span > int(preset["total_probes"]) * gap_lo * 0.8, "probes are not spread out enough"
-    per_source = Counter(str(e.src) for e in plan.events)
+    per_source = Counter(str(event.src) for event in probes)
     assert len(per_source) >= int(preset["src_pool"]), "source pool must be rotated"
+
+
+@pytest.mark.parametrize("intensity", ["low", "medium", "high"])
+def test_rep019_total_probes_is_the_emitted_positive_count(intensity: str) -> None:
+    preset = CATALOG.by_id("REP-019").params[intensity]
+    plan = _plan("REP-019", intensity, 1337)
+    positives = [event for event in plan.events if event.control == "positive"]
+    assert len(positives) == int(preset["total_probes"])
+    assert plan.warmup_note is not None
+    assert plan.warmup_note.startswith(f"{preset['total_probes']} probes")
 
 
 # -- REP-020 newly registered domain ------------------------------------------

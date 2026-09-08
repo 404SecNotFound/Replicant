@@ -38,7 +38,8 @@ _ALLOWED_RANGES: tuple[ipaddress.IPv4Network, ...] = (
 )
 
 # Parent domains for synthetic DNS. example.net is an IANA documentation domain;
-# *.invalid is reserved as non-resolvable (RFC 6761). Never a real domain.
+# *.invalid is reserved as non-resolvable (RFC 6761). Replicant does not resolve
+# either kind and never substitutes an operator-owned or production domain.
 _DEFAULT_PARENTS: tuple[str, ...] = ("example.net", "cdn.invalid", "sync.example.net")
 
 _DEFAULT_USERS: tuple[str, ...] = (
