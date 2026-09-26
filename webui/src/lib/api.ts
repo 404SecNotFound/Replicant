@@ -249,13 +249,19 @@ export type ValidationDimension =
   | "pass"
   | "fail_no_events"
   | "fail_no_alert"
+  | "fail_contract"
   | "inconclusive"
   | "not_run";
 
 export interface ValidationResult {
   technique_id: string;
   tier: "plan" | "ingest" | "detect";
-  verdict: "pass" | "fail_no_events" | "fail_no_alert" | "inconclusive";
+  verdict:
+    | "pass"
+    | "fail_no_events"
+    | "fail_no_alert"
+    | "fail_contract"
+    | "inconclusive";
   intensity: string;
   seed: number;
   run_id: string | null;

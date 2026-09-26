@@ -145,6 +145,10 @@ first, middle, and last sample. `telemetry.json` records the original count,
 sample count, strategy, and truncation flag. A ZIP containing the same eight
 files is available from the authenticated web UI.
 
+The web server keeps only the newest `--evidence-keep` packs (default 20) and prunes
+older ones after each web validation; only run-id-named entries are touched and
+symlinks are never followed. CLI validations are never pruned.
+
 ## Deterministic replay
 
 `replay.json` records the technique, intensity, seed, duration, control
@@ -168,6 +172,9 @@ The authenticated API mirrors the Orchestrator path:
 - `GET /api/validation/contracts/{technique_id}`;
 - `POST /api/validate`;
 - `GET /api/evidence/{run_id}`.
+
+`POST /api/validate` answers 409 while another validation or a run is active
+(added 2026-09-26: twelve concurrent validations had exhausted server memory).
 
 The technique detail view shows the contract, logical fields and families,
 selected-profile native fields, control mode, observation window, measurable

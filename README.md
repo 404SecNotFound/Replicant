@@ -168,6 +168,8 @@ replicant connect --host 10.20.0.50 --port 514 --transport udp --test
 replicant run REP-001 --intensity medium --duration 30m --seed 1337
 ```
 
+`connect --test` sends one benign line and prints what that did and did not establish, the same report the web connection card shows: a verdict, the source -> destination path with its interface and next hop, what the result proves and what it does not. It exits 1 when the collector refused or could not be reached. A UDP verdict is never stronger than `sent_unconfirmed`, because UDP has no acknowledgement; confirm receipt on the collector. Every live run prints the same path line on stderr before it sends, so a mistyped collector octet that routes via a gateway is visible before the first datagram.
+
 Preview a technique to a file with no network egress:
 
 ```bash
@@ -180,6 +182,10 @@ Stream over TLS to a collector (use `--tls-cafile` for a private CA, or `--tls-i
 replicant connect --host 10.20.0.50 --port 6514 --transport tls --tls-cafile ./ca.pem --test
 replicant run REP-007 --intensity high --duration 8m --host 10.20.0.50 --port 6514 --transport tls
 ```
+
+A TCP or TLS collector that drops the connection mid-run is reconnected up to three times (after 0.5s, 1s, 2s) and the record whose send failed is sent again; the manifest's `send_stats.reconnects` and `send_stats.resent` count this. TCP has no application acknowledgement, so records already buffered in the kernel when the collector closed can still be lost without an error. Only the collector's own count confirms delivery.
+
+`replicant run`, `replicant scenario run` and the menu treat SIGTERM (what `systemctl stop` and `docker stop` send) like the kill switch: the manifest is finalized as `stopped` and the process exits with status 143.
 
 Emit the same technique as another vendor's CEF instead of FortiGate. `--vendor` also works on `connect`, and the vendor is selectable in the Rich menu (`[v]`) and the web UI:
 
@@ -346,7 +352,7 @@ scripting and CI.
 
 ### Rich terminal menu
 
-`replicant menu` gives an interactive flow: connect to a collector, send a test log, select a technique or a multi-stage scenario, set intensity and duration, and watch a live run counter.
+`replicant menu` gives an interactive flow: connect to a collector (the same connect report `replicant connect --test` prints), select a technique or a multi-stage scenario, set intensity, duration, pacing and the event-time anchor (`now`, `default`, an epoch or ISO-8601), and watch a live run counter. An answer the run cannot use is asked again rather than ending the menu. The source -> destination path is printed before anything is sent.
 
 ### Web UI with an embedded terminal
 
@@ -366,7 +372,9 @@ replicant web --host 0.0.0.0 --no-browser
 
 The launch token is printed on startup, persists in `~/.config/replicant/web-token` so the URL survives a restart, and is exchanged for an httpOnly `SameSite=Strict` session cookie by a server-side redirect before the SPA loads. The cookie contains a random session id, not the launch token, expires after 12 hours, and is invalidated by a server restart or `POST /api/session/logout`. Rotate the persistent launch token with `--rotate-token`. Add a hostname the UI should answer to with `--allowed-host`, repeatable.
 
-The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser. Because it is a real PTY, it is **off by default** whenever the bind address is not loopback; `--enable-terminal` turns it back on. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
+Restrict where web callers may connect-test and send with `--collector-allow 10.0.20.0/24:514` (CIDR plus optional port, repeatable, IPv6 as `[2001:db8::/32]:6514`); unset, any destination is allowed and the server logs a warning. Behind a reverse proxy, name it with `--forwarded-allow-ips` so its `X-Forwarded-For` is trusted; by default no forwarded header is. A TLS collector's CA bundle for the web UI goes in the config directory's `ca/` folder and is named by file name. Validation evidence packs are kept to the newest `--evidence-keep` (default 20).
+
+The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser. Because it is a real PTY, it is **off by default** whenever anything but this machine can reach the UI: a non-loopback bind, a non-loopback `--allowed-host` (a reverse proxy), or `--collector-allow`. `--enable-terminal` turns it back on. The terminal child runs with a minimal environment and `REPLICANT_WEB_CONFINED=1`, under which the menu writes output files only to the run-output directory (`<manifest dir parent>/out`, by file name, symlinks refused), accepts a TLS CA bundle only as a file in `<config dir>/ca/` named by file name, and does not save collector profiles. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
 
 At 26 techniques the Techniques library is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, and ATT&CK technique id at the same time, so whichever identifier your detection backlog happens to use will find the entry. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
 
@@ -479,6 +487,8 @@ The web server adds its own controls. It binds to loopback by default, and requi
 
 Binding to a routable address is supported and turns the embedded terminal tab off by default. `--no-auth` is refused outright on a non-loopback bind unless `--i-understand-this-is-unauthenticated` is also passed. The server speaks plain HTTP, so the token and the traffic are readable on the wire: put it on a management segment, or behind a TLS-terminating proxy named with `--allowed-host`.
 
+The web server bounds what one caller can cost it: request bodies over 64 KiB are refused, one validation runs at a time and never beside a run, connect tests are limited to 10 per session per minute, and live event streams are capped at 16. The systemd unit runs under `ProtectSystem=strict` with only its config, manifests and output directories writable (the code and venv are read-only to it), `MemoryMax=1536M` and `TasksMax=256`; see [`docs/deployment-boundary.md`](docs/deployment-boundary.md).
+
 ## Determinism and testing
 
 The Scenario Engine does no I/O and is seeded, so the same seed plus technique plus parameters yields the same event stream. Event times are computed from a fixed anchor plus a deterministic offset, so a run written to a file is byte-identical across runs. That property makes both the tool and the detections it exercises reproducible.
@@ -517,9 +527,21 @@ replicant run REP-001 --anchor now --pace burst --host 10.20.0.50  # all at once
 
 - **`plan`** reproduces the plan's own gaps. Event time equals send time throughout, and nothing is future-dated. This is the default whenever events go to a collector.
 - **`burst`** is the old behaviour: as fast as `--rate` allows, plan timeline ignored. The default for `--to-file`, where the wall clock means nothing.
+- Events that share one second of event time (`eventtime` is integer seconds) are spread evenly across that second rather than sent back to back, so a dense second arrives as a stream. Each still leaves inside its own second. With `--pace burst --anchor now`, events stamped more than 60 seconds ahead of their send time produce a warning on stderr and a manifest `notes` entry.
 - **`--speed N`** compresses the timeline **including the event times**, so the payload never claims a spread it did not deliver. The tradeoff is real and worth stating: compression preserves *relative* timing and changes *absolute* intervals, so a rule keyed on five minute gaps will not match a run compressed 60x. Use real time to validate a rule, a compressed run for a smoke test.
 
 `--rate` is separate from pacing. It can lower the configured events-per-second flood guard for one run, but it cannot raise that collector-protection ceiling. The effective rate acts as a floor on how close two sends can ever be under either pace. Pacing sets the shape; rate sets the ceiling.
+
+### Syslog envelope and header time zone
+
+The syslog header is RFC 3164 by default, matching FortiGate's own format. Its timestamp has no field for a time zone, so Replicant writes it in **UTC** by default. Before 2026-09-26 it was the sending host's local time, which a collector reading UTC saw as hours in the future on any host east of Greenwich.
+
+```bash
+replicant run REP-001 --anchor now --syslog-timezone local --host 10.20.0.50  # host local time
+replicant run REP-001 --anchor now --syslog-format rfc5424 --host 10.20.0.50  # explicit offset
+```
+
+`--syslog-format rfc5424` writes a timestamp that carries its own offset. Both choices are also settings (`syslog_format`, `syslog_timezone` in `config.yaml`) and both are recorded in the run manifest.
 
 ### Duration: how much of the behaviour to emulate
 
@@ -541,7 +563,7 @@ A 2-hour C2 beacon under `--duration` is 24 callbacks five minutes apart. The sa
 
 For a scenario, duration scales the stage offsets and each stage's own window together, so the kill chain keeps its order and its relative spacing while every technique inside it keeps its characteristic interval.
 
-One thing deliberately resists scaling. A stage pinned to an absolute window answers to the clock rather than to the scenario: REP-005 is off-hours bulk transfer and off-hours is 00:00-06:00, so SCEN-001 cannot be compressed below that jump. The run says so in its manifest rather than quietly returning something longer than you asked for. Asking a single off-hours technique for more than six hours is capped at the window for the same reason.
+One thing deliberately resists scaling. A stage pinned to an absolute window answers to the clock rather than to the scenario: REP-005 is off-hours bulk transfer and off-hours is 00:00-06:00, so SCEN-001 cannot be compressed below the gap to the next off-hours window after its stage anchor. The run says so in its manifest rather than quietly returning something longer than you asked for. Asking a single off-hours technique for more than six hours is capped at the window for the same reason.
 
 The run form carries the same choice as a **Pacing** control, with both options priced from your actual plan (`Plan time 3h 58m` beside `Burst 0.2s`) and the consequence written underneath, so the duration is visible before you commit rather than discovered by watching a prompt not come back.
 
@@ -577,7 +599,7 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
   real UDP/TCP emitter on loopback; bounded evidence packs and deterministic
   replay are available from CLI and web. These tiers do not replace the live
   LogRhythm gate.
-- **Next (hard launch gate):** the LogRhythm lab test. Every timing and delivery claim above is loopback-only; the headline "exercises the matching detection" has never been observed end to end. Until the first observed rule fire, the honest posture is "generates vendor-accurate CEF, detection-unverified." Nothing that adds surface ships before the pipe is proven. Decision record: [`docs/roadmap-2026-09.md`](docs/roadmap-2026-09.md).
+- **Next (hard launch gate):** the first observed rule fire in LogRhythm. Delivery to a real SIEM was observed on 2026-08-03 (Replicant CEF landed in the lab LogRhythm from the sensor VM, arriving as an unidentified log source until a parsing rule exists); every timing claim above is still loopback-only, and the headline "exercises the matching detection" has never been observed end to end. Until the first observed rule fire, the honest posture is "generates vendor-accurate CEF, detection-unverified." Nothing that adds surface ships before the pipe is proven. Decision record: [`docs/roadmap-2026-09.md`](docs/roadmap-2026-09.md).
 - **Community ask:** the Palo Alto and Check Point profiles stay beta until their `[Unverified]` references are confirmed against a live appliance. FortiGate is already the verified oracle; clearing the other two needs real hardware, so it is an open contribution path for anyone who runs those platforms.
 - **Direction (not shipped):** detection-as-code teams live in CI, and a check that fails a build when a firewall detection stops firing is a category none of Atomic Red Team, CALDERA, Attack Range, or flightsim occupy. The intended framing is "unit tests for your firewall detections": Replicant emits the telemetry, an offline detection-regression check asserts the rule still fires, and a GitHub Action gates the build. The check and the Action are planned, not built, and their claim is scoped to **offline** regression against a local pipeline; neither implies production SIEM assurance, which stays behind the lab-test gate above.
 

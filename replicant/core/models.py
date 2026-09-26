@@ -424,10 +424,10 @@ class ScenarioStage(BaseModel):
     intensity: Intensity = "medium"
     start_offset: str = "0s"  # start time relative to the scenario anchor (parse_duration)
     param_overrides: dict[str, Any] = Field(default_factory=dict)
-    # Techniques whose builder anchors to an internal window rather than to the stage anchor
-    # (REP-005 pins to 00:00-06:00 of the anchor's day) would emit before the stage they follow.
-    # "next-off-hours" tells the composer to advance this stage by whole days until it clears
-    # its intended start. Opt-in, because a warm-up baseline (REP-008) legitimately precedes.
+    # Techniques pinned to an absolute window. REP-005 now places itself in the next
+    # 00:00-06:00 window at or after its anchor (2026-09-26), so for it this is a guard that
+    # does not fire; the value also marks the stage as pinned for the duration-overrun note.
+    # Opt-in, because a warm-up baseline (REP-008) legitimately precedes its anchor.
     align: Literal["anchor", "next-off-hours"] = "anchor"
 
 

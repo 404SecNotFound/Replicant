@@ -82,6 +82,7 @@ from starlette.websockets import WebSocket
 
 from replicant import __version__
 from replicant import resources as _resources
+from replicant.config.confine import ConfinementError, confined_output_path
 from replicant.config.settings import (
     VENDORS,
     WEB_DEFAULT_PORT,
@@ -1290,14 +1291,14 @@ def create_app(
 
         if not to_file:
             return None
-        root = Path(settings.manifest_dir).resolve().parent / "out"
-        root.mkdir(parents=True, exist_ok=True)
-        candidate = (root / Path(to_file).name).resolve()
-        # `.name` already strips traversal, so this is the belt to that braces:
-        # it also catches a symlink planted inside the directory.
-        if not candidate.is_relative_to(root) or candidate.is_symlink():
-            raise HTTPException(status_code=400, detail="output path is not permitted")
-        return str(candidate)
+        # Shared with the web terminal's menu (`replicant.config.confine`). The
+        # previous inline check called `.is_symlink()` on the already-resolved
+        # path, which can never be a link, so a symlink planted inside `out/`
+        # passed it. The helper checks the link before resolving.
+        try:
+            return confined_output_path(to_file, settings.manifest_dir)
+        except ConfinementError as exc:
+            raise HTTPException(status_code=400, detail="output path is not permitted") from exc
 
     def _run_request(body: RunBody) -> tuple[RunRequest, bool]:
         """One RunBody becomes one RunRequest, for the preview and the run alike.
