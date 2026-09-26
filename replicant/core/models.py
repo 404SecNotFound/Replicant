@@ -374,6 +374,16 @@ class RunManifest(BaseModel):
     #: default, --mark-synthetic, or --no-marker override). Defaulted so manifests
     #: written before this field existed still load. See Orchestrator._resolve_marker.
     marker_attestation: str = ""
+    #: Syslog envelope actually used on the wire (rfc3164 or rfc5424), or None
+    #: when the run had no collector. Defaulted so older manifests still load.
+    syslog_format: str | None = None
+    #: Zone of the syslog header timestamp (utc or local), or None when the run
+    #: had no collector. RFC 3164 has no field for it, so the manifest is the
+    #: only place a reader can find out which zone the header meant.
+    syslog_timezone: str | None = None
+    #: Preflight warnings recorded for audit, e.g. a burst send that delivers
+    #: events stamped in their own future. Empty when there were none.
+    notes: list[str] = Field(default_factory=list)
     status: RunStatus = "done"
     #: True when fewer events than planned are durably accounted for. An initial
     #: non-empty ``running`` record is therefore partial even at zero: a crash
@@ -570,6 +580,12 @@ class ScenarioManifest(BaseModel):
     #: Collector events-per-second ceiling actually in force. None for file-only
     #: and dry runs, where the emitter rate limiter is not applied.
     rate: int | None = None
+    #: See RunManifest.send_stats. None for a scenario with no collector.
+    send_stats: dict[str, int] | None = None
+    #: See RunManifest.syslog_format / syslog_timezone / notes.
+    syslog_format: str | None = None
+    syslog_timezone: str | None = None
+    notes: list[str] = Field(default_factory=list)
     # See RunManifest: written on every exit path, so it has to say which one.
     status: RunStatus = "done"
     partial: bool = False

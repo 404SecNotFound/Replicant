@@ -44,14 +44,49 @@ terminal replacement failed.
 | `event_count` | Individual-run CEF records rendered so far. |
 | `total_event_count` | Scenario-run CEF records rendered so far. |
 | `partial` | `true` exactly when the rendered count is below `planned_event_count`. |
-| `send_stats` | Individual-run socket statistics, or `null` when there was no collector. |
+| `send_stats` | Socket statistics for an individual or scenario run, or `null` when there was no collector. |
 
 Rendered is deliberately not a synonym for sent or received. A record can render,
-then encounter a callback, file, or transport failure. For an individual live
-run, `send_stats.sends` counts records the emitter handed to the kernel;
+then encounter a callback, file, or transport failure. For a live run,
+`send_stats.sends` counts records the emitter handed to the kernel;
 `send_stats.bytes`, `errors`, and `oversize` describe that socket activity. UDP
-handoff does not confirm collector receipt. Scenario manifests currently do not
-carry `send_stats`.
+handoff does not confirm collector receipt. Scenario manifests carry
+`send_stats` too (added 2026-09-26; older scenario manifests have none).
+
+`send_stats.reconnects` and `send_stats.resent` apply to TCP and TLS. When a
+stream collector drops the connection mid-run, the emitter reconnects with a
+bounded backoff (three attempts, waiting 0.5s, 1s, then 2s) and sends the record
+whose send failed once more. Each successful reconnect increments `reconnects`
+and each record sent again increments `resent`; every failed attempt, including
+the original failure, increments `errors`. If all three attempts fail the run
+ends with `status="error"` as before. **Limitation:** TCP has no application
+acknowledgement, so records the kernel had already accepted, and that were still
+buffered when the peer closed, are lost without any error reaching Replicant.
+`sends` counts them as sent. Only the collector's own count can confirm delivery.
+
+## Envelope and notes
+
+| Field | Meaning |
+|---|---|
+| `syslog_format` | `rfc3164` or `rfc5424`, the envelope used on the wire, or `null` when there was no collector. |
+| `syslog_timezone` | `utc` or `local`, the zone of the syslog header timestamp, or `null` when there was no collector. |
+| `notes` | Preflight warnings recorded for audit (a list of strings, empty when there were none). |
+
+RFC 3164 has no field for its timestamp's zone, so `syslog_timezone` is the only
+record of which zone the header meant. It defaults to `utc`; before 2026-09-26
+the header was host local time and these fields did not exist. RFC 5424 always
+writes an explicit offset, so under `rfc5424` this field only says which offset
+was written.
+
+`notes` currently records one case: a send whose pacing would deliver events
+stamped more than 60 seconds ahead of their own send time, which is what
+`--pace burst --anchor now` does to any plan longer than a minute. The same text
+is printed to stderr before the run. The anchor-drift warning is not recorded
+here because it is a property of the request (`anchor_epoch` already holds it).
+
+A run ended by SIGTERM (`systemd stop`, `docker stop`) finalizes exactly as a
+kill-switch stop: `status="stopped"`, `ended_at` set, and `partial` by count. The
+CLI and menu exit with status 143 afterwards.
 
 `status` and `partial` answer different questions:
 

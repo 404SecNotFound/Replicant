@@ -18,6 +18,13 @@ default, matching FortiGate's on-wire format: ``<PRI>Mmm dd HH:MM:SS HOST
 <cef-payload>`` with no tag. The CEF payload is supplied by the caller; this
 module adds only the syslog envelope.
 
+The RFC 3164 timestamp carries no zone, so its zone is a setting
+(``Settings.syslog_timezone``) and defaults to UTC. It used to be host local
+time: on a Dubai host (UTC+4) a collector reading the header as UTC saw every
+event four hours in the future. RFC 5424 framing (``Settings.syslog_format``)
+is available for collectors that parse it, and its timestamp carries an explicit
+offset, which removes the ambiguity rather than choosing a side of it.
+
 Safety rule 1: the only socket peer is the configured collector. A ``SyslogEmitter``
 is bound to exactly one :class:`CollectorProfile` and never opens any other target.
 """
@@ -26,15 +33,17 @@ from __future__ import annotations
 
 import errno
 import ipaddress
+import re
 import socket
 import ssl
 import struct
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
-from typing import Any
+from typing import Any, Literal
 
 from replicant.core.models import CollectorProfile
 from replicant.obs.log import get_logger, verbose
@@ -45,6 +54,40 @@ _log = get_logger("transport")
 # this fragments, and fragments are dropped by more middleboxes and collectors
 # than most people expect. TCP does not care, so the check is UDP-only.
 UDP_SAFE_PAYLOAD = 1472
+# The same figure for IPv6, whose fixed header is 40 bytes rather than 20.
+UDP6_SAFE_PAYLOAD = 1452
+# The largest datagram the kernel accepts at all: 65535 minus the IP and UDP
+# headers (IPv6 payload length excludes its own header). Above this `sendto`
+# raises EMSGSIZE, which used to end a run with a raw traceback naming neither
+# the record nor the fix.
+UDP_MAX_PAYLOAD = 65507
+UDP6_MAX_PAYLOAD = 65527
+
+SyslogFormat = Literal["rfc3164", "rfc5424"]
+HeaderTimezone = Literal["utc", "local"]
+
+#: RFC 3164 section 4.1.2 makes HOSTNAME a single token with no embedded space;
+#: RFC 5424 section 6.2.4 bounds it at 255 printable US-ASCII characters. This
+#: is the intersection a collector can parse either way, with ``:`` allowed for
+#: an IPv6 literal. A newline here used to split one record across two lines.
+HOSTNAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,254}")
+
+
+def validate_syslog_hostname(value: str) -> str:
+    """Return ``value`` unchanged, or raise ValueError naming what is wrong."""
+
+    if not HOSTNAME_PATTERN.fullmatch(value):
+        raise ValueError(
+            f"syslog hostname {value!r} is not a valid header hostname: use 1 to 255 "
+            "letters, digits, '.', '-', '_' or ':', starting with a letter or digit, "
+            "with no spaces or control characters"
+        )
+    return value
+
+
+class OversizeDatagramError(OSError):
+    """A framed record is larger than any UDP datagram can be."""
+
 
 # RFC 3164 fixes the month at three ASCII characters. Kept as a table because
 # strftime('%b') is locale-dependent and would silently localise the wire format.
@@ -78,6 +121,11 @@ _LEVEL_TO_SYSLOG_SEVERITY: dict[str, int] = {
 
 
 PROC_NET_ROUTE = Path("/proc/net/route")
+PROC_NET_IPV6_ROUTE = Path("/proc/net/ipv6_route")
+# RTF_REJECT: an `unreachable` or `prohibit` route. Linux lists those in
+# /proc/net/ipv6_route against `lo`, and matching one would report a
+# destination the kernel refuses as "direct via lo".
+_RTF_REJECT = 0x0200
 
 
 def resolve_endpoint(host: str, port: int, socktype: int) -> tuple[int, Any]:
@@ -150,12 +198,23 @@ def _hex_to_ip(value: int) -> str:
     return socket.inet_ntoa(struct.pack("<L", value))
 
 
-def route_for(dest: str, route_table: Path = PROC_NET_ROUTE) -> Route | None:
-    """Longest-prefix match from the kernel's own table. Linux only, best effort."""
+def route_for(
+    dest: str,
+    route_table: Path = PROC_NET_ROUTE,
+    ipv6_table: Path = PROC_NET_IPV6_ROUTE,
+) -> Route | None:
+    """Longest-prefix match from the kernel's own table. Linux only, best effort.
+
+    ``dest`` must be an address literal. A name returns None, because this never
+    resolves: callers pass the address :func:`resolved_address` produced, which
+    is what the socket will actually use. The check used to receive the
+    configured host verbatim, so ``localhost``, any DNS name and every IPv6
+    collector silently skipped the off-segment warning.
+    """
 
     try:
-        target = struct.unpack("<L", socket.inet_aton(dest))[0]
-    except OSError:
+        address = ipaddress.ip_address(dest)
+    except ValueError:
         return None
 
     # Loopback never appears in /proc/net/route: the kernel keeps those routes in
@@ -163,12 +222,12 @@ def route_for(dest: str, route_table: Path = PROC_NET_ROUTE) -> Route | None:
     # collector on 127.0.0.1 falls through to the default route and is reported as
     # going via the gateway, which is both wrong and the noisiest possible false
     # positive for anyone testing against a local listener.
-    try:
-        if ipaddress.ip_address(dest).is_loopback:
-            return Route(interface="lo", gateway=None)
-    except ValueError:
-        return None
+    if address.is_loopback:
+        return Route(interface="lo", gateway=None)
+    if address.version == 6:
+        return _route6_for(address, ipv6_table)
 
+    target = struct.unpack("<L", socket.inet_aton(str(address)))[0]
     best: tuple[int, Route] | None = None
     try:
         with route_table.open(encoding="ascii") as handle:
@@ -197,6 +256,60 @@ def route_for(dest: str, route_table: Path = PROC_NET_ROUTE) -> Route | None:
     except OSError:
         return None
     return best[1] if best else None
+
+
+def _route6_for(address: ipaddress.IPv6Address, table: Path) -> Route | None:
+    """Longest-prefix match over ``/proc/net/ipv6_route``. None where it is absent.
+
+    Each row is ``dest plen src src_plen next_hop metric refcnt use flags iface``
+    with addresses as 32 hex digits in network order, which is why this needs no
+    byte swapping where the IPv4 table does. An all-zero next hop is on-link.
+    """
+
+    target = int(address)
+    best: tuple[int, int, Route] | None = None
+    try:
+        with table.open(encoding="ascii") as handle:
+            for row in handle:
+                fields = row.split()
+                if len(fields) < 10:
+                    continue
+                try:
+                    network = int(fields[0], 16)
+                    prefix = int(fields[1], 16)
+                    next_hop = int(fields[4], 16)
+                    metric = int(fields[5], 16)
+                    flags = int(fields[8], 16)
+                except ValueError:
+                    continue
+                if flags & _RTF_REJECT or not 0 <= prefix <= 128:
+                    continue
+                mask = ((1 << 128) - 1) ^ ((1 << (128 - prefix)) - 1)
+                if (target & mask) != (network & mask):
+                    continue
+                # Longest prefix first, then the lower metric, as the kernel does.
+                if best is None or prefix > best[0] or (prefix == best[0] and metric < best[1]):
+                    gateway = str(ipaddress.IPv6Address(next_hop)) if next_hop else None
+                    best = (prefix, metric, Route(interface=fields[9], gateway=gateway))
+    except OSError:
+        return None
+    return best[2] if best else None
+
+
+def resolved_address(host: str, port: int, socktype: int = socket.SOCK_DGRAM) -> str | None:
+    """The address literal a socket to ``host`` would use, or None if it cannot resolve.
+
+    The route check and the segment arithmetic both need an address, and the
+    operator is allowed to configure a name. Resolving is not egress (safety
+    rule 1): it asks about the configured collector and no other host, and it is
+    the same lookup :meth:`SyslogEmitter.connect` performs anyway.
+    """
+
+    try:
+        _family, sockaddr = resolve_endpoint(host, port, socktype)
+    except OSError:
+        return None
+    return str(sockaddr[0])
 
 
 def route_interface_for(dest: str, route_table: Path = PROC_NET_ROUTE) -> str | None:
@@ -256,14 +369,18 @@ def describe_path(host: str, port: int) -> str:
     source = local_source_for(host, port)
     if source is None:
         return f"{host}:{port} (no route)"
-    route = route_for(host)
+    address = resolved_address(host, port)
+    route = route_for(address) if address is not None else None
+    # A name is shown with the address it resolved to, because the address is
+    # what a transposed octet has to be read against.
+    target = host if address in (None, host) else f"{host} ({address})"
     if route is None:
-        return f"{source[0]} -> {host}:{port}"
+        return f"{source[0]} -> {target}:{port} (route not known on this platform)"
     # "direct" vs "via <gateway>" is the distinction that would have caught the
     # transposed address: the correct collector was directly connected, the
     # mistyped one was handed to a router.
-    hop = "direct" if route.is_direct else f"gateway {route.gateway}"
-    return f"{source[0]} -> {host}:{port} via {route.interface} ({hop})"
+    hop = "direct, on-link" if route.is_direct else f"next hop gateway {route.gateway}"
+    return f"{source[0]} -> {target}:{port} via {route.interface} ({hop})"
 
 
 def segment_claim(source: str | None, dest: str) -> str | None:
@@ -356,6 +473,34 @@ class PathReport:
     def ok(self) -> bool:
         """Whether anything was delivered to the stack. Never blocks a run."""
         return self.verdict in {"sent_unconfirmed", "handshake_ok"}
+
+    def render_lines(self) -> list[str]:
+        """The report as plain text lines, for the CLI and the Rich menu.
+
+        Every line the web card shows, in the same order: verdict, what happened,
+        the path, what it proves, and what it does not. The limits are never
+        optional, because a verdict without them is the defect this replaced.
+        """
+
+        if self.source is None:
+            path = f"{self.host}:{self.port}"
+        else:
+            path = f"{self.source} -> {self.host}:{self.port}"
+        if self.interface is not None:
+            hop = "direct, on-link" if self.direct else f"next hop gateway {self.gateway}"
+            path += f" via {self.interface} ({hop})"
+        elif self.source is not None:
+            path += " (route not known on this platform)"
+        lines = [
+            f"verdict: {self.verdict}",
+            f"  {self.summary}",
+            f"  path: {path} over {self.transport}",
+        ]
+        if self.claim:
+            lines.append(f"  segment: {self.claim}")
+        lines.append(f"  proves: {self.proves}")
+        lines.append(f"  does not prove: {self.does_not_prove}")
+        return lines
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -516,7 +661,8 @@ def _report(
     its own never looks wrong; beside its source it does.
     """
 
-    route = route_for(profile.host)
+    address = resolved_address(profile.host, profile.port)
+    route = route_for(address) if address is not None else None
     return PathReport(
         host=profile.host,
         port=profile.port,
@@ -529,7 +675,7 @@ def _report(
         interface=route.interface if route else None,
         gateway=route.gateway if route else None,
         direct=route.is_direct if route else None,
-        claim=segment_claim(source, profile.host),
+        claim=segment_claim(source, address or profile.host),
     )
 
 
@@ -542,12 +688,23 @@ class SendStats:
     during a live test: it counts payloads that will fragment, which is a common
     reason a collector receives the small connect-test line and none of the real
     ones.
+
+    ``reconnects`` and ``resent`` belong to the stream transports. A TCP or TLS
+    collector that drops the connection mid-run is reconnected with a bounded
+    backoff and the record whose send failed is sent once more; each successful
+    reconnect and each record sent again is counted here, and ``errors`` still
+    counts the failed attempt. **What this cannot recover** is stated rather than
+    implied: TCP has no application acknowledgement, so records the kernel
+    accepted before the peer closed, and that were still buffered when it did,
+    are lost without any error reaching this process.
     """
 
     sends: int = 0
     bytes: int = 0
     errors: int = 0
     oversize: int = 0
+    reconnects: int = 0
+    resent: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -555,11 +712,24 @@ class SendStats:
             "bytes": self.bytes,
             "errors": self.errors,
             "oversize": self.oversize,
+            "reconnects": self.reconnects,
+            "resent": self.resent,
         }
 
 
+#: Waits before each reconnect attempt on a dropped stream transport. Bounded on
+#: purpose: a collector that is down for longer than this is down, and the run
+#: ends with the error rather than retrying forever against a closed port.
+RECONNECT_BACKOFF_S: tuple[float, ...] = (0.5, 1.0, 2.0)
+
+
 class SyslogEmitter:
-    """Frames CEF payloads into RFC 3164 syslog and sends them to one collector."""
+    """Frames CEF payloads into syslog and sends them to one collector.
+
+    RFC 3164 by default; ``syslog_format="rfc5424"`` for collectors that parse
+    it. ``header_timezone`` picks the zone of the RFC 3164 timestamp, which has
+    no field to say which zone it is in; RFC 5424 always carries an offset.
+    """
 
     def __init__(
         self,
@@ -567,9 +737,20 @@ class SyslogEmitter:
         hostname: str = "FGT-LAB-01",
         connect_timeout: float = 5.0,
         send_timeout: float = 30.0,
+        *,
+        syslog_format: SyslogFormat = "rfc3164",
+        header_timezone: HeaderTimezone = "utc",
+        reconnect_backoff: tuple[float, ...] = RECONNECT_BACKOFF_S,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.profile = profile
-        self.hostname = hostname
+        # Validated here as well as at the settings boundary, because a newline
+        # in the header hostname splits one record into two on the wire.
+        self.hostname = validate_syslog_hostname(hostname)
+        self.syslog_format = syslog_format
+        self.header_timezone = header_timezone
+        self.reconnect_backoff = reconnect_backoff
+        self._sleep = sleep
         self.connect_timeout = connect_timeout
         # Separate from the connect budget on purpose. `connect()` used to leave
         # the 5s connect timeout on the socket, so every later `sendall` ran under
@@ -589,6 +770,15 @@ class SyslogEmitter:
         # fragments every line, and 36000 identical warnings buries the buffer.
         self._warned_oversize = False
         self._warned_off_subnet = False
+        self._family: int = socket.AF_INET
+
+    def configure_framing(
+        self, *, syslog_format: SyslogFormat, header_timezone: HeaderTimezone
+    ) -> None:
+        """Set the envelope after construction (the orchestrator's entry point)."""
+
+        self.syslog_format = syslog_format
+        self.header_timezone = header_timezone
 
     # -- lifecycle -------------------------------------------------------------
 
@@ -605,6 +795,7 @@ class SyslogEmitter:
             family, self._peer = resolve_endpoint(
                 self.profile.host, self.profile.port, socket.SOCK_DGRAM
             )
+            self._family = family
             self._sock = socket.socket(family, socket.SOCK_DGRAM)
             # Says nothing about reachability. Recorded because an operator
             # reading the log needs to know that this line is not evidence of a
@@ -617,6 +808,7 @@ class SyslogEmitter:
             family, self._peer = resolve_endpoint(
                 self.profile.host, self.profile.port, socket.SOCK_STREAM
             )
+            self._family = family
             sock = socket.socket(family, socket.SOCK_STREAM)
             sock.settimeout(self.connect_timeout)
             sock.connect(self._peer)
@@ -627,6 +819,7 @@ class SyslogEmitter:
             family, self._peer = resolve_endpoint(
                 self.profile.host, self.profile.port, socket.SOCK_STREAM
             )
+            self._family = family
             sock = socket.socket(family, socket.SOCK_STREAM)
             sock.settimeout(self.connect_timeout)
             self._sock = self._tls_context().wrap_socket(
@@ -657,7 +850,8 @@ class SyslogEmitter:
 
         if self._warned_off_subnet:
             return
-        route = route_for(self.profile.host)
+        address = resolved_address(self.profile.host, self.profile.port)
+        route = route_for(address) if address is not None else None
         if route is None or route.is_direct:
             return
         self._warned_off_subnet = True
@@ -687,11 +881,14 @@ class SyslogEmitter:
             self._sock.close()
             self._sock = None
             _log.info(
-                "collector socket closed: %d sends, %d bytes, %d errors, %d oversize",
+                "collector socket closed: %d sends, %d bytes, %d errors, %d oversize, "
+                "%d reconnects, %d resent",
                 self.stats.sends,
                 self.stats.bytes,
                 self.stats.errors,
                 self.stats.oversize,
+                self.stats.reconnects,
+                self.stats.resent,
             )
 
     def __enter__(self) -> SyslogEmitter:
@@ -713,7 +910,16 @@ class SyslogEmitter:
         return self.profile.facility * 8 + severity
 
     def frame(self, payload: str, level: str = "notice", now: datetime | None = None) -> bytes:
-        stamp = now or datetime.now()
+        """The syslog envelope around one CEF payload.
+
+        ``now`` may be naive, in which case it is taken as already expressed in
+        the header zone (the golden framing tests pass naive stamps). An aware
+        ``now`` is converted to that zone.
+        """
+
+        if self.syslog_format == "rfc5424":
+            return self._frame_rfc5424(payload, level, now)
+        stamp = self._header_time(now)
         # Fixed table rather than strftime('%b'), which follows LC_TIME and would
         # put "févr." or "Mär" in an RFC 3164 header that every SIEM parser reads
         # as three ASCII characters. Latent rather than live today: CPython leaves
@@ -724,6 +930,41 @@ class SyslogEmitter:
             f"{_RFC3164_MONTHS[stamp.month - 1]} {stamp.day:2d} {stamp.strftime('%H:%M:%S')}"
         )
         return f"<{self.pri(level)}>{timestamp} {self.hostname} {payload}".encode()
+
+    def _header_time(self, now: datetime | None) -> datetime:
+        if now is None:
+            current = datetime.now(UTC)
+            return current if self.header_timezone == "utc" else current.astimezone()
+        if now.tzinfo is None:
+            return now
+        return now.astimezone(UTC) if self.header_timezone == "utc" else now.astimezone()
+
+    def _frame_rfc5424(self, payload: str, level: str, now: datetime | None) -> bytes:
+        """``<PRI>1 TIMESTAMP HOST APP - - - MSG``, with an explicit UTC offset.
+
+        APP-NAME is the profile's ``app_name`` or the nil value ``-``; PROCID,
+        MSGID and STRUCTURED-DATA are nil because a firewall exporter has none of
+        them to give. The timestamp always carries its offset, so the header
+        zone setting decides only which offset is written, never whether the
+        reader has to guess.
+        """
+
+        stamp = self._header_time(now)
+        if stamp.tzinfo is None:
+            local = self.header_timezone == "local"
+            stamp = stamp.astimezone() if local else stamp.replace(tzinfo=UTC)
+        text = stamp.isoformat(timespec="milliseconds")
+        if text.endswith("+00:00"):
+            text = text[:-6] + "Z"
+        app = self.profile.app_name or "-"
+        return f"<{self.pri(level)}>1 {text} {self.hostname} {app} - - - {payload}".encode()
+
+    def _udp_limits(self) -> tuple[int, int]:
+        """(fragmentation threshold, hard maximum) for this socket's address family."""
+
+        if self._family == socket.AF_INET6:
+            return UDP6_SAFE_PAYLOAD, UDP6_MAX_PAYLOAD
+        return UDP_SAFE_PAYLOAD, UDP_MAX_PAYLOAD
 
     def send(self, payload: str, level: str = "notice") -> int:
         """Send one framed line. Returns the byte count handed to the socket.
@@ -739,18 +980,29 @@ class SyslogEmitter:
         data = self.frame(payload, level)
         size = len(data)
 
-        if self.profile.transport == "udp" and size > UDP_SAFE_PAYLOAD:
-            self.stats.oversize += 1
-            if not self._warned_oversize:
-                self._warned_oversize = True
-                _log.warning(
-                    "datagram is %d bytes, above the %d-byte non-fragmenting limit. "
-                    "IP will fragment it, and collectors and middleboxes drop fragments. "
-                    "This is a common reason a short connect test arrives and full CEF "
-                    "lines do not. Consider tcp transport for lines this long.",
-                    size,
-                    UDP_SAFE_PAYLOAD,
+        if self.profile.transport == "udp":
+            safe, maximum = self._udp_limits()
+            if size > maximum:
+                self.stats.errors += 1
+                raise OversizeDatagramError(
+                    errno.EMSGSIZE,
+                    f"record {self.stats.sends + 1} frames to {size} bytes, above the "
+                    f"{maximum}-byte ceiling for one UDP datagram, so it cannot be sent "
+                    "over udp at all. Use tcp or tls transport for records this long",
                 )
+            if size > safe:
+                self.stats.oversize += 1
+                if not self._warned_oversize:
+                    self._warned_oversize = True
+                    _log.warning(
+                        "datagram is %d bytes, above the %d-byte non-fragmenting limit. "
+                        "IP will fragment it, and collectors and middleboxes drop "
+                        "fragments. This is a common reason a short connect test arrives "
+                        "and full CEF lines do not. Consider tcp transport for lines this "
+                        "long.",
+                        size,
+                        safe,
+                    )
 
         try:
             if self.profile.transport == "udp":
@@ -758,19 +1010,71 @@ class SyslogEmitter:
             else:
                 self._sock.sendall(data + b"\n")
         except OSError as exc:
-            # Counted and reported, then re-raised. Swallowing it here would turn
-            # a broken run into a silent one, which is the failure this whole
-            # module exists to stop.
+            # Counted and reported. Swallowing it here would turn a broken run
+            # into a silent one, which is the failure this whole module exists to
+            # stop. A stream transport gets a bounded reconnect first; anything
+            # that does not recover is re-raised unchanged.
             self.stats.errors += 1
             _log.warning(
                 "send failed after %d ok: %s (%s)", self.stats.sends, exc, type(exc).__name__
             )
-            raise
+            if self.profile.transport == "udp" or not self._reconnect_and_resend(data):
+                raise
 
         self.stats.sends += 1
         self.stats.bytes += size
         verbose(_log, "sent %d bytes level=%s", size, level)
         return size
+
+    def _reconnect_and_resend(self, data: bytes) -> bool:
+        """Re-establish a dropped stream and send ``data`` once more.
+
+        Bounded: one attempt per entry in ``reconnect_backoff``, each after its
+        wait. Returns True when the record went out on a fresh connection, False
+        when every attempt failed (the caller then re-raises the original error,
+        so the run ends exactly as it did before this existed).
+        """
+
+        for attempt, wait in enumerate(self.reconnect_backoff, start=1):
+            self._drop_socket()
+            self._sleep(wait)
+            try:
+                self.connect()
+                assert self._sock is not None
+                self._sock.sendall(data + b"\n")
+            except OSError as exc:
+                self.stats.errors += 1
+                _log.warning(
+                    "reconnect %d/%d to %s failed: %s (%s)",
+                    attempt,
+                    len(self.reconnect_backoff),
+                    self.profile.endpoint(),
+                    exc,
+                    type(exc).__name__,
+                )
+                continue
+            self.stats.reconnects += 1
+            self.stats.resent += 1
+            _log.warning(
+                "reconnected to %s on attempt %d and sent the failed record again. Records "
+                "the kernel had accepted before the collector closed may still be lost: "
+                "TCP has no application acknowledgement",
+                self.profile.endpoint(),
+                attempt,
+            )
+            return True
+        self._drop_socket()
+        return False
+
+    def _drop_socket(self) -> None:
+        """Close the current socket without logging a run summary."""
+
+        if self._sock is not None:
+            try:
+                self._sock.close()
+            except OSError:  # pragma: no cover - close on a dead socket
+                pass
+            self._sock = None
 
     def send_test(self, payload: str) -> bool:
         """Send one line; return transport success.

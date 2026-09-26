@@ -20,16 +20,36 @@ only here (the CLI can do everything the menu can).
 
 from __future__ import annotations
 
+import math
 from typing import cast
 
+from pydantic import ValidationError
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
 from replicant import __version__
-from replicant.config.settings import VENDORS, Settings, load_profiles, save_profile
+from replicant.cli.app import print_path, print_probe_report
+from replicant.config.confine import (
+    PROFILE_SAVE_REFUSED,
+    ConfinementError,
+    confined_cafile,
+    confined_output_path,
+    web_confined,
+)
+from replicant.config.settings import (
+    VENDORS,
+    Settings,
+    load_profiles,
+    parse_anchor,
+    parse_duration,
+    save_profile,
+    stale_anchor_warning,
+)
+from replicant.core.lifecycle import SIGTERM_EXIT, stop_on_sigterm
 from replicant.core.models import (
     SCENARIO_CATALOG_PATH,
     Catalog,
@@ -41,8 +61,9 @@ from replicant.core.models import (
     load_scenario_catalog,
 )
 from replicant.core.orchestrator import Orchestrator
-from replicant.core.pacing import Pace
+from replicant.core.pacing import MAX_SPEED, Pace
 from replicant.entities.model import EntityModel
+from replicant.obs.log import install_stderr
 from replicant.scenario.advisory import build_advisory
 from replicant.scenario.composer import compose
 from replicant.scenario.engine import ScenarioEngine
@@ -104,6 +125,97 @@ def _pick_vendor(console: Console, current: str) -> str:
     return _VENDORS[int(choice) - 1]
 
 
+def _ask_anchor(console: Console, *, sending: bool, default_epoch: int) -> int:
+    """Ask for the event-time anchor, with the same meanings as ``--anchor``.
+
+    ``now``, ``default`` (the fixed anchor that makes a seed reproduce byte for
+    byte), an epoch, or an ISO-8601 timestamp. The menu had no way to set it, so
+    every menu live send carried event times over a year old while the syslog
+    header said now, and a SIEM keying on event time saw nothing recent. ``now``
+    is therefore the suggested answer for a live send; a file keeps the default.
+    """
+
+    console.print(
+        "  [dim]event-time anchor: now, default (fixed, reproducible), an epoch, "
+        "or an ISO-8601 time[/dim]"
+    )
+    suggested = "now" if sending else "default"
+    while True:
+        raw = Prompt.ask("  Anchor", default=suggested).strip() or suggested
+        if raw.lower() in {"default", "fixed"}:
+            anchor = default_epoch
+        else:
+            try:
+                anchor = parse_anchor(raw)
+            except ValueError as exc:
+                console.print(f"  [yellow]{escape(str(exc))}[/yellow]")
+                continue
+        warning = stale_anchor_warning(anchor, sending=sending)
+        if warning:
+            console.print(f"  [yellow]note[/yellow]: {escape(warning)}")
+        return anchor
+
+
+def _ask_duration(console: Console) -> str | None:
+    """A duration the run will accept, or None for the preset. Re-asks on nonsense."""
+
+    while True:
+        raw = Prompt.ask("  Duration (e.g. 2m, 30m; blank uses the preset)", default="").strip()
+        if not raw:
+            return None
+        try:
+            if parse_duration(raw) > 0:
+                return raw
+        except ValueError:
+            pass
+        console.print(
+            f"  [yellow]not a duration: {escape(raw)!s}. Use a number with s, m, h or d, "
+            "for example 90s, 30m or 1h30m.[/yellow]"
+        )
+
+
+def _ask_speed(console: Console) -> float:
+    """A plan-pacing speed, 1 to MAX_SPEED. Re-asks rather than guessing."""
+
+    while True:
+        raw = (
+            Prompt.ask(
+                "  Speed (1 = real time; higher compresses event times with the schedule)",
+                default="1",
+            ).strip()
+            or "1"
+        )
+        try:
+            value = float(raw)
+        except ValueError:
+            value = math.nan
+        if math.isfinite(value) and 0 < value <= MAX_SPEED:
+            return max(1.0, value)
+        console.print(
+            f"  [yellow]speed must be a number from 1 to {MAX_SPEED:.0f} "
+            f"(got {escape(raw)})[/yellow]"
+        )
+
+
+def _ask_output(console: Console, manifest_dir: str) -> str:
+    """The output file. Confined to one directory when driven from the web terminal."""
+
+    confined = web_confined()
+    if confined:
+        console.print(
+            "  [dim]web terminal: output goes to the run-output directory, "
+            "named by file name only[/dim]"
+        )
+    while True:
+        raw = Prompt.ask("  Output file", default="./out/replicant.log").strip()
+        if not confined:
+            return raw
+        try:
+            return confined_output_path(raw, manifest_dir)
+        except ConfinementError as exc:
+            console.print(f"  [red]{escape(str(exc))}[/red]")
+
+
 def _pick_scenario(console: Console, scenarios: ScenarioCatalog) -> Scenario:
     """Offer the scenario catalog; return the chosen scenario."""
 
@@ -125,14 +237,9 @@ def _run_scenario(
     seed: int,
     collector: CollectorProfile | None,
     console: Console,
-) -> None:
-    request = ScenarioRunRequest(
-        scenario_id=scenario.id,
-        seed=seed,
-        collector=collector,
-        no_send=collector is None,
-        to_file=None,
-    )
+) -> bool:
+    """Preview and, with a collector, run one scenario. True if SIGTERM ended it."""
+
     # show the coverage/advisory preview first, whether or not a collector is set.
     composed = compose(
         scenario,
@@ -149,24 +256,60 @@ def _run_scenario(
             r"  [yellow]no collector set; use \[c] to connect, or run headless with "
             "'replicant scenario run --to-file'[/yellow]"
         )
-        return
+        return False
+    anchor = _ask_anchor(console, sending=True, default_epoch=orchestrator.settings.anchor_epoch)
+    request = ScenarioRunRequest(
+        scenario_id=scenario.id,
+        seed=seed,
+        collector=collector,
+        no_send=False,
+        to_file=None,
+        anchor_epoch=anchor,
+    )
+    print_path(collector, sending=True)
     with Progress(console=console) as progress:
         task = progress.add_task(f"emitting {scenario.id}", total=composed.total_count)
         try:
-            result = orchestrator.run_scenario(
-                request, scenarios, on_progress=lambda c, t: progress.update(task, completed=c)
-            )
+            with stop_on_sigterm(orchestrator) as signalled:
+                result = orchestrator.run_scenario(
+                    request,
+                    scenarios,
+                    on_progress=lambda c, t: progress.update(task, completed=c),
+                )
         except (RuntimeError, NotImplementedError, OSError) as exc:
             # This path had no handler at all, unlike its _run_technique sibling.
             # A refused collector therefore left the menu with a traceback and no
             # menu, which is the worst of the failure modes in this file.
-            console.print(f"  [red]run refused[/red]: {exc}")
-            return
+            console.print(f"  [red]run refused[/red]: {escape(str(exc))}")
+            return False
     console.print(f"  {result.event_count} events · manifest {result.manifest_path}")
     console.print(f"  advisory {result.advisory_path}")
+    return signalled.received
 
 
-def _connection_wizard(console: Console) -> CollectorProfile:
+def _first_error(exc: ValidationError) -> str:
+    return str(exc.errors()[0]["msg"]).removeprefix("Value error, ")
+
+
+def _ask_cafile(console: Console, *, confined: bool) -> str | None:
+    """A CA bundle path, or None for system CAs. Confined to <config>/ca/ from the web."""
+
+    label = (
+        "  CA bundle file name in the config ca/ directory (blank for system CAs)"
+        if confined
+        else "  CA bundle path (blank for system CAs)"
+    )
+    while True:
+        raw = Prompt.ask(label, default="").strip()
+        if not raw or not confined:
+            return raw or None
+        try:
+            return confined_cafile(raw)
+        except ConfinementError as exc:
+            console.print(f"  [red]{escape(str(exc))}[/red]")
+
+
+def _connection_wizard(console: Console) -> CollectorProfile | None:
     console.print("[bold]Connection settings[/bold]")
     saved = load_profiles()
     if saved:
@@ -177,18 +320,27 @@ def _connection_wizard(console: Console) -> CollectorProfile:
     port = IntPrompt.ask("  Port", default=514)
     transport = Prompt.ask("  Transport", choices=["udp", "tcp", "tls"], default="udp")
     tls_verify, tls_cafile = True, None
+    confined = web_confined()
     if transport == "tls":
         tls_verify = Confirm.ask("  Verify the collector certificate?", default=True)
-        cafile = Prompt.ask("  CA bundle path (blank for system CAs)", default="")
-        tls_cafile = cafile.strip() or None
-    profile = CollectorProfile(
-        name="menu",
-        host=host,
-        port=port,
-        transport=transport,
-        tls_verify=tls_verify,
-        tls_cafile=tls_cafile,
-    )
+        tls_cafile = _ask_cafile(console, confined=confined)
+    try:
+        profile = CollectorProfile(
+            name="menu",
+            host=host,
+            port=port,
+            transport=transport,
+            tls_verify=tls_verify,
+            tls_cafile=tls_cafile,
+        )
+    except ValidationError as exc:
+        console.print(f"  [red]collector refused[/red]: {escape(_first_error(exc))}")
+        return None
+    if confined:
+        # Not asked: a question whose yes always fails is decoration. Said once
+        # so the operator knows why the collector will not be there next time.
+        console.print(f"  [dim]{PROFILE_SAVE_REFUSED}[/dim]")
+        return profile
     if Confirm.ask("  Save as a named profile?", default=False):
         name = Prompt.ask("  Profile name", default="default")
         profile = profile.model_copy(update={"name": name})
@@ -199,16 +351,20 @@ def _connection_wizard(console: Console) -> CollectorProfile:
 
 def _connect_flow(orchestrator: Orchestrator, console: Console) -> CollectorProfile | None:
     profile = _connection_wizard(console)
+    if profile is None:
+        return None
     console.print(f"  sending one benign test log to {profile.endpoint()} ...")
-    ok = orchestrator.send_test(profile)
-    if not ok:
-        console.print("  [red]transport error[/red] sending the test log.")
+    # The same probe as `replicant connect --test` and the web card: a verdict
+    # with its limits, never a bare "sent". The old bool said "test log sent"
+    # for a UDP datagram to a closed port.
+    report = orchestrator.probe(profile)
+    print_probe_report(report, console)
+    if not report.ok:
         if not Confirm.ask("  Keep this collector anyway?", default=False):
             return None
         return profile
-    console.print("  [green]test log sent.[/green]")
     if Confirm.ask("  Did your collector receive the test log?", default=True):
-        console.print("  [green]collector confirmed.[/green]")
+        console.print("  receipt confirmed by you on the collector.")
     return profile
 
 
@@ -248,9 +404,33 @@ def _params_flow(
     technique_id: str,
     seed: int,
     collector: CollectorProfile | None,
+    *,
+    settings: Settings | None = None,
+) -> RunRequest:
+    """Ask for a run's parameters until they make a request the model accepts.
+
+    Each answer that can be wrong is checked where it is asked. The request model
+    is still the final word, and a refusal there re-asks the whole set rather than
+    ending the menu with a traceback, which is what ``banana`` and ``inf`` did.
+    """
+
+    resolved = settings or Settings()
+    while True:
+        try:
+            return _params_once(console, technique_id, seed, collector, resolved)
+        except ValidationError as exc:
+            console.print(f"  [yellow]not accepted[/yellow]: {escape(_first_error(exc))}")
+
+
+def _params_once(
+    console: Console,
+    technique_id: str,
+    seed: int,
+    collector: CollectorProfile | None,
+    settings: Settings,
 ) -> RunRequest:
     intensity = Prompt.ask("  Intensity", choices=["low", "medium", "high"], default="medium")
-    duration = Prompt.ask("  Duration (e.g. 2m, 30m; blank uses the preset)", default="")
+    duration = _ask_duration(console)
     dry_run = Confirm.ask("  Dry run to file only (no send)?", default=collector is None)
     to_file = None
     pace: Pace | None = None
@@ -263,7 +443,7 @@ def _params_flow(
             default="mixed",
         )
     if dry_run:
-        to_file = Prompt.ask("  Output file", default="./out/replicant.log")
+        to_file = _ask_output(console, settings.manifest_dir)
     else:
         # Only asked when the events are going somewhere with a clock. A file has
         # no wall time to reproduce, so the question would have no answer worth
@@ -274,34 +454,32 @@ def _params_flow(
         )
         pace = cast(Pace, Prompt.ask("  Pacing", choices=["plan", "burst"], default="plan"))
         if pace == "plan":
-            raw = Prompt.ask(
-                "  Speed (1 = real time; higher compresses event times with the schedule)",
-                default="1",
-            )
-            try:
-                speed = max(1.0, float(raw))
-            except ValueError:
-                speed = 1.0
+            speed = _ask_speed(console)
+    sending = not dry_run and collector is not None
+    anchor = _ask_anchor(console, sending=sending, default_epoch=settings.anchor_epoch)
     return RunRequest(
         technique_id=technique_id,
         intensity=intensity,
         seed=seed,
-        duration=duration or None,
+        duration=duration,
         to_file=to_file,
         no_send=dry_run,
         collector=None if dry_run else collector,
+        anchor_epoch=anchor,
         param_overrides=param_overrides,
         pace=pace,
         speed=speed,
     )
 
 
-def _run_technique(orchestrator: Orchestrator, request: RunRequest, console: Console) -> None:
+def _run_technique(orchestrator: Orchestrator, request: RunRequest, console: Console) -> bool:
+    """Preview, confirm and run one technique. True if SIGTERM ended the run."""
+
     try:
         plan = orchestrator.build_plan(request)
     except (NotImplementedError, KeyError) as exc:
         console.print(f"  [red]cannot plan[/red]: {exc}")
-        return
+        return False
     total = len(plan.events)
     console.print(f"  estimated events: [bold]{total}[/bold]  (anchor {plan.anchor_epoch})")
     # The count alone made a 238 minute run look identical to a three second one,
@@ -315,10 +493,14 @@ def _run_technique(orchestrator: Orchestrator, request: RunRequest, console: Con
         )
     except (RuntimeError, NotImplementedError, OSError) as exc:
         console.print(f"  [red]cannot run[/red]: {exc}")
-        return
+        return False
     console.print(f"  {preview.describe()}")
+    if preview.future_warning:
+        console.print(f"  [yellow]note[/yellow]: {escape(preview.future_warning)}")
     if not Confirm.ask("  Start run?", default=True):
-        return
+        return False
+    sending = not request.no_send and request.collector is not None
+    print_path(request.collector, sending=sending)
 
     with Progress(
         TextColumn("[progress.description]{task.description}"),
@@ -333,18 +515,21 @@ def _run_technique(orchestrator: Orchestrator, request: RunRequest, console: Con
             progress.update(task, completed=count)
 
         try:
-            result = orchestrator.run(request, on_progress=on_progress)
+            with stop_on_sigterm(orchestrator) as signalled:
+                result = orchestrator.run(request, on_progress=on_progress)
         except (RuntimeError, NotImplementedError, OSError) as exc:
-            console.print(f"  [red]run refused[/red]: {exc}")
-            return
+            console.print(f"  [red]run refused[/red]: {escape(str(exc))}")
+            return False
         progress.update(task, completed=result.event_count)
 
     console.print(Panel.fit(result.summary(), title="Run summary"))
     if result.stopped:
         console.print("  [yellow]stopped early (kill switch)[/yellow]")
+    return signalled.received
 
 
 def run_menu(catalog: Catalog, settings: Settings, console: Console) -> int:
+    install_stderr()
     _banner(console, settings)
     orchestrator = Orchestrator(catalog, settings)
     scenarios = load_scenario_catalog(SCENARIO_CATALOG_PATH, catalog)
@@ -376,15 +561,23 @@ def run_menu(catalog: Catalog, settings: Settings, console: Console) -> int:
             continue
         if choice == "a":
             scenario = _pick_scenario(console, scenarios)
-            _run_scenario(orchestrator, scenario, scenarios, seed, collector, console)
+            if _run_scenario(orchestrator, scenario, scenarios, seed, collector, console):
+                # systemd or docker asked the process to stop. The run is
+                # finalized; leave rather than wait at a prompt to be killed.
+                console.print("Replicant offline (SIGTERM).")
+                return SIGTERM_EXIT
             continue
         if not choice.isdigit() or not (1 <= int(choice) <= len(catalog.techniques)):
             console.print("  [yellow]invalid selection[/yellow]")
             continue
         technique = catalog.techniques[int(choice) - 1]
-        request = _params_flow(console, technique.id, seed, collector)
+        request = _params_flow(console, technique.id, seed, collector, settings=settings)
         try:
-            _run_technique(orchestrator, request, console)
+            terminated = _run_technique(orchestrator, request, console)
         except KeyboardInterrupt:
             orchestrator.stop()
             console.print("  [yellow]interrupted[/yellow]")
+            continue
+        if terminated:
+            console.print("Replicant offline (SIGTERM).")
+            return SIGTERM_EXIT

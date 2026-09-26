@@ -66,6 +66,8 @@ from replicant.core.pacing import (
     Pace,
     compress_timeline,
     format_span,
+    future_skew_warning,
+    max_future_skew,
     projected_seconds,
     resolve_pace,
     send_offsets,
@@ -81,7 +83,7 @@ from replicant.scenario.advisory import build_advisory
 from replicant.scenario.composer import ComposedPlan, compose
 from replicant.scenario.engine import ScenarioEngine, ScenarioPlan
 from replicant.transport.filesink import FileSink
-from replicant.transport.syslog import SyslogEmitter
+from replicant.transport.syslog import PathReport, SyslogEmitter, probe_collector
 
 if TYPE_CHECKING:
     from replicant.validation.contract import ValidationContract
@@ -93,6 +95,16 @@ ProgressCallback = Callable[[int, int], None]
 EventCallback = Callable[[str, EventRecord], None]
 ManifestCheckpointCallback = Callable[[int, int], None]
 ManifestCheckpointWaitCallback = Callable[[float], None]
+
+#: How far behind its plan the emit loop may fall before the schedule is moved
+#: rather than caught up. One rate interval (0.5ms at the default cap) was the
+#: old bound, and ordinary render plus send cost (about 0.7ms) tripped it on
+#: every dense stretch, so each one pushed the rest of the run later: 1.24s late
+#: after 15s at --speed 10, measured, and never recovered. Below this bound the
+#: loop catches up at the rate floor, which keeps each event inside its own
+#: second (the plan-pacing invariant); above it a real stall moves the baseline
+#: so what follows keeps its shape.
+_RESYNC_AFTER_S = 1.0
 
 # Manifest fsyncs protect the audit trail but must not become the dominant load
 # at the 2,000 EPS safety ceiling. In-memory progress is observed after every
@@ -327,6 +339,10 @@ class PacingPreview:
     projected_by_pace: dict[str, float]
     pace: Pace
     speed: float
+    #: Set when delivery at this pace would put events on the wire stamped more
+    #: than ``FUTURE_TOLERANCE_S`` ahead of their own send time (burst with
+    #: ``--anchor now`` is the common case). None when sending nothing.
+    future_warning: str | None = None
 
     def describe(self) -> str:
         if self.pace == "plan":
@@ -567,6 +583,64 @@ class Orchestrator:
             _log.warning("connect test failed: %s", describe_error(exc))
             return False
 
+    def probe(self, collector: CollectorProfile) -> PathReport:
+        """Send one benign line and report what that did and did not establish.
+
+        The connect test for the CLI and the menu. It used to be :meth:`send_test`,
+        whose bool read "test log sent" for a UDP datagram to a closed port. This
+        is the same probe the web connection card uses, so all three surfaces give
+        the same verdict with the same stated limits. Stamped now and marked the
+        way a run to this destination would be, for the reasons :meth:`send_test`
+        gives.
+        """
+
+        mark_on, _ = self._resolve_marker(send=True, collector=collector)
+        line = self.build_test_line(eventtime=int(datetime.now(tz=UTC).timestamp()), mark=mark_on)
+        _log.info("connect test: one benign line, stamped now")
+        return probe_collector(collector, payload=line)
+
+    def _make_emitter(self, collector: CollectorProfile) -> SyslogEmitter:
+        """The emitter for a run, with the operator's framing applied.
+
+        Framing is applied after construction and only when the object supports
+        it, for the same reason ``stats`` is read with getattr below: the emitter
+        is an injection point and test doubles implement only what they need.
+        """
+
+        emitter = SyslogEmitter(collector, hostname=self.syslog_hostname)
+        configure = getattr(emitter, "configure_framing", None)
+        if configure is not None:
+            configure(
+                syslog_format=self.settings.syslog_format,
+                header_timezone=self.settings.syslog_timezone,
+            )
+        return emitter
+
+    def _future_warning(
+        self,
+        events: Sequence[EventRecord],
+        *,
+        pace: Pace,
+        speed: float,
+        eps_cap: int,
+        sending: bool,
+    ) -> str | None:
+        """Warn when events would reach a collector stamped in their own future.
+
+        ``stale_anchor_warning`` checks the anchor alone, which is fine for plan
+        pacing, where an event leaves when its timestamp says. Burst ignores the
+        timeline, so ``--pace burst --anchor now`` delivered a four hour plan in
+        seconds stamped up to four hours ahead, and nothing said so.
+        """
+
+        if not sending or not events:
+            return None
+        compressed = compress_timeline(events, speed)
+        interval = 1.0 / eps_cap if eps_cap > 0 else 0.0
+        offsets = send_offsets(compressed, pace=pace, interval=interval)
+        skew = max_future_skew(compressed, offsets, time.time())
+        return future_skew_warning(skew, pace=pace)
+
     # -- planning / running ----------------------------------------------------
 
     def build_plan(self, request: RunRequest) -> ScenarioPlan:
@@ -776,6 +850,9 @@ class Orchestrator:
         eps_cap = self._effective_eps_cap(request.rate_override)
         pace = self._resolve_pace(request.pace, request.speed, sending=send)
         marker_on, marker_attestation = self._resolve_marker(send=send, collector=request.collector)
+        notes = self._preflight_notes(
+            plan.events, pace=pace, speed=request.speed, eps_cap=eps_cap, send=send
+        )
 
         started_at = now_dubai_iso()
         warmup = plan.warmup_note
@@ -813,6 +890,9 @@ class Orchestrator:
             rate=eps_cap if send else None,
             send_stats=None,
             marker_attestation=marker_attestation,
+            syslog_format=self.settings.syslog_format if send else None,
+            syslog_timezone=self.settings.syslog_timezone if send else None,
+            notes=notes,
             status="running",
             partial=bool(plan.events),
             updated_at=started_at,
@@ -934,6 +1014,24 @@ class Orchestrator:
             _log.warning("could not write the validation card: %s", describe_error(exc))
         return RunResult(manifest, manifest_path, count, plan, stopped, card_path)
 
+    def _preflight_notes(
+        self,
+        events: Sequence[EventRecord],
+        *,
+        pace: Pace,
+        speed: float,
+        eps_cap: int,
+        send: bool,
+    ) -> list[str]:
+        """Warnings worth a line in the manifest, logged as they are recorded."""
+
+        notes: list[str] = []
+        future = self._future_warning(events, pace=pace, speed=speed, eps_cap=eps_cap, sending=send)
+        if future is not None:
+            _log.warning("%s", future)
+            notes.append(future)
+        return notes
+
     def _emit(
         self,
         events: list[EventRecord],
@@ -963,11 +1061,7 @@ class Orchestrator:
         count = 0
         stopped = False
         sink = FileSink(to_file) if to_file else None
-        emitter = (
-            SyslogEmitter(collector, hostname=self.syslog_hostname)
-            if send and collector is not None
-            else None
-        )
+        emitter = self._make_emitter(collector) if send and collector is not None else None
         total = len(events)
         rate = RateCounter()
         total_sends = 0
@@ -1048,10 +1142,11 @@ class Orchestrator:
             # The arithmetic, and its tests, are in replicant.core.pacing.
             interval = 1.0 / eps_cap if eps_cap > 0 else 0.0
             offsets = send_offsets(events, pace=pace, interval=interval)
-            # A slow send must not turn into a catch-up burst, which would recreate
-            # the problem the schedule exists to prevent. Past this much lag the
-            # baseline moves to now, leaving every remaining gap intact.
-            resync_after = interval if interval > 0.0 else 0.001
+            # Past this much lag the baseline moves to now, leaving every
+            # remaining gap intact; below it the loop catches up, never faster
+            # than the rate floor. See _RESYNC_AFTER_S for why it is not one
+            # interval any more.
+            resync_after = max(_RESYNC_AFTER_S, interval)
             started = time.monotonic()
             # The time of the last actual send, which is what safety rule 4 is
             # really about. The offsets alone are only a plan: once real work runs
@@ -1103,8 +1198,8 @@ class Orchestrator:
                             stopped = True
                             break
                         now = time.monotonic()
-                    # Behind the plan by more than one slot: move the baseline to
-                    # now so every REMAINING gap survives intact.
+                    # Behind the plan by more than the resync bound: move the
+                    # baseline to now so every REMAINING gap survives intact.
                     #
                     # The lag is measured against the plan's own deadline and not
                     # against `due`. Once the loop runs late the rate floor sets
@@ -1248,6 +1343,9 @@ class Orchestrator:
             "plan": projected_seconds(send_offsets(compressed, pace="plan", interval=interval)),
             "burst": projected_seconds(send_offsets(events, pace="burst", interval=interval)),
         }
+        future = self._future_warning(
+            events, pace=resolved, speed=speed, eps_cap=eps_cap, sending=sending
+        )
         return PacingPreview(
             event_count=len(events),
             plan_span_s=(events[-1].eventtime - events[0].eventtime) if events else 0,
@@ -1258,6 +1356,7 @@ class Orchestrator:
             projected_by_pace=by_pace,
             pace=resolved,
             speed=speed,
+            future_warning=future,
         )
 
     def _resolve_pace(self, pace: Pace | None, speed: float, *, sending: bool) -> Pace:
@@ -1331,6 +1430,7 @@ class Orchestrator:
         send = want_send and request.collector is not None
 
         self.reset()
+        self.last_send_stats = None
         composed = compose(
             scenario,
             self.catalog.by_id,
@@ -1345,6 +1445,9 @@ class Orchestrator:
         eps_cap = self._effective_eps_cap(request.rate_override)
         pace = self._resolve_pace(request.pace, request.speed, sending=send)
         marker_on, marker_attestation = self._resolve_marker(send=send, collector=request.collector)
+        notes = self._preflight_notes(
+            composed.events, pace=pace, speed=request.speed, eps_cap=eps_cap, send=send
+        )
 
         started_at = now_dubai_iso()
         advisory_text, coverage = build_advisory(scenario, composed, self.catalog)
@@ -1390,6 +1493,10 @@ class Orchestrator:
             speed=request.speed,
             duration=request.duration,
             rate=eps_cap if send else None,
+            send_stats=None,
+            syslog_format=self.settings.syslog_format if send else None,
+            syslog_timezone=self.settings.syslog_timezone if send else None,
+            notes=notes,
             status="running",
             partial=bool(composed.events),
             updated_at=started_at,
@@ -1439,6 +1546,7 @@ class Orchestrator:
             finalized = checkpoint.finalize(
                 status=_run_status(failure, stopped),
                 error=describe_error(failure) if failure is not None else None,
+                send_stats=self.last_send_stats,
             )
         except BaseException as finalization_error:  # noqa: BLE001 - audit I/O can fail
             original = failure or finalization_error

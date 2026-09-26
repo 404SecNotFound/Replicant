@@ -56,8 +56,8 @@ def test_a_live_run_offers_the_pace_and_defaults_to_the_plan(
     """Accepting every default while sending to a collector gives plan pacing,
     the same answer the CLI and the web form reach."""
 
-    # intensity, duration, pace, speed
-    _answers(monkeypatch, ["low", "", "plan", "1"], [False])
+    # intensity, duration, pace, speed, anchor
+    _answers(monkeypatch, ["low", "", "plan", "1", "now"], [False])
 
     request = _params_flow(Console(), "REP-001", 1337, COLLECTOR)
 
@@ -71,9 +71,9 @@ def test_a_dry_run_to_file_is_never_asked_about_pacing(
     """A file has no wall clock to reproduce, so the question has no answer worth
     having. Asking it would be a control whose output cannot change."""
 
-    # intensity, duration, output file, and nothing else. The script has no
-    # fourth answer, so asking a fourth question fails this test.
-    _answers(monkeypatch, ["low", "", "./out/x.log"], [True])
+    # intensity, duration, output file, anchor, and nothing else. The script has
+    # no fifth answer, so asking a pacing question fails this test.
+    _answers(monkeypatch, ["low", "", "./out/x.log", "default"], [True])
 
     request = _params_flow(Console(), "REP-001", 1337, COLLECTOR)
 
@@ -85,7 +85,7 @@ def test_a_dry_run_to_file_is_never_asked_about_pacing(
 def test_the_speed_is_only_asked_for_when_the_plan_is_being_followed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _answers(monkeypatch, ["low", "", "burst"], [False])
+    _answers(monkeypatch, ["low", "", "burst", "now"], [False])
 
     request = _params_flow(Console(), "REP-001", 1337, COLLECTOR)
 

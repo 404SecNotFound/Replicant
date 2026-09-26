@@ -31,9 +31,16 @@ def escape_header(value: str) -> str:
 
     Backslash -> ``\\\\`` and pipe -> ``\\|``. Equals and spaces are literal.
     Backslash is escaped first so introduced backslashes are not re-escaped.
+
+    CR and LF become a single space. The CEF rule is that ``\\n``/``\\r`` are
+    encoded in the extension only, so the header has no escape for them, and a
+    raw one ends the syslog record: the rest of the line arrives as a second,
+    malformed record. No shipped profile puts a newline in a header field, so
+    this changes no golden line; it exists so a future one cannot split a record.
     """
 
-    return value.replace("\\", "\\\\").replace("|", "\\|")
+    flattened = value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    return flattened.replace("\\", "\\\\").replace("|", "\\|")
 
 
 def escape_extension(value: str) -> str:
