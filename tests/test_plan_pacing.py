@@ -80,11 +80,53 @@ def test_plan_offsets_reproduce_the_gaps_between_event_times() -> None:
 
 def test_the_rate_cap_still_separates_simultaneous_events() -> None:
     """--rate stays the flood guard. A plan may put events at the same second;
-    delivering them together is the burst this change exists to prevent."""
+    delivering them together is the burst this change exists to prevent.
 
-    offsets = send_offsets(_events(100, 100, 100, 100), pace="plan", interval=0.01)
+    Four events in one second would be spread 250ms apart; a 500ms floor is
+    wider than that, so the floor decides and the second spills over. Safety
+    rule 4 outranks the shape."""
 
-    assert offsets == pytest.approx([0.0, 0.01, 0.02, 0.03])
+    offsets = send_offsets(_events(100, 100, 100, 100), pace="plan", interval=0.5)
+
+    assert offsets == pytest.approx([0.0, 0.5, 1.0, 1.5])
+
+
+def test_events_sharing_a_second_are_spread_across_it() -> None:
+    """The k-th of n events in one second is planned at k/n into that second.
+
+    Guards the measured defect: REP-004 medium at --speed 10 has up to 120 events
+    per second, and planning them all at the second's start sent them back to
+    back at the rate floor (6766 of 7000 gaps under 1ms). Spread, the gap is 1/n
+    and every event still leaves inside its own second.
+    """
+
+    offsets = send_offsets(_events(100, 100, 100, 100, 101, 102, 102), pace="plan", interval=0.001)
+
+    assert offsets == pytest.approx([0.0, 0.25, 0.5, 0.75, 1.0, 2.0, 2.5])
+
+
+def test_every_spread_event_leaves_inside_its_own_second() -> None:
+    """The plan-pacing invariant, over a dense real plan: REP-004 medium at 10x.
+
+    With ``--anchor now``, event i leaves at start + offsets[i] and claims
+    eventtime[i]; the send must fall in [eventtime - first, eventtime - first + 1).
+    """
+
+    orch = Orchestrator(CATALOG, Settings(manifest_dir="unused"))
+    plan = orch.build_plan(RunRequest(technique_id="REP-004", intensity="medium"))
+    events = compress_timeline(plan.events, 10.0)[:7000]
+    first = events[0].eventtime
+    offsets = send_offsets(events, pace="plan", interval=1.0 / 2000)
+
+    for event, offset in zip(events, offsets, strict=True):
+        assert event.eventtime - first <= offset < event.eventtime - first + 1
+    gaps = _gaps(offsets)
+    floor = 1.0 / 2000
+    # Before the spread nearly every gap here was the 0.5ms rate floor: events
+    # left back to back at the start of their second and the rest of it was idle.
+    at_floor = sum(1 for gap in gaps if gap < floor * 1.2)
+    assert at_floor < len(gaps) * 0.05, f"{at_floor} of {len(gaps)} gaps sit at the floor"
+    assert min(gaps) >= floor - 1e-12
 
 
 def test_the_schedule_never_runs_backwards() -> None:
@@ -254,19 +296,57 @@ def default_sends(tmp_path_factory: pytest.TempPathFactory) -> list[float]:
     return list(RecordingEmitter.sends)
 
 
+def _planned_per_second(tmp_path: Path, technique: str = DENSE) -> list[int]:
+    orch = Orchestrator(CATALOG, Settings(manifest_dir=str(tmp_path)))
+    plan = orch.build_plan(
+        RunRequest(technique_id=technique, intensity="low", param_overrides=dict(DENSE_OVERRIDES))
+    )
+    first = plan.events[0].eventtime
+    counts = [0] * (plan.events[-1].eventtime - first + 1)
+    for event in plan.events:
+        counts[event.eventtime - first] += 1
+    return counts
+
+
+def _delivered_per_second(sends: list[float], seconds: int) -> list[int]:
+    counts = [0] * seconds
+    for sent in sends:
+        counts[min(int(sent - sends[0]), seconds - 1)] += 1
+    return counts
+
+
 def test_a_collector_gets_the_plan_s_gaps_without_anyone_asking(
     default_sends: list[float], tmp_path: Path
 ) -> None:
-    """The gaps the plan holds are the gaps that reach the wire.
+    """Each wall-clock second carries the events the plan put in that second.
 
-    Under burst pacing every gap is the 5ms rate interval, so a second-long gap
-    cannot occur at all and this count would be zero.
+    That is the plan-pacing invariant measured on the wire: an event leaves
+    inside its own second. Under burst pacing all 400 events leave inside the
+    first two seconds, so every later bucket would be empty.
     """
 
-    delivered = [gap for gap in _gaps(default_sends) if gap > 0.5]
-    planned = [gap for gap in _planned_gaps(tmp_path) if gap >= 1.0]
+    planned = _planned_per_second(tmp_path)
+    delivered = _delivered_per_second(default_sends, len(planned))
 
-    assert len(delivered) == len(planned) > 0
+    assert len(planned) > 3
+    for second, (want, got) in enumerate(zip(planned, delivered, strict=True)):
+        # A few events of slack at each boundary for scheduler jitter.
+        assert abs(want - got) <= 3, f"second {second}: planned {want}, delivered {got}"
+
+
+def test_same_second_events_are_spread_rather_than_sent_back_to_back(
+    default_sends: list[float],
+) -> None:
+    """REP-002 puts about 80 events in each second. Spread across the second the
+    gap is about 12.5ms; the old schedule sent them 5ms apart (the rate floor)
+    and left the rest of each second idle."""
+
+    dense = [gap for gap in _gaps(default_sends) if gap <= 0.5]
+    at_floor = [gap for gap in dense if gap < FLOOR_S * 1.5]
+
+    assert (
+        len(at_floor) < len(dense) * 0.2
+    ), f"{len(at_floor)} of {len(dense)} gaps sit at the {FLOOR_S * 1000:.0f}ms floor"
 
 
 def test_the_rate_cap_still_holds_the_dense_stretches_apart(
@@ -317,7 +397,7 @@ class StallingEmitter(RecordingEmitter):
     """
 
     STALL_COUNT = 20
-    STALL_S = 0.03
+    STALL_S = 0.1
 
     def send(self, line: str, level: str) -> int:
         if len(RecordingEmitter.sends) < self.STALL_COUNT:
@@ -336,9 +416,10 @@ def test_a_stall_delays_the_run_rather_than_compressing_what_follows(
     second is a catch-up burst, and reproducing the plan's shape is the entire
     reason this mode exists, so the first is the only correct answer.
 
-    REP-002 has roughly 800ms of slack in every second, so a 600ms stall is
-    absorbable: a run that catches up finishes in the plan's own 5 seconds and
-    one that does not finishes 600ms later.
+    Below the resync bound (one second) a lag is caught up at the rate floor,
+    which keeps events inside their own seconds; see the drift test below. This
+    stall is two seconds, twice the bound, so it must move the run later rather
+    than be paid back by squeezing what follows.
     """
 
     monkeypatch.setattr("replicant.core.orchestrator.SyslogEmitter", StallingEmitter)
@@ -349,14 +430,15 @@ def test_a_stall_delays_the_run_rather_than_compressing_what_follows(
     planned_span = sum(_planned_gaps(tmp_path))
     stalled_for = StallingEmitter.STALL_COUNT * StallingEmitter.STALL_S
 
-    assert span > planned_span + stalled_for * 0.6, (
+    assert span > planned_span + 1.0 * 0.8, (
         f"run spanned {span:.2f}s after a {stalled_for:.2f}s stall in a "
         f"{planned_span:.0f}s plan: the delay was absorbed by compressing later gaps"
     )
-    # And the plan's own second boundaries are still there, unsquashed.
-    assert len([gap for gap in _gaps(sends) if gap > 0.5]) == len(
-        [gap for gap in _planned_gaps(tmp_path) if gap >= 1.0]
-    )
+    # And once any sub-second residue is caught up, the gaps are the plan's
+    # again rather than the floor: the tail was moved, not squeezed. The last
+    # two planned seconds are well clear of the catch-up.
+    tail = _gaps(sends[-150:])
+    assert sum(1 for gap in tail if gap < FLOOR_S * 1.5) < len(tail) * 0.2
 
 
 def test_speed_compresses_the_event_times_that_get_rendered(tmp_path: Path) -> None:
