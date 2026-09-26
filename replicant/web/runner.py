@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from queue import Full, Queue
 from typing import Any
@@ -44,6 +46,13 @@ QUEUE_MAXSIZE = 8000
 # server. A live run is never evicted.
 MAX_TERMINAL_RETAINED = 16
 _TERMINAL_STATES = frozenset({"done", "stopped", "error"})
+_ADMISSION_STATES = frozenset({"reserved", "admitting"})
+#: How long a reservation may sit in ``reserved`` or ``admitting`` before it
+#: stops holding the single-run lock. A browser reserves and then starts within
+#: one continuation, and the slowest preview measured (REP-004 high) takes about
+#: four seconds, so a minute is generous. Without a bound, a client that reserved
+#: and never started held the lock until the server restarted (2026-09-26 L-07).
+ADMISSION_TTL_S = 60.0
 
 
 class RunInProgressError(RuntimeError):
@@ -112,6 +121,9 @@ class RunHandle:
     #: subscriber list AFTER that item was fanned out, missing it, including the
     #: terminal done/error event that tells the UI the run finished.
     _fanout_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    #: Monotonic time of the last admission transition (reserve or claim), used
+    #: to expire an abandoned reservation. Meaningless once the run is running.
+    admitted_at: float = 0.0
     #: Set only after a done/error item is present in history and every subscriber
     #: has received it. Status can become terminal slightly earlier so status
     #: readers see a complete snapshot, but SSE must not close during that gap.
@@ -190,6 +202,19 @@ class RunHandle:
         return self.terminal_published.is_set() and subscriber.empty()
 
 
+class ValidationInProgressError(RuntimeError):
+    """A run or validation was requested while a web validation is running.
+
+    Validation builds the full plan and holds every rendered line in memory,
+    about 830 MB for REP-004 at high intensity. It shares the host with runs, so
+    the two are admitted one at a time: peak memory is then the larger of the
+    two rather than their sum.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("a validation is already in progress; try again when it finishes")
+
+
 class RunAdmissionError(RuntimeError):
     """A requested admission cannot be claimed or does not match its identity."""
 
@@ -213,12 +238,77 @@ class RunAdmissionError(RuntimeError):
 
 
 class RunManager:
-    def __init__(self, catalog: Catalog, settings: Settings) -> None:
+    def __init__(
+        self,
+        catalog: Catalog,
+        settings: Settings,
+        *,
+        clock: Callable[[], float] | None = None,
+        admission_ttl_s: float = ADMISSION_TTL_S,
+    ) -> None:
         self.catalog = catalog
         self.settings = settings
         self._runs: dict[str, RunHandle] = {}
         self._admissions: dict[str, RunHandle] = {}
         self._lock = threading.Lock()
+        self._clock = clock or time.monotonic
+        self.admission_ttl_s = admission_ttl_s
+        self._validating = False
+
+    def _expire_admissions_locked(self) -> None:
+        """Release reservations nobody followed up. Caller holds ``_lock``.
+
+        Publishing here while holding the manager lock is safe: ``publish`` only
+        takes the handle's own fan-out lock, which is never held while acquiring
+        this one.
+        """
+
+        now = self._clock()
+        for handle in self._runs.values():
+            if (
+                handle.status in _ADMISSION_STATES
+                and now - handle.admitted_at >= self.admission_ttl_s
+            ):
+                handle.status = "error"
+                handle.publish(
+                    {
+                        "type": "error",
+                        "message": (
+                            f"run admission expired after {self.admission_ttl_s:.0f}s "
+                            "without a start"
+                        ),
+                        "count": 0,
+                        "manifest": None,
+                        "manifest_path": None,
+                    }
+                )
+
+    def begin_validation(self) -> None:
+        """Take the validation slot, or raise.
+
+        Refused while a run holds the single-run lock (RunInProgressError) or
+        another validation is running (ValidationInProgressError). Checked and
+        taken under the same lock ``reserve`` uses, so a run and a validation
+        cannot both be admitted in one race.
+        """
+
+        with self._lock:
+            self._expire_admissions_locked()
+            active = self._active_locked()
+            if active is not None:
+                raise RunInProgressError(active.run_id, active.technique_id, active.vendor)
+            if self._validating:
+                raise ValidationInProgressError()
+            self._validating = True
+
+    def end_validation(self) -> None:
+        with self._lock:
+            self._validating = False
+
+    @property
+    def validating(self) -> bool:
+        with self._lock:
+            return self._validating
 
     def get(self, run_id: str) -> RunHandle | None:
         with self._lock:
@@ -257,6 +347,7 @@ class RunManager:
 
     def _active_locked(self) -> RunHandle | None:
         """Return a non-terminal handle if one exists. Caller holds ``_lock``."""
+        self._expire_admissions_locked()
         for handle in self._runs.values():
             if handle.status not in _TERMINAL_STATES:
                 return handle
@@ -311,6 +402,8 @@ class RunManager:
             active = self._active_locked()
             if active is not None:
                 raise RunInProgressError(active.run_id, active.technique_id, active.vendor)
+            if self._validating:
+                raise ValidationInProgressError()
             handle = RunHandle(
                 run_id=new_run_id(),
                 orchestrator=None,
@@ -320,6 +413,7 @@ class RunManager:
                 vendor=vendor,
                 admission_id=requested_id,
                 status="reserved",
+                admitted_at=self._clock(),
             )
             self._runs[handle.run_id] = handle
             self._admissions[requested_id] = handle
@@ -353,6 +447,7 @@ class RunManager:
                     active=active,
                 )
             handle.status = "admitting"
+            handle.admitted_at = self._clock()
             return handle
 
     def fail_admission(self, handle: RunHandle, message: str) -> None:
