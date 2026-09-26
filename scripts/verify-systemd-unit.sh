@@ -131,6 +131,93 @@ PY
   expect "terminal tab disabled on the 0.0.0.0 bind" "$term" "False"
 fi
 
+# 8b. The sandbox is what the unit says (2026-09-26 L-10). Each is checked from
+# inside the service's own mount namespace, because that is the only view that
+# matters: ProtectSystem=strict with ReadWritePaths limited to the three data
+# directories means the checkout and its venv are read-only to the process.
+main_pid="$(systemctl show -p MainPID --value "$UNIT")"
+in_ns() { nsenter -t "$main_pid" -m -- "$@"; }
+if in_ns setpriv --reuid=replicant --regid=replicant --clear-groups \
+    touch /opt/replicant/pyproject.toml 2>/dev/null; then
+  fail "the checkout is writable to the service" "ProtectSystem=strict should make it read-only"
+else
+  pass "the checkout (code) is read-only to the service"
+fi
+if in_ns setpriv --reuid=replicant --regid=replicant --clear-groups \
+    touch /opt/replicant/.venv/bin/replicant 2>/dev/null; then
+  fail "the venv is writable to the service"
+else
+  pass "the venv is read-only to the service"
+fi
+for dir in /opt/replicant/manifests /opt/replicant/out; do
+  if in_ns setpriv --reuid=replicant --regid=replicant --clear-groups \
+      touch "$dir/.verify-probe" 2>/dev/null; then
+    pass "$dir is writable to the service"
+    in_ns rm -f "$dir/.verify-probe"
+  else
+    fail "$dir is not writable to the service" "ReadWritePaths or ExecStartPre is wrong"
+  fi
+done
+# /proc/net/route is what the connect test reads to print the route beside the
+# destination. ProcSubset=pid would hide it; this pins that it is still there.
+if in_ns test -r /proc/net/route; then
+  pass "/proc/net/route is visible for the connect test's path disclosure"
+else
+  fail "/proc/net/route is hidden" "the connect test cannot report the route"
+fi
+expect "MemoryMax is set" "$(systemctl show -p MemoryMax --value "$UNIT")" "1610612736"
+expect "TasksMax is set" "$(systemctl show -p TasksMax --value "$UNIT")" "256"
+expect "no capabilities" "$(systemctl show -p CapabilityBoundingSet --value "$UNIT")" ""
+expect "NoNewPrivileges" "$(systemctl show -p NoNewPrivileges --value "$UNIT")" "yes"
+expect "PrivateDevices" "$(systemctl show -p PrivateDevices --value "$UNIT")" "yes"
+expect "ProtectSystem=strict" "$(systemctl show -p ProtectSystem --value "$UNIT")" "strict"
+expect "UMask 0077" "$(systemctl show -p UMask --value "$UNIT")" "0077"
+
+# 8c. The embedded terminal still works under PrivateDevices, which the unit's
+# comment claims from systemd.exec(5) rather than from observation. Rebind to
+# loopback through a drop-in (the only bind where the terminal defaults on),
+# open a real PTY session over the websocket, and put the unit back.
+dropin="/etc/systemd/system/$UNIT.service.d"
+mkdir -p "$dropin"
+cat > "$dropin/zz-verify-terminal.conf" <<EOF
+[Service]
+ExecStart=
+ExecStart=/opt/replicant/.venv/bin/replicant web --host 127.0.0.1 --port $PORT --no-browser
+EOF
+systemctl daemon-reload
+systemctl restart "$UNIT"
+for _ in $(seq 1 40); do
+  sleep 0.5
+  [[ "$(probe "http://127.0.0.1:$PORT/api/health")" == "200" ]] && break
+done
+pty_result="$(/opt/replicant/.venv/bin/python - "$PORT" "$token" <<'PY'
+import asyncio, sys
+import websockets
+
+async def main() -> str:
+    port, token = sys.argv[1], sys.argv[2]
+    url = "ws://127.0.0.1:%s/ws/terminal?token=%s" % (port, token)
+    try:
+        async with websockets.connect(url, origin="http://127.0.0.1:%s" % port) as ws:
+            seen = ""
+            while "Connect to a syslog collector" not in seen:
+                seen += await asyncio.wait_for(ws.recv(), timeout=20)
+            return "OK"
+    except Exception as exc:  # noqa: BLE001
+        return "ERR %s" % type(exc).__name__
+
+print(asyncio.run(main()))
+PY
+)"
+rm -f "$dropin/zz-verify-terminal.conf"
+systemctl daemon-reload
+systemctl restart "$UNIT"
+for _ in $(seq 1 40); do
+  sleep 0.5
+  [[ "$(probe "http://127.0.0.1:$PORT/api/health")" == "200" ]] && break
+done
+expect "the terminal opens a PTY and runs the menu under PrivateDevices" "$pty_result" "OK"
+
 # 9. Restart=on-failure really recovers it. Wait for the condition that matters,
 # serving again, not merely a changed MainPID: systemd sets that as soon as it
 # forks, and RestartSec=5s puts the socket several seconds behind it. Asserting on

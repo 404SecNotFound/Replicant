@@ -1,6 +1,6 @@
 # Replicant web UI as a systemd service.
 #
-# Template. Edit User, Group, WorkingDirectory, and the two paths below, then:
+# Template. Edit User, Group, WorkingDirectory, and the paths below, then:
 #
 #   sudo cp scripts/replicant-web.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
@@ -19,7 +19,9 @@
 # `replicant web --rotate-token` once with the same REPLICANT_CONFIG_DIR.
 #
 # Replicant emits synthetic telemetry to the collector an operator configures. It
-# needs no privileges beyond writing manifests, so do not run it as root.
+# needs no privileges beyond writing its config, manifests and run output, so do
+# not run it as root. The sandbox below is what docs/deployment-boundary.md
+# describes; scripts/verify-systemd-unit.sh asserts it under a real systemd.
 
 [Unit]
 Description=Replicant synthetic firewall telemetry web UI
@@ -39,24 +41,80 @@ WorkingDirectory=/opt/replicant
 
 # Keep config beside the checkout rather than in the service user's home, so
 # ProtectHome below can stay on. Replicant creates this directory 0700 and the
-# token file inside it 0600 on first start.
+# token file inside it 0600 on first start. A TLS collector's CA bundle for the
+# web UI goes in its ca/ subdirectory and is named by file name only.
 Environment=REPLICANT_CONFIG_DIR=/opt/replicant/.config/replicant
 
 # Bind to the address this host should answer on. 0.0.0.0 serves every interface.
 # The embedded terminal tab is off by default on a non-loopback bind; add
 # --enable-terminal only if you want a browser-reachable PTY on this segment.
+# Add --collector-allow CIDR[:PORT] (repeatable) to restrict where web callers
+# may connect-test and send; unset, any destination this host can reach is
+# allowed and a warning is logged at startup.
 ExecStart=/opt/replicant/.venv/bin/replicant web --host 0.0.0.0 --port 9787 --no-browser
 
 Restart=on-failure
 RestartSec=5s
 
 # Serves plain HTTP with a bearer token. Keep it on a management segment, or put a
-# TLS-terminating reverse proxy in front and add its name with --allowed-host.
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=full
-ProtectHome=read-only
-ReadWritePaths=/opt/replicant
+# TLS-terminating reverse proxy in front and add its name with --allowed-host
+# (which also turns the terminal tab off unless --enable-terminal is given).
+
+# -- Sandbox -------------------------------------------------------------------
+# The whole filesystem is read-only except the three directories the service
+# writes: its config (token, send lock, saved profiles), the run manifests and
+# validation evidence, and web run output (confined to out/ beside manifests/).
+# The checkout, its .venv and the code in it stay read-only, so a compromised
+# process cannot rewrite the program it runs. The three are created here if
+# missing, and must be owned by User= (the installer and the CI job chown the
+# checkout).
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=-/opt/replicant/.config -/opt/replicant/manifests -/opt/replicant/out
+ExecStartPre=+/usr/bin/install -d -o replicant -g replicant -m 0700 /opt/replicant/.config
+ExecStartPre=+/usr/bin/install -d -o replicant -g replicant -m 0750 /opt/replicant/manifests /opt/replicant/out
+PrivateTmp=yes
+UMask=0077
+
+# The embedded terminal allocates a pseudo-terminal. PrivateDevices=yes mounts a
+# private /dev holding only the API pseudo-devices (null, zero, full, random,
+# urandom, tty) plus ptmx and a private devpts instance [systemd.exec(5)], which
+# is all the PTY bridge needs. verify-systemd-unit.sh opens a PTY as the service
+# user under this unit to prove it rather than assume it.
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+# ProcSubset=pid is deliberately absent: it hides /proc/net/route, which the
+# connect test reads to print the route beside the destination.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# AF_NETLINK is deliberately absent. The connect test reads routes from
+# /proc/net/route, not netlink, and getaddrinfo falls back cleanly without it.
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+RemoveIPC=yes
+
+# -- Resource ceilings -----------------------------------------------------------
+# One validation peaks at about 830 MB (REP-004 high) and the server admits one at
+# a time, never beside a run, so 1.5G leaves room for the process itself and a
+# terminal session. Past it the kernel kills this unit, not the host.
+MemoryMax=1536M
+# Threads (the server pool, run workers) and up to four terminal children.
+TasksMax=256
 
 [Install]
 WantedBy=multi-user.target

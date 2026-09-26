@@ -31,7 +31,14 @@ rejects any Host that is not the bind address, loopback, or an explicitly allowe
 name (the DNS-rebinding guard). Because the cookie is the only credential a browser
 attaches by itself, a cookie-authenticated write must also carry a matching Origin.
 The terminal websocket repeats all of that inline: websocket scopes never traverse
-HTTP middleware, and it is off by default whenever the bind is not loopback.
+HTTP middleware, and it is off by default whenever the bind is not loopback, a
+non-loopback ``--allowed-host`` is configured, or ``--collector-allow`` is set.
+
+Resource bounds from the 2026-09-26 review (``docs/security-review-2026-09-26.md``):
+request bodies are capped before they are read and unauthenticated writes are
+refused before their body is read, one validation runs at a time and never beside
+a run, plan pricing is bounded, connect tests are rate limited, and live event
+streams are capped. See :mod:`replicant.web.guards`.
 
 Web runs use the same fail-closed Orchestrator, eps cap, and manifest as the CLI.
 """
@@ -39,6 +46,7 @@ Web runs use the same fail-closed Orchestrator, eps cap, and manifest as the CLI
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import functools
 import ipaddress
@@ -51,7 +59,7 @@ import sys
 import threading
 import time
 import webbrowser
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -78,6 +86,7 @@ from replicant.config.settings import (
     VENDORS,
     WEB_DEFAULT_PORT,
     Settings,
+    config_dir,
     load_or_create_web_token,
     parse_anchor,
     stale_anchor_warning,
@@ -98,8 +107,27 @@ from replicant.obs import log as obs_log
 from replicant.profiles.base import VendorProfile
 from replicant.scenario.engine import implemented_technique_ids
 from replicant.transport.syslog import probe_collector
+from replicant.web.guards import (
+    DEFAULT_EVIDENCE_KEEP,
+    MAX_STREAMS,
+    BodyLimitMiddleware,
+    BuildGate,
+    CAFileRefused,
+    CollectorPolicy,
+    GateBusy,
+    StreamLimiter,
+    TokenBucket,
+    confined_cafile,
+    prune_evidence,
+)
 from replicant.web.pty_bridge import bridge_terminal
-from replicant.web.runner import RunAdmissionError, RunHandle, RunInProgressError, RunManager
+from replicant.web.runner import (
+    RunAdmissionError,
+    RunHandle,
+    RunInProgressError,
+    RunManager,
+    ValidationInProgressError,
+)
 
 FRONTEND_DIST = _resources.FRONTEND_DIST
 DOCS_DIR = _resources.DOCS_DIR
@@ -168,6 +196,21 @@ SESSION_TTL_S = 12 * 3600
 # A launch-token holder can create browser sessions, but must not be able to grow
 # the in-memory credential table without limit.
 MAX_BROWSER_SESSIONS = 256
+
+#: Connect tests one credential may run: CONNECT_TEST_BURST per CONNECT_TEST_WINDOW_S.
+#: A human testing a collector needs a handful; the endpoint was measured at 311
+#: probes a second, which made it a port scanner for anything the host can route
+#: to. The global bucket stops minted browser sessions multiplying the allowance.
+CONNECT_TEST_BURST = 10
+CONNECT_TEST_WINDOW_S = 60.0
+CONNECT_TEST_GLOBAL_BURST = 30
+#: Summary returned for a connect test that failed before a handshake. The raw
+#: exception text distinguished timeouts from resets from TLS and file errors,
+#: which is more than a verdict needs and more than a scan should learn.
+CONNECT_FAILED_SUMMARY = (
+    "The connection attempt failed before a handshake completed. Run "
+    "`replicant connect --test` on the server for the underlying error."
+)
 
 
 class SessionStore:
@@ -380,23 +423,38 @@ class AccessPolicy:
         extra: Iterable[str] = (),
         *,
         enable_terminal: bool = False,
+        collector_restricted: bool = False,
     ) -> AccessPolicy:
         """Derive the policy from the address the operator asked to bind.
 
         ``enable_terminal`` is the ``--enable-terminal`` flag, so False means "use
-        the default for this bind" rather than "off": the terminal is on for
-        loopback either way, and the flag is what turns it back on elsewhere.
+        the default for this bind" rather than "off". The default is on only when
+        nothing but this machine can reach the server:
+
+        - the bind is loopback, and
+        - no ``--allowed-host`` names anything other than loopback. A loopback
+          bind behind a reverse proxy is reachable from the proxy's clients, and
+          the allowed Host is exactly what says so. Deciding from the bind alone
+          handed a live PTY to anyone the proxy served (2026-09-26 M-04).
+        - no ``--collector-allow`` is set. The menu in the terminal is a separate
+          process the web allow list does not govern, so an operator who
+          restricted destinations would otherwise have a way around it.
+
+        ``--enable-terminal`` still turns it on in every case.
         """
         normalized = _normalize_host(host)
         wildcard = normalized in _WILDCARD_BINDS
         allowed = set(LOOPBACK_HOSTS)
         if not wildcard:
             allowed.add(normalized)
-        allowed.update(_normalize_host(value) for value in extra if value.strip())
+        extra_hosts = {_normalize_host(value) for value in extra if value.strip()}
+        allowed.update(extra_hosts)
+        proxied = any(not is_loopback(name) for name in extra_hosts)
+        local_only = is_loopback(host) and not proxied and not collector_restricted
         return cls(
             allowed_hosts=frozenset(allowed),
             wildcard_bind=wildcard,
-            terminal_enabled=is_loopback(host) or enable_terminal,
+            terminal_enabled=local_only or enable_terminal,
         )
 
     def allows_host(self, header_value: str) -> bool:
@@ -668,16 +726,57 @@ def create_app(
     settings: Settings,
     token: str,
     policy: AccessPolicy | None = None,
+    *,
+    collector_policy: CollectorPolicy | None = None,
+    evidence_keep: int = DEFAULT_EVIDENCE_KEEP,
+    max_streams: int = MAX_STREAMS,
+    clock: Any = None,
 ) -> FastAPI:
     policy = policy or AccessPolicy()
+    collectors = collector_policy or CollectorPolicy()
+    if evidence_keep < 1:
+        raise ValueError("--evidence-keep must be at least 1")
     app = FastAPI(title="Replicant", version=__version__, docs_url=None, redoc_url=None)
     # Idempotent, so a test that builds several apps does not stack handlers.
     obs_log.install()
-    manager = RunManager(catalog, settings)
+    manager = RunManager(catalog, settings, clock=clock)
     # Per app, not module-global: two apps in one process (the test suite builds
     # several) must not be able to authenticate each other's browsers.
     sessions = SessionStore()
     base_orchestrator = Orchestrator(catalog, settings)
+    # Bytes, not str. ``compare_digest`` raises TypeError on a str holding any
+    # non-ASCII character, and the cookie middleware authenticates every request,
+    # so one such header turned every route into a 500, /api/health included.
+    token_bytes = token.encode("utf-8")
+    # Only a bare file name inside this directory may be used as a TLS CA file
+    # from the web. Resolved once, like the rest of the app's configuration.
+    ca_root = config_dir() / "ca"
+    connect_buckets: dict[str, TokenBucket] = {}
+    connect_global = TokenBucket(CONNECT_TEST_GLOBAL_BURST, CONNECT_TEST_WINDOW_S, clock=clock)
+    connect_lock = threading.Lock()
+    streams = StreamLimiter(max_streams)
+    plan_gate = BuildGate()
+
+    @contextlib.contextmanager
+    def _plan_slot() -> Iterator[None]:
+        """One whole-plan build at a time: pricing, samples, run starts, validation."""
+
+        try:
+            with plan_gate.slot():
+                yield
+        except GateBusy as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"server is busy building another plan ({exc}); try again",
+                headers={"Retry-After": "5"},
+            ) from exc
+
+    def _token_matches(supplied: str) -> bool:
+        try:
+            candidate = supplied.encode("utf-8", "surrogatepass")
+        except UnicodeError:  # pragma: no cover - surrogatepass accepts any str
+            return False
+        return secrets.compare_digest(token_bytes, candidate)
 
     def _resolve_vendor(vendor: str | None) -> str:
         if vendor is not None and vendor not in VENDORS:
@@ -725,7 +824,7 @@ def create_app(
             ("query", request.query_params.get("token") or ""),
         )
         for source, supplied in candidates:
-            if supplied and secrets.compare_digest(token, supplied):
+            if supplied and _token_matches(supplied):
                 return source
         # The cookie is checked against the session store, never against the
         # launch token. It used to hold that token verbatim, which made a value
@@ -779,6 +878,27 @@ def create_app(
             # being sent at all, which is a worse outcome than not setting it.
             secure=request.url.scheme == "https",
         )
+
+    @app.middleware("http")
+    async def _authenticate_before_body(request: Request, call_next: Any) -> Any:
+        """Refuse an unauthenticated API write before its body is read.
+
+        FastAPI reads and parses the body before it runs ``require_token``, so an
+        unauthenticated caller could make the server buffer whatever it sent.
+        ``BodyLimitMiddleware`` bounds that; this removes it for anyone without a
+        credential. Innermost of the HTTP middleware, so the Host guard and the
+        launch-token exchange still run first.
+        """
+
+        path = request.url.path
+        if (
+            policy.require_auth
+            and request.method not in _SAFE_METHODS
+            and (path == "/api" or path.startswith("/api/"))
+            and _authenticated_source(request) is None
+        ):
+            return JSONResponse(status_code=401, content={"detail": "invalid or missing token"})
+        return await call_next(request)
 
     @app.middleware("http")
     async def _session_cookie(request: Request, call_next: Any) -> Any:
@@ -847,13 +967,47 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return contract.model_dump(mode="json")
 
+    def _validation_conflict(exc: ValidationInProgressError) -> HTTPException:
+        return HTTPException(
+            status_code=409,
+            detail={"code": "validation_in_progress", "authoritative": True, "message": str(exc)},
+        )
+
     @app.post("/api/validate", dependencies=[Depends(require_token)])
     def validate_technique(body: ValidationBody) -> dict[str, Any]:
+        """One validation at a time, and never beside a run.
+
+        A REP-004 high validation peaks at about 830 MB for about ten seconds, and
+        nothing bounded how many ran at once: twelve concurrent calls had the
+        server OOM-killed. A run is excluded too, because the two share the host
+        and a run of the same technique holds about 400 MB of plan while it
+        emits. Both conflicts are a 409 in the shape the run lock already uses.
+        """
+
         try:
             catalog.by_id(body.technique_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         orch = _orchestrator_for(body.vendor)
+        try:
+            manager.begin_validation()
+        except RunInProgressError as exc:
+            raise _active_conflict(exc) from exc
+        except ValidationInProgressError as exc:
+            raise _validation_conflict(exc) from exc
+        try:
+            return _validate(orch, body)
+        finally:
+            manager.end_validation()
+            # Every validation writes a directory and a ZIP of about 1.1 MB and
+            # nothing removed them. Keep the newest N; see prune_evidence for
+            # what is and is not a candidate.
+            try:
+                prune_evidence(Path(settings.manifest_dir) / "evidence", evidence_keep)
+            except OSError as exc:  # pragma: no cover - reported, never fatal
+                obs_log.get_logger("web").warning("evidence retention failed: %s", exc)
+
+    def _validate(orch: Orchestrator, body: ValidationBody) -> dict[str, Any]:
         request = RunRequest(
             technique_id=body.technique_id,
             intensity=body.intensity,
@@ -864,11 +1018,12 @@ def create_app(
             pace="burst",
         )
         try:
-            result = orch.validate(
-                request,
-                tier=body.tier,
-                ingest_transport=body.transport,
-            )
+            with _plan_slot():
+                result = orch.validate(
+                    request,
+                    tier=body.tier,
+                    ingest_transport=body.transport,
+                )
         except (RuntimeError, ValueError, OSError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         payload = result.model_dump(mode="json")
@@ -909,7 +1064,8 @@ def create_app(
         cached = sample_cache.get(key)
         if cached is not None:
             return cached
-        events = list(orch.build_plan(request).events)
+        with _plan_slot():
+            events = list(orch.build_plan(request).events)
         if events:
             idxs = sorted({0, len(events) // 2, len(events) - 1})
             lines = [orch.render_line(events[i]) for i in idxs]
@@ -1020,8 +1176,63 @@ def create_app(
             "markdown": path.read_text(encoding="utf-8"),
         }
 
+    def _rate_key(request: Request) -> str:
+        """Who a connect test is charged to: the browser session, else the token.
+
+        Never a forwarded header, and the transport peer only when there is no
+        credential at all (``--no-auth``).
+        """
+
+        sid = request.cookies.get(SESSION_COOKIE) or ""
+        if sid and sessions.validate(sid):
+            return f"session:{sid}"
+        if policy.require_auth:
+            return "launch-token"
+        return f"peer:{request.client.host if request.client else 'unknown'}"
+
+    def _charge_connect_test(request: Request) -> None:
+        key = _rate_key(request)
+        with connect_lock:
+            bucket = connect_buckets.get(key)
+            if bucket is None:
+                if len(connect_buckets) >= 2 * MAX_BROWSER_SESSIONS:
+                    connect_buckets.clear()  # bounded; worst case is a refilled bucket
+                bucket = TokenBucket(CONNECT_TEST_BURST, CONNECT_TEST_WINDOW_S, clock=clock)
+                connect_buckets[key] = bucket
+        wait = bucket.take() or connect_global.take()
+        if wait:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"too many connect tests; at most {CONNECT_TEST_BURST} per "
+                    f"{CONNECT_TEST_WINDOW_S:.0f}s. Try again shortly."
+                ),
+                headers={"Retry-After": str(max(1, int(wait + 0.999)))},
+            )
+
+    def _check_destination(host: str, port: int) -> None:
+        if not collectors.permits(host, port):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"collector {host}:{port} is not permitted by this server's "
+                    f"--collector-allow list ({collectors.describe()})"
+                ),
+            )
+
+    def _web_cafile(value: str | None) -> str | None:
+        try:
+            return confined_cafile(value, ca_root)
+        except CAFileRefused as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/connect/test", dependencies=[Depends(require_token)])
-    def connect_test(body: CollectorBody) -> dict[str, Any]:
+    def connect_test(body: CollectorBody, request: Request) -> dict[str, Any]:
+        # Policy and input checks come before the charge, so a refused request
+        # does not use up the operator's allowance.
+        _check_destination(body.host, body.port)
+        cafile = _web_cafile(body.tls_cafile)
+        _charge_connect_test(request)
         orch = _orchestrator_for(body.vendor)
         collector = CollectorProfile(
             name="web",
@@ -1029,7 +1240,7 @@ def create_app(
             port=body.port,
             transport=body.transport,
             tls_verify=body.tls_verify,
-            tls_cafile=body.tls_cafile,
+            tls_cafile=cafile,
         )
         # A test line to a non-loopback collector is a real send to a shared
         # collector, so it follows the same destination-conditional marking the
@@ -1042,6 +1253,18 @@ def create_app(
         # datagram, which is true whenever any route exists. It said "verified"
         # against an unreachable collector across two live lab sessions.
         report = probe_collector(collector, payload=line)
+        # The verdict is kept; the exception text is not. A TCP or TLS failure
+        # used to return ``f"{type(exc).__name__}: {exc}"`` verbatim.
+        if report.verdict == "failed":
+            report = dataclasses.replace(report, summary=CONNECT_FAILED_SUMMARY)
+        elif report.verdict == "refused":
+            report = dataclasses.replace(
+                report,
+                summary=(
+                    f"The host answered: nothing is listening on "
+                    f"{collector.transport}/{collector.port}."
+                ),
+            )
         return {
             # Retained so an older client still gets a sane answer, but nothing
             # in this UI decides anything from it any more.
@@ -1095,13 +1318,17 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"bad anchor: {exc}") from exc
         collector = None
         if body.collector is not None:
+            # Only a run that will open a socket is held to the allow list; a
+            # --no-send run with a collector attached reaches nothing.
+            if not body.no_send:
+                _check_destination(body.collector.host, body.collector.port)
             collector = CollectorProfile(
                 name="web",
                 host=body.collector.host,
                 port=body.collector.port,
                 transport=body.collector.transport,
                 tls_verify=body.collector.tls_verify,
-                tls_cafile=body.collector.tls_cafile,
+                tls_cafile=_web_cafile(body.collector.tls_cafile),
             )
         request = RunRequest(
             technique_id=body.technique_id,
@@ -1124,7 +1351,8 @@ def create_app(
     def _preview(body: RunBody) -> tuple[RunRequest, bool, PacingPreview]:
         request, sending = _run_request(body)
         try:
-            preview = _orchestrator_for(body.vendor).preview_pacing(request, sending=sending)
+            with _plan_slot():
+                preview = _orchestrator_for(body.vendor).preview_pacing(request, sending=sending)
         except (RuntimeError, NotImplementedError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return request, sending, preview
@@ -1199,6 +1427,8 @@ def create_app(
             )
         except RunInProgressError as exc:
             raise _active_conflict(exc) from exc
+        except ValidationInProgressError as exc:
+            raise _validation_conflict(exc) from exc
         except RunAdmissionError as exc:
             raise _admission_conflict(exc) from exc
         return _admission_json(handle)
@@ -1247,6 +1477,8 @@ def create_app(
                 admission = manager.claim(admission.admission_id, body.technique_id, vendor)
         except RunInProgressError as exc:
             raise _active_conflict(exc) from exc
+        except ValidationInProgressError as exc:
+            raise _validation_conflict(exc) from exc
         except RunAdmissionError as exc:
             raise _admission_conflict(exc) from exc
 
@@ -1385,6 +1617,7 @@ def create_app(
         handle = manager.get(run_id)
         if handle is None:
             raise HTTPException(status_code=404, detail="unknown run")
+        slot = _stream_slot()
 
         async def generator() -> Any:
             loop = asyncio.get_running_loop()
@@ -1409,12 +1642,30 @@ def create_app(
                 # Otherwise every closed tab leaves a queue the worker keeps
                 # filling for the life of the run.
                 handle.unsubscribe(subscriber)
+                slot.release()
 
         return StreamingResponse(
             generator(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    def _stream_slot() -> Any:
+        """Take a live-stream slot or refuse with 429.
+
+        Each run stream polls its queue through the loop's default executor, a
+        pool of at most 32 threads, so an unbounded number of open streams could
+        starve every other use of it. Log streams share the cap because each is
+        a polling task for as long as it lives.
+        """
+
+        slot = streams.acquire()
+        if slot is None:
+            raise HTTPException(
+                status_code=429,
+                detail=f"too many live streams open (limit {streams.cap}); close a tab",
+            )
+        return slot
 
     # -- logs ------------------------------------------------------------------
     #
@@ -1445,29 +1696,51 @@ def create_app(
 
     @app.get("/api/logs/stream", dependencies=[Depends(require_token)])
     def stream_logs(request: Request, after: int = Query(0, ge=0)) -> StreamingResponse:
+        slot = _stream_slot()
+
         async def generator() -> Any:
             cursor = after
-            # Unlike the run stream, this one has no natural end: the log buffer
-            # outlives every run. Without the disconnect check each closed Logs
-            # tab would leave a task polling the ring for the life of the process.
-            while not await request.is_disconnected():
-                entries = obs_log.snapshot(after=cursor)
-                if entries:
-                    cursor = entries[-1].seq
-                    for entry in entries:
-                        yield sse_log_line(entry)
-                else:
-                    yield SSE_KEEPALIVE
-                # Polling the ring rather than fanning out per-subscriber queues.
-                # One buffer, many readers, each holding only an integer cursor,
-                # so a slow client cannot stall the emit loop.
-                await asyncio.sleep(0.4)
+            try:
+                # Unlike the run stream, this one has no natural end: the log
+                # buffer outlives every run. Without the disconnect check each
+                # closed Logs tab would leave a task polling the ring for the life
+                # of the process.
+                while not await request.is_disconnected():
+                    entries = obs_log.snapshot(after=cursor)
+                    if entries:
+                        cursor = entries[-1].seq
+                        for entry in entries:
+                            yield sse_log_line(entry)
+                    else:
+                        yield SSE_KEEPALIVE
+                    # Polling the ring rather than fanning out per-subscriber
+                    # queues. One buffer, many readers, each holding only an
+                    # integer cursor, so a slow client cannot stall the emit loop.
+                    await asyncio.sleep(0.4)
+            finally:
+                slot.release()
 
         return StreamingResponse(
             generator(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    def _terminal_client_key(websocket: WebSocket, source: str) -> str:
+        """Who a terminal session counts against for the per-client cap.
+
+        It was the transport peer address, which uvicorn rewrites from
+        X-Forwarded-For whenever the peer is a trusted proxy, and it trusted
+        127.0.0.1 by default. Any local caller could therefore claim a fresh
+        client per connection. The authenticated browser session is the identity
+        that cannot be chosen by the caller; the peer is used only without one.
+        """
+
+        if source == "cookie":
+            return f"session:{websocket.cookies.get(SESSION_COOKIE) or ''}"
+        if source in {"header", "query"}:
+            return "launch-token"
+        return f"peer:{websocket.client.host if websocket.client else 'unknown'}"
 
     @app.websocket("/ws/terminal")
     async def terminal(websocket: WebSocket) -> None:
@@ -1504,7 +1777,12 @@ def create_app(
             await websocket.close()
             return
         await websocket.accept()
-        await bridge_terminal(websocket)
+        await bridge_terminal(websocket, client_key=_terminal_client_key(websocket, source))
+
+    # Added after every other middleware except the security headers, so it sits
+    # outside the auth and cookie layers: an oversized declared body is refused
+    # before anything else looks at the request.
+    app.add_middleware(BodyLimitMiddleware)
 
     @app.middleware("http")
     async def _security_headers(request: Request, call_next: Any) -> Any:
@@ -1641,6 +1919,7 @@ def startup_lines(
     terminal: bool,
     reveal_token: bool = True,
     token_path: str | None = None,
+    collectors: str | None = None,
 ) -> list[str]:
     """The startup banner: URL, then token state, then terminal state.
 
@@ -1663,6 +1942,8 @@ def startup_lines(
         f"  token    : {token_line}",
         f"  terminal : {'enabled' if terminal else 'disabled (--enable-terminal to allow)'}",
     ]
+    if collectors is not None:
+        lines.append(f"  sends to : {collectors}")
     if reveal_token:
         lines.append("  stop     : Ctrl-C")
     if wildcard:
@@ -1683,10 +1964,19 @@ def serve(
     acknowledged_unauthenticated: bool = False,
     rotate_token: bool = False,
     enable_terminal: bool = False,
+    collector_allow: Iterable[str] = (),
+    evidence_keep: int = DEFAULT_EVIDENCE_KEEP,
+    forwarded_allow_ips: Iterable[str] = (),
 ) -> None:
     """Start the web server on a fixed port and print how to reach it."""
 
     check_unauthenticated_exposure(host, no_auth=no_auth, acknowledged=acknowledged_unauthenticated)
+    # Parsed before anything is printed or bound, so a typo refuses startup with
+    # the entry named rather than serving with an allow list it did not mean.
+    collector_policy = CollectorPolicy.parse(collector_allow)
+    if evidence_keep < 1:
+        raise ValueError("--evidence-keep must be at least 1")
+    trusted_proxies = [value.strip() for value in forwarded_allow_ips if value.strip()]
 
     if no_auth:
         token, token_state = "", "disabled (--no-auth)"
@@ -1695,9 +1985,21 @@ def serve(
     else:
         token, token_state = load_or_create_web_token(rotate=rotate_token)
 
-    policy = AccessPolicy.for_bind(host, allowed_hosts, enable_terminal=enable_terminal)
+    policy = AccessPolicy.for_bind(
+        host,
+        allowed_hosts,
+        enable_terminal=enable_terminal,
+        collector_restricted=collector_policy.restricted,
+    )
     policy = dataclasses.replace(policy, require_auth=not no_auth)
-    app = create_app(catalog, settings, token, policy)
+    app = create_app(
+        catalog,
+        settings,
+        token,
+        policy,
+        collector_policy=collector_policy,
+        evidence_keep=evidence_keep,
+    )
 
     sock = bind_socket(host, port)
     bound_port = int(sock.getsockname()[1])
@@ -1713,8 +2015,16 @@ def serve(
         terminal=policy.terminal_enabled,
         reveal_token=reveal,
         token_path=str(web_token_path()),
+        collectors=collector_policy.describe(),
     ):
         print(line, flush=True)
+    if not collector_policy.restricted:
+        # Not a refusal: a lab with one collector on one laptop needs no list.
+        # It is said once, at startup, where an operator exposing the UI reads.
+        obs_log.get_logger("web").warning(
+            "no --collector-allow set: web callers may send to and connect-test any "
+            "host:port this machine can reach"
+        )
 
     if open_browser and display_available(sys.platform, os.environ):
         url = display_url(host, bound_port, token or None)
@@ -1723,5 +2033,25 @@ def serve(
     # Force the stdlib asyncio loop rather than uvloop: the terminal bridge relies
     # on loop.add_reader on a PTY master fd, which the selector loop supports
     # reliably (uvloop does not re-fire it dependably for PTYs).
-    server = uvicorn.Server(uvicorn.Config(app, log_level="warning", loop="asyncio"))
+    server = uvicorn.Server(uvicorn_config(app, trusted_proxies))
     server.run(sockets=[sock])
+
+
+def uvicorn_config(app: Any, trusted_proxies: Iterable[str] = ()) -> uvicorn.Config:
+    """The server configuration, with forwarded-header trust stated explicitly.
+
+    uvicorn trusts ``X-Forwarded-For`` from 127.0.0.1 unless told otherwise, and
+    reads ``FORWARDED_ALLOW_IPS`` from the environment when the argument is
+    omitted. Any local process could therefore choose the client address the app
+    saw. Proxy headers are now off unless ``--forwarded-allow-ips`` names the
+    proxy, and the value is always passed so the environment cannot widen it.
+    """
+
+    proxies = [value for value in trusted_proxies if value]
+    return uvicorn.Config(
+        app,
+        log_level="warning",
+        loop="asyncio",
+        proxy_headers=bool(proxies),
+        forwarded_allow_ips=proxies,
+    )

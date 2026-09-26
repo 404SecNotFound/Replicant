@@ -167,3 +167,25 @@ describe("ConnectionCard verdict", () => {
     expect(screen.getByText(/not tested/)).toBeVisible();
   });
 });
+
+// 2026-09-26 L-06: the server now accepts only a file name from its own config
+// ca/ directory. A placeholder of "/path/to/ca.pem" described an input the
+// server refuses, which is the label-not-logic defect this project keeps finding.
+describe("ConnectionCard CA file", () => {
+  it("asks for a file name in the server's ca/ directory, not a path", () => {
+    render(
+      <ConnectionCard
+        epsCap={2000}
+        collector={{ host: "10.0.20.5", port: 6514, transport: "tls" }}
+        onCollectorChange={() => {}}
+        vendor="fortigate"
+        vendors={["fortigate", "paloalto", "checkpoint"]}
+        onVendorChange={() => {}}
+      />,
+    );
+    const input = screen.getByLabelText(/CA file name/i);
+    expect(input.getAttribute("placeholder")).not.toMatch(/\//);
+    expect(screen.getByText(/ca\/ directory/i)).toBeVisible();
+    expect(screen.getByText(/Paths are not accepted/i)).toBeVisible();
+  });
+});

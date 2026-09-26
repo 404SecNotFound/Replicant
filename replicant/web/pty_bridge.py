@@ -64,23 +64,65 @@ def _set_winsize(fd: int, rows: int, cols: int) -> None:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
 
 
-def _spawn_command(argv: list[str]) -> tuple[int, int]:
+#: Variables the menu child inherits from the server, by exact name. Everything
+#: else is dropped. The child used to get ``os.environ.copy()``, so every secret
+#: in the service's environment (a cloud credential, a proxy password, whatever
+#: the unit or the operator's shell exported) was readable from a browser tab
+#: through the menu. The menu needs a PATH, a home, a locale and its own config
+#: directory; nothing else it reads comes from the environment.
+CHILD_ENV_ALLOW = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "LANG",
+        "LANGUAGE",
+        "TZ",
+        # Not a secret, and without it a checkout run through PYTHONPATH rather
+        # than an install spawns a child that cannot import replicant.
+        "PYTHONPATH",
+        "REPLICANT_CONFIG_DIR",
+    }
+)
+#: Prefixes allowed through as well: the locale categories.
+CHILD_ENV_ALLOW_PREFIXES = ("LC_",)
+#: Tells the menu it is running behind the web UI, so it applies the same
+#: confinement the HTTP API does (output under the run-output directory, no
+#: arbitrary CA file paths). Set unconditionally; the child cannot opt out.
+WEB_CONFINED_ENV = "REPLICANT_WEB_CONFINED"
+
+
+def child_environment(parent: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment the terminal child runs with. Pure, so it is testable."""
+
+    source = os.environ if parent is None else parent
+    env = {
+        key: value
+        for key, value in source.items()
+        if key in CHILD_ENV_ALLOW or key.startswith(CHILD_ENV_ALLOW_PREFIXES)
+    }
+    env.setdefault("PATH", os.defpath)
+    env["TERM"] = "xterm-256color"
+    env["COLUMNS"] = "100"
+    env["LINES"] = "30"
+    env[WEB_CONFINED_ENV] = "1"
+    return env
+
+
+def _spawn_command(argv: list[str], env: dict[str, str] | None = None) -> tuple[int, int]:
     """Fork ``argv`` onto a new PTY. Returns (pid, master_fd).
 
     Split out from :func:`_spawn` so the termination path can be tested against a
     child that deliberately ignores SIGTERM, which is the case that used to hang
     the event loop and which no test could reach while the argv was hardcoded.
+    ``env`` defaults to :func:`child_environment`, never the server's own.
     """
 
+    child_env = child_environment() if env is None else env
     pid, master_fd = pty.fork()
     if pid == 0:  # child
         _enable_cr_to_nl(0)  # so the xterm Enter key (CR) terminates line prompts
-        env = os.environ.copy()
-        env["TERM"] = "xterm-256color"
-        env.setdefault("COLUMNS", "100")
-        env.setdefault("LINES", "30")
         try:
-            os.execve(argv[0], argv, env)
+            os.execve(argv[0], argv, child_env)
         except Exception:  # pragma: no cover - exec failure path
             os._exit(127)
     return pid, master_fd
@@ -287,10 +329,17 @@ async def terminate(
         pass
 
 
-async def bridge_terminal(websocket: WebSocket) -> None:
-    """Run one terminal session for an accepted websocket until either side ends."""
+async def bridge_terminal(websocket: WebSocket, client_key: str | None = None) -> None:
+    """Run one terminal session for an accepted websocket until either side ends.
 
-    client = websocket.client.host if websocket.client else "unknown"
+    ``client_key`` is who the per-client cap counts this session against. The
+    server passes the authenticated session, because the transport peer address
+    is whatever uvicorn derived from ``X-Forwarded-For`` when the peer is a
+    trusted proxy, and a caller that can choose its identity has no cap. The peer
+    is only the fallback for a caller that supplies no key.
+    """
+
+    client = client_key or (f"peer:{websocket.client.host}" if websocket.client else "peer:unknown")
     refusal = _REGISTRY.acquire(client)
     if refusal is not None:
         _log.warning("terminal session refused for %s: %s", client, refusal)

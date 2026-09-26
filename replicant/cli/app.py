@@ -172,7 +172,32 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument(
         "--enable-terminal",
         action="store_true",
-        help="keep the embedded terminal tab on a non-loopback bind (off by default there)",
+        help="keep the embedded terminal tab on when other machines can reach the UI "
+        "(off by default on a non-loopback bind, a non-loopback --allowed-host, or "
+        "with --collector-allow)",
+    )
+    web.add_argument(
+        "--collector-allow",
+        action="append",
+        default=[],
+        metavar="CIDR[:PORT]",
+        help="collector destinations web callers may connect-test and send to, e.g. "
+        "10.0.20.0/24:514 or [2001:db8::/32]:6514; repeatable. Unset allows any",
+    )
+    web.add_argument(
+        "--evidence-keep",
+        type=int,
+        default=20,
+        metavar="N",
+        help="validation evidence packs the web server keeps, newest first (default 20)",
+    )
+    web.add_argument(
+        "--forwarded-allow-ips",
+        action="append",
+        default=[],
+        metavar="IP",
+        help="reverse proxy address whose X-Forwarded-For is trusted; repeatable. "
+        "Unset trusts none",
     )
 
     connect = sub.add_parser("connect", help="configure a collector and optionally send a test log")
@@ -783,6 +808,9 @@ def main(argv: list[str] | None = None) -> int:
                 acknowledged_unauthenticated=args.i_understand_this_is_unauthenticated,
                 rotate_token=args.rotate_token,
                 enable_terminal=args.enable_terminal,
+                collector_allow=args.collector_allow,
+                evidence_keep=args.evidence_keep,
+                forwarded_allow_ips=args.forwarded_allow_ips,
             )
         except (OSError, ValueError) as exc:
             # A refused bind and a refused exposure are both operator errors, not
