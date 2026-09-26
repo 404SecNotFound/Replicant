@@ -28,10 +28,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from replicant.core.models import CollectorProfile, Intensity
 from replicant.scenario.engine import DEFAULT_ANCHOR_EPOCH
+from replicant.transport.syslog import HeaderTimezone, SyslogFormat, validate_syslog_hostname
 
 _DURATION_UNITS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
 _DURATION_TOKEN = re.compile(r"(\d+)\s*([smhd]?)")
@@ -144,6 +145,21 @@ class Settings(BaseModel):
     accepted_as: str | None = None
     catalog_path: str = "data/technique-catalog.yaml"
     manifest_dir: str = "manifests"
+    #: Syslog envelope. RFC 3164 matches FortiGate's own wire format and is the
+    #: default; RFC 5424 carries an explicit UTC offset in its timestamp.
+    syslog_format: SyslogFormat = "rfc3164"
+    #: Zone of the RFC 3164 header timestamp, which has no field to say. UTC by
+    #: default: host local time put every event four hours in the future for a
+    #: collector reading the header as UTC from a Dubai (UTC+4) host. Under
+    #: RFC 5424 this only picks which offset is written.
+    syslog_timezone: HeaderTimezone = "utc"
+
+    @field_validator("hostname")
+    @classmethod
+    def _header_safe_hostname(cls, value: str | None) -> str | None:
+        """A header hostname is one token. A newline in it split a record in two."""
+
+        return None if value is None else validate_syslog_hostname(value)
 
 
 def config_dir() -> Path:

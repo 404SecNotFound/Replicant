@@ -155,6 +155,8 @@ def test_rendered_count_survives_first_socket_failure_and_matches_file_mirror(
         "bytes": 0,
         "errors": 1,
         "oversize": 0,
+        "reconnects": 0,
+        "resent": 0,
     }
     assert len(output.read_text(encoding="utf-8").splitlines()) == 1
 
