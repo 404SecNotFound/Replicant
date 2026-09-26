@@ -235,6 +235,7 @@ Event VPN (type `event`, subtype `vpn`) SSL-VPN and IPsec:
 Event user / admin auth (type `event`, subtype `user` for user auth, subtype `system` for admin logins):
 - Native fields: action (login, logout, auth-logon, auth-logon-failed), logdesc, user, ui (ssh, https, jsconsole, telnet), method, srcip, dstip, status (success, failed), reason, msg, level, eventtime, profile.
 - Confirmed Signature IDs from Fortinet CEF examples: `43008` Header Name `event:user authentication success` (severity 3); `32002` Header Name `event:system login failed` (severity 7, admin login to the device GUI/CLI).
+- Successful admin login: Replicant renders Signature ID `32001` (logid `0100032001`), Header Name `event:system login success` `[Unverified: exact last-5 for the success record]`. It is the adjacent id in the same admin-login family, the same reasoning as the SSL-VPN success logid above. What is confirmed is that `32002` is the FAILED login, so a successful login must not carry it. (Implementation note, 2026-09-26: success previously rendered with `32002`, so every successful REP-018 admin login carried the signature ID of a failure.)
 
 UTM application control (type `utm`, subtype `app-ctrl`):
 - Native fields: srcip, dstip, srcport, dstport, proto, action (pass, block, reset), app (application name), appcat (category), apprisk, appid, hostname, url, user, policyid, msg, eventtime.

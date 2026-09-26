@@ -473,7 +473,6 @@ class CheckPointProfile(VendorProfile):
 
     def _system(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
         e = event.extra
-        sev = self.severity(event.level)
         # The login verdict follows the event, as it already does in _vpn above.
         # These two were hardcoded to failure while the engine only ever sends
         # status="success" down this path (REP-018's lateral movement chain), so
@@ -481,6 +480,11 @@ class CheckPointProfile(VendorProfile):
         # successful". REP-018's detection use case keys on successful logins, so
         # the contradiction landed in exactly the field a rule reads.
         is_fail = e.get("status") != "success"
+        # Severity follows the verdict too (reference s2.2-2.3): successful auth
+        # carries no threat severity, so the header is Unknown and cp_severity is
+        # omitted, exactly as _mobile_access does. Success used to render Low with
+        # cp_severity=Low, so a rule reading severity saw a finding in every login.
+        sev: int | str = self.severity(event.level) if is_fail else _SEV_UNKNOWN
         ext: dict[str, str] = {}
         ext["act"] = "Reject" if is_fail else "Accept"
         ext["rt"] = self._rt(event.eventtime)
@@ -488,7 +492,8 @@ class CheckPointProfile(VendorProfile):
         ext["duser"] = require(event.duser, "duser")
         ext["suser"] = require(event.duser, "duser")
         ext["auth_status"] = "Failed Login" if is_fail else "Successful Login"
-        ext["cp_severity"] = str(sev)
+        if is_fail:
+            ext["cp_severity"] = str(sev)
         ext["administrator"] = require(event.duser, "duser")
         ext["operation"] = "Log In"
         ext["cs1Label"] = "Client"
