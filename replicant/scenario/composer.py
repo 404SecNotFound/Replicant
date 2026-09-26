@@ -33,7 +33,7 @@ from replicant.entities.model import EntityModel
 from replicant.scenario.engine import ScenarioEngine
 
 _DAY_SECONDS = 86_400
-# A stage that anchors to an internal window (off-hours) needs at most one day-shift to clear
+# A stage that anchors to an internal window needs at most one day-shift to clear
 # its intended start. The bound keeps the re-plan loop finite for any future timing builder.
 _MAX_ALIGN_DAYS = 2
 
@@ -134,10 +134,12 @@ def _compose_pass(
             anchor_epoch=stage_anchor,
             param_overrides=stage.param_overrides or None,
         )
-        # A technique that anchors to an internal window (REP-005 pins to 00:00-06:00 of the
-        # anchor's day) would otherwise emit before the stage it is supposed to follow. Shift
-        # the anchor forward whole days and re-plan with the same seed: only the window moves,
-        # every other draw is identical, so the composition stays deterministic.
+        # A technique that anchors to an internal window could otherwise emit before the stage
+        # it is supposed to follow. Shift the anchor forward whole days and re-plan with the
+        # same seed: only the window moves, every other draw is identical, so the composition
+        # stays deterministic. Since 2026-09-26 REP-005 itself places its 00:00-06:00 window
+        # at or after its anchor, so for REP-005 this loop is a guard that no longer fires;
+        # it stays for any future builder pinned to an absolute window.
         aligned_days = 0
         if stage.align == "next-off-hours":
             while (
@@ -242,9 +244,10 @@ def compose(
     behaviour, and is the only one of the two a detection can be pointed at.
 
     A stage pinned to an absolute window answers to the clock rather than to the
-    scenario. REP-005 is off-hours bulk transfer and ``align: next-off-hours``
-    advances it in whole days, so a request shorter than that jump cannot be met.
-    The overrun is recorded in the notes rather than silently returned.
+    scenario. REP-005 is off-hours bulk transfer and lands in the next 00:00-06:00
+    window at or after its stage anchor, so a request shorter than the gap to that
+    window cannot be met. The overrun is recorded in the notes rather than
+    silently returned.
     """
 
     natural = _compose_pass(
@@ -289,12 +292,19 @@ def compose(
 
     actual = _composed_span(scaled)
     if actual > duration_s * 1.15:
-        pinned_stages = [s.technique_id for s in scaled.stages if s.aligned_days]
+        # Keyed on the declared alignment, not on aligned_days: REP-005 now finds
+        # its own next off-hours window, so it is pinned without being shifted.
+        pinned_stages = [
+            result.technique_id
+            for result, stage in zip(scaled.stages, scenario.stages, strict=True)
+            if result.aligned_days or stage.align != "anchor"
+        ]
         scaled.warmup_notes.append(
             f"requested duration {duration_s}s, composed {actual}s: "
             + (
-                f"stage(s) {', '.join(pinned_stages)} pin to an absolute window and were "
-                "advanced whole days to clear it, which the scenario timeline cannot scale away"
+                f"stage(s) {', '.join(pinned_stages)} pin to an absolute window (the next "
+                "one at or after the stage anchor), which the scenario timeline cannot "
+                "scale away"
                 if pinned_stages
                 else "the chain could not be compressed further"
             )

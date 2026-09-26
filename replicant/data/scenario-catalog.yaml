@@ -9,9 +9,10 @@ scenarios:
     stages:
       - { technique_id: REP-003, label: "internal discovery", intensity: medium, start_offset: "0s" }
       - { technique_id: REP-001, label: "C2 established",  intensity: low,    start_offset: "1h" }
-      # REP-005 anchors to the off-hours window (00:00-06:00) of its anchor's day, so without
-      # align it would emit before the recon that precedes it. "next-off-hours" advances the
-      # stage a whole day so the exfil lands overnight, after the C2 stage.
+      # REP-005 is pinned to the off-hours window (00:00-06:00). Since 2026-09-26 it takes the
+      # next such window at or after its own anchor, so the exfil lands overnight after the C2
+      # stage without help. "next-off-hours" is kept as a guard and declares the stage pinned,
+      # which is how the duration-overrun note names it.
       - { technique_id: REP-005, label: "bulk exfil",      intensity: high,   start_offset: "6h", align: "next-off-hours" }
     references: ["ATT&CK chain: TA0007 Discovery -> TA0011 C2 -> TA0010 Exfiltration"]
 

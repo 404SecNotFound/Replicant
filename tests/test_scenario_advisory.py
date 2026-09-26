@@ -13,6 +13,7 @@
 # limitations under the License.
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -137,12 +138,26 @@ def test_advisory_surfaces_credential_key_on_mixed_chain() -> None:
 
 
 def test_advisory_reports_the_actual_window_and_alignment() -> None:
-    """SCEN-001's exfil stage is day-aligned; the kill chain table must show it."""
+    """The kill chain table shows the real window and any composer day shift.
+
+    SCEN-001's exfil stage used to need a one day shift because REP-005 snapped
+    BACKWARD to midnight of its anchor's day. REP-005 now finds the next
+    off-hours window itself, so SCEN-001 carries no shift and must not claim one.
+    The rendering of a shift is still asserted, on a copy with one forced in.
+    """
 
     (text, coverage), composed = _cached("SCEN-001")
     assert "window (UTC+04:00)" in text
-    assert "(+1d aligned)" in text
+    assert "aligned)" not in text
     # span is measured from the real first/last event, not assumed
     assert coverage["span_seconds"] == (
         composed.events[-1].eventtime - composed.events[0].eventtime
     )
+    shifted_stages = [
+        replace(stage, aligned_days=1) if stage.technique_id == "REP-005" else stage
+        for stage in composed.stages
+    ]
+    shifted_text, _ = build_advisory(
+        SCEN.by_id("SCEN-001"), replace(composed, stages=shifted_stages), TECH
+    )
+    assert "(+1d aligned)" in shifted_text
