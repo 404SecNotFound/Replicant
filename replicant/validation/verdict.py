@@ -23,12 +23,23 @@ from pydantic import BaseModel, Field
 
 class Verdict(StrEnum):
     PASS = "pass"
+    # Expected telemetry was absent: no positive events, a declared event family
+    # missing, a standalone negative control missing, or records lost or
+    # unparseable between sender and receiver.
     FAIL_NO_EVENTS = "fail_no_events"
+    # The events are there but a declared property of them is not met: a
+    # truncated plan, a signal field never populated, an axis threshold missed,
+    # or events out of time order. Reported separately because "the plan emitted
+    # nothing" and "the plan emitted the wrong thing" send an engineer to
+    # different places, and folding the second into the first mislabelled it.
+    FAIL_CONTRACT = "fail_contract"
     FAIL_NO_ALERT = "fail_no_alert"
     INCONCLUSIVE = "inconclusive"
 
 
-DimensionStatus = Literal["pass", "fail_no_events", "fail_no_alert", "inconclusive", "not_run"]
+DimensionStatus = Literal[
+    "pass", "fail_no_events", "fail_contract", "fail_no_alert", "inconclusive", "not_run"
+]
 CheckStatus = Literal["pass", "fail", "not_run"]
 
 
@@ -61,7 +72,7 @@ class ValidationResult(BaseModel):
 def exit_code(result: ValidationResult) -> int:
     """Stable CLI exit mapping for one result."""
 
-    if result.verdict in {Verdict.FAIL_NO_EVENTS, Verdict.FAIL_NO_ALERT}:
+    if result.verdict in {Verdict.FAIL_NO_EVENTS, Verdict.FAIL_CONTRACT, Verdict.FAIL_NO_ALERT}:
         return 1
     if result.verdict == Verdict.INCONCLUSIVE:
         return 2

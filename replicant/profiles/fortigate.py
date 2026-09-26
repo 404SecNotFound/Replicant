@@ -59,7 +59,13 @@ LOGID_DNS_QUERY = "1501054803"  # [Unverified] dns-query last-5; dns-response 54
 LOGID_DNS_RESPONSE = "1501054802"  # confirmed (reference s2.4)
 LOGID_VPN_SUCCESS = "0101039947"  # [Unverified] tunnel-up last-5; login-fail 39426 is confirmed
 LOGID_VPN_FAIL = "0101039426"
-LOGID_EVENT_SYSTEM = "0100032002"
+# Admin login on the device GUI/CLI. 32002 is the confirmed FAILED login
+# (reference s2.4, golden line 8). Success is the adjacent 32001 [Unverified]:
+# the engine only ever sends successful logins down this path (REP-018), and they
+# used to carry 32002, so every successful admin login rendered with the
+# signature ID Fortinet documents as "login failed".
+LOGID_EVENT_SYSTEM_LOGIN_FAIL = "0100032002"
+LOGID_EVENT_SYSTEM_LOGIN_SUCCESS = "0100032001"  # [Unverified] adjacent success logid
 
 # Every field currently used by the catalog is named here. This is deliberately
 # exhaustive: adding a signal to the catalog without proving its rendered key
@@ -466,10 +472,15 @@ class FortiGateProfile(VendorProfile):
         e = event.extra
         fgt_action = e.get("fgt_action", event.action)
         status = e["status"]
+        logid = (
+            LOGID_EVENT_SYSTEM_LOGIN_SUCCESS
+            if status == "success"
+            else LOGID_EVENT_SYSTEM_LOGIN_FAIL
+        )
         ext: dict[str, str] = {}
         self._common_prefix(
             ext,
-            logid=LOGID_EVENT_SYSTEM,
+            logid=logid,
             cat="event:system",
             subtype="system",
             level=event.level,
@@ -485,4 +496,4 @@ class FortiGateProfile(VendorProfile):
         ext["FTNTFGTreason"] = e["reason"]
         ext["FTNTFGTmsg"] = e["msg"]
         name = f"event:system {fgt_action} {status}"
-        return self._header(LOGID_EVENT_SYSTEM, name, event.level), ext
+        return self._header(logid, name, event.level), ext

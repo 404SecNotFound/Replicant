@@ -84,11 +84,17 @@ protocol (`6`/`17`), and `act` is the capitalized action string.
 | `dns:dns-query` | VPN-1 & FireWall-1 | `Log` | `domain-udp` | `Accept` | `Unknown` |
 | `event:vpn` success | Mobile Access | `Log` | `Log` | `Accept` | `Unknown` |
 | `event:vpn` fail | Mobile Access | `Log` | `Log` | `Reject` | from level |
-| `event:system` | Check Point | `Log` | `Log` | `Reject` | from level |
+| `event:system` success | Check Point | `Log` | `Log` | `Accept` | `Unknown` |
+| `event:system` fail | Check Point | `Log` | `Log` | `Reject` | from level |
 
 `deviceDirection` is `0` when the destination is an internal (RFC1918) address and `1` otherwise
 ([Inference]: keyed off the destination zone). `cp_severity` mirrors the header Severity and is emitted
 only for logs that carry a threat/event severity (IPS, failed auth), not for plain `Unknown` connections.
+
+Implementation note, 2026-09-26: the system (admin) login path now follows this rule on both
+verdicts, as the Mobile Access path already did. A successful admin login previously rendered header
+severity `Low` and `cp_severity=Low`; it is now `Unknown` with no `cp_severity`. The failed-login
+golden line is unchanged.
 
 ### 2.3 Severity mapping (Check Point log level -> CEF severity string, not reversed)
 

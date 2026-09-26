@@ -46,10 +46,18 @@ so Replicant does not emit a weak foil.
 
 The plan evaluator is deterministic and performs no file, clock, or network
 I/O. It checks the positive stream, declared event families, signal-field
-presence, preset completeness, standalone-control presence, and the contract's
-measurable axes. The negative-control suite separately checks matched irrelevant
-distributions and intended discriminators across all intensities and multiple
-seeds.
+presence, preset completeness, event-time order, standalone-control presence,
+and the contract's measurable axes. The negative-control suite separately checks
+matched irrelevant distributions and intended discriminators across all
+intensities and multiple seeds.
+
+The `event-order` check applies to every technique: a plan is emitted in list
+order, so its event times must never step backwards. A backward step writes a
+non-monotonic `--to-file` log and, under plan pacing, sends the later records
+late. It was added on 2026-09-26 after REP-006 and REP-007 were found appending
+their foil after the attack without merging it into time order. It is a generic
+plan check rather than a per-technique contract axis, because ordering is a
+property every plan owes, not a signal a particular detection keys on.
 
 Examples:
 
@@ -76,6 +84,14 @@ replicant validate REP-003 --tier ingest --transport udp
 replicant validate REP-003 --tier ingest --transport tcp
 ```
 
+The receiver keeps every record it is sent. A datagram or line that is not
+valid UTF-8 is stored with replacement characters rather than dropped. Any
+failure inside the receive thread is re-raised to the validation run, so it
+cannot surface as missing telemetry. In TCP mode it accepts successive and
+concurrent connections (up to 16 at once) until the run closes it. Before
+2026-09-26 one non-UTF-8 datagram ended reception silently, which then read as
+`fail_no_events`, and TCP mode accepted exactly one connection.
+
 `TelemetrySource` and `DetectionSource` are separate protocols. This prevents a
 delivery failure from being reported as a missing alert. `FixtureSource` and
 `FileLogSource` provide deterministic offline telemetry inputs. There is no
@@ -94,7 +110,8 @@ and negative-control dimensions. `NOT RUN` is a state, not a pass.
 | Verdict | Meaning |
 |---|---|
 | `pass` | Every dimension executed at this tier passed. |
-| `fail_no_events` | Expected telemetry was absent, incomplete, unparseable, or did not satisfy the plan contract. |
+| `fail_no_events` | Expected telemetry was absent: no positive events, a declared event family or standalone negative control missing, or records lost or unparseable between sender and receiver. |
+| `fail_contract` | The telemetry is present but a declared property of it is not met: a truncated plan, a signal field never populated, an out-of-order plan, or a measurable axis below its threshold. Added 2026-09-26; these cases were previously reported as `fail_no_events`. |
 | `fail_no_alert` | Ingestion passed, a detection source was queried, and no alert was observed. Offline CLI tiers never manufacture this result. |
 | `inconclusive` | No failure was observed, but the available evidence cannot decide the requested claim. |
 

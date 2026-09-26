@@ -96,7 +96,14 @@ def test_stages_do_not_run_backwards() -> None:
     plan = _composed("SCEN-001")
     recon, c2, exfil = plan.stages
     assert recon.technique_id == "REP-003" and exfil.technique_id == "REP-005"
-    assert exfil.aligned_days == 1, "the off-hours exfil stage should be advanced one day"
+    # REP-005 now finds the next off-hours window at or after its own anchor
+    # (23:40 UTC+04:00 here, so 00:00 the next day), which is the window the
+    # composer used to reach by shifting a backward-snapped plan one whole day.
+    # The emitted window is the same; the day shift is no longer needed.
+    assert exfil.aligned_days == 0, "the engine should place off-hours after its anchor itself"
+    exfil_anchor = ANCHOR + 6 * 3600
+    assert exfil.start_epoch is not None
+    assert 0 <= exfil.start_epoch - exfil_anchor < 6 * 3600
     assert recon.start_epoch is not None and exfil.start_epoch is not None
     assert c2.start_epoch is not None and c2.end_epoch is not None
     assert exfil.start_epoch > recon.start_epoch

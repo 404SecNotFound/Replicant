@@ -25,7 +25,12 @@ from replicant.core.models import EventRecord
 from replicant.scenario.engine import ScenarioPlan
 from replicant.validation.contract import MeasurementAxis, ValidationContract
 from replicant.validation.sources.base import Alert, Observation
-from replicant.validation.verdict import ValidationCheck, ValidationResult, Verdict
+from replicant.validation.verdict import (
+    DimensionStatus,
+    ValidationCheck,
+    ValidationResult,
+    Verdict,
+)
 
 PLAN_PROVES = "Tier 0 proves that the deterministic generated plan satisfies its contract."
 PLAN_LIMIT = "Tier 0 does not prove that any event reached a collector or that any detection fired."
@@ -207,6 +212,20 @@ def _axis_check(
     )
 
 
+# Checks whose failure means expected telemetry is ABSENT. Every other failed
+# check means the telemetry is present but a declared property of it is not met.
+_ABSENCE_CHECKS = frozenset({"positive-events", "event-families", "negative-control"})
+
+
+def _plan_verdict(checks: Sequence[ValidationCheck]) -> Verdict:
+    failed = {check.id for check in checks if check.status == "fail"}
+    if not failed:
+        return Verdict.PASS
+    if failed & _ABSENCE_CHECKS:
+        return Verdict.FAIL_NO_EVENTS
+    return Verdict.FAIL_CONTRACT
+
+
 def evaluate_plan(
     contract: ValidationContract,
     plan: ScenarioPlan,
@@ -218,6 +237,8 @@ def evaluate_plan(
 
     positive = [event for event in plan.events if event.control == "positive"]
     negative = [event for event in plan.events if event.control == "negative"]
+    times = [event.eventtime for event in plan.events]
+    backward = sum(1 for earlier, later in zip(times, times[1:], strict=False) if later < earlier)
     checks: list[ValidationCheck] = [
         _check(
             "positive-events",
@@ -232,6 +253,14 @@ def evaluate_plan(
             "complete preset plan",
             "truncated" if plan.truncated else "complete",
             "Silent preset truncation would change the contract under evaluation.",
+        ),
+        _check(
+            "event-order",
+            backward == 0,
+            "event times non-decreasing in plan order",
+            "ordered" if backward == 0 else f"{backward} backward step(s)",
+            "A plan is emitted in list order. A backward step writes a non-monotonic log "
+            "and, under plan pacing, sends the later records late.",
         ),
     ]
     observed_families = sorted({f"{event.log_type}:{event.subtype}" for event in positive})
@@ -286,8 +315,12 @@ def evaluate_plan(
         _axis_check(axis, positive, negative, plan.effective_params)
         for axis in contract.measurable_axes
     )
-    failed = any(check.status == "fail" for check in checks)
-    verdict = Verdict.FAIL_NO_EVENTS if failed else Verdict.PASS
+    verdict = _plan_verdict(checks)
+    plan_status: DimensionStatus = (
+        "pass"
+        if verdict == Verdict.PASS
+        else "fail_no_events" if verdict == Verdict.FAIL_NO_EVENTS else "fail_contract"
+    )
     return ValidationResult(
         technique_id=contract.technique_id,
         tier="plan",
@@ -298,7 +331,7 @@ def evaluate_plan(
         expected_events=len(plan.events),
         observed_events=len(plan.events),
         dimensions={
-            "plan": "fail_no_events" if failed else "pass",
+            "plan": plan_status,
             "delivery": "not_run",
             "detection": "not_run",
             "negative_control": negative_status,
@@ -344,10 +377,18 @@ def evaluate_ingest(
             ),
         ]
     )
-    failed = plan_result.verdict != Verdict.PASS or observed != expected or bool(absent)
-    verdict = Verdict.FAIL_NO_EVENTS if failed else Verdict.PASS
+    delivery_failed = observed != expected or bool(absent)
+    verdict: Verdict
+    if plan_result.verdict != Verdict.PASS:
+        # A plan that already failed keeps its own named failure; delivery of a
+        # wrong plan proves nothing more about it.
+        verdict = plan_result.verdict
+    elif delivery_failed:
+        verdict = Verdict.FAIL_NO_EVENTS
+    else:
+        verdict = Verdict.PASS
     dimensions = dict(plan_result.dimensions)
-    dimensions["delivery"] = "fail_no_events" if failed else "pass"
+    dimensions["delivery"] = "fail_no_events" if delivery_failed else "pass"
     return plan_result.model_copy(
         update={
             "tier": "ingest",
