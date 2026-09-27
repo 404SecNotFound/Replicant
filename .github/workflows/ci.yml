@@ -144,13 +144,13 @@ jobs:
         run: pytest
 
       - name: black
-        run: black --check replicant tests
+        run: black --check replicant tests tools experiments/typesafe/run.py
 
       - name: ruff
-        run: ruff check replicant tests
+        run: ruff check replicant tests tools experiments/typesafe/run.py
 
       - name: mypy
-        run: mypy replicant
+        run: mypy replicant tools experiments/typesafe/run.py
 
   frontend:
     name: Frontend (Node ${{ matrix.node }})

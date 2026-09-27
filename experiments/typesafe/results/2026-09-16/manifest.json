@@ -1,0 +1,17 @@
+{
+  "batch_size": 4,
+  "catalog_hash": "54b51635a0f45469ab13db405e17ee7c54d05429d7f7ffaff20f4e733183218b",
+  "confidence_floor": 0.8,
+  "dataset_hashes": {
+    "claim": "fb36ad7abb643dad1449a6d5fe808cd26bba2f39c620c44440ce1a0d3c5b9a83",
+    "discovery": "bed76d3b668aa65ad6b06adc220e0167b8febe288f06c99f675fbf7e9a2d41af",
+    "scenario": "7835e5c93abbf0901b4fa444b489ce35ed8f28ed2b99b9e64417da22e95ff729"
+  },
+  "endpoint": "https://api.typesafe.ai/v1/systemone",
+  "match_floor": 0.8,
+  "max_requests": 16,
+  "model": "jev-1.13.0",
+  "planned_requests": 15,
+  "prepared_at": "2026-09-16T07:55:48.241136+00:00",
+  "scenario_catalog_hash": "7b3b424f01de4931bbc2c69b2287f763e5aa78ad02bc94afb0a166cd98b1f21a"
+}

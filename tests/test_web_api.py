@@ -57,6 +57,16 @@ def test_catalog_requires_token(client: TestClient) -> None:
     assert len(resp.json()["techniques"]) == 26
 
 
+@pytest.mark.parametrize("vendor", ["fortigate", "paloalto", "checkpoint"])
+def test_catalog_exposes_search_metadata_for_each_vendor(client: TestClient, vendor: str) -> None:
+    response = client.get("/api/catalog", headers=HEADERS, params={"vendor": vendor})
+    assert response.status_code == 200
+    for entry in response.json()["techniques"]:
+        technique = CATALOG.by_id(entry["id"])
+        assert entry["search_aliases"] == technique.search_aliases
+        assert entry["objective"] == technique.objective
+
+
 def test_validation_contract_endpoint_is_authenticated_and_resolved(client: TestClient) -> None:
     assert client.get("/api/validation/contracts/REP-001").status_code == 401
     response = client.get("/api/validation/contracts/REP-001", headers=HEADERS)

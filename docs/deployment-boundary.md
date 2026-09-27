@@ -81,6 +81,15 @@ namespace under a real systemd in CI (job `systemd-unit`), including opening a
 terminal PTY. `systemd-analyze security` reports 1.2 for this unit; it reported
 8.4 before.
 
+## Optional authoring tools
+
+The optional [TypeSafe authoring companion](typesafe-authoring.md) is run from a
+developer's source checkout. It is not installed in the Replicant wheel or wired
+into the service, web API, menu, or Orchestrator. Its live mode sends explicit
+authoring text and catalog metadata to TypeSafe and is refused when
+`REPLICANT_WEB_CONFINED=1`. Do not put its API key in the service environment.
+The local catalog search aliases need no API key or external service.
+
 ## Why this is a boundary and not a suggestion
 
 An enterprise will not, and should not, approve an unattested attack-log injector

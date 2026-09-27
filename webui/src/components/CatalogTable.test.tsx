@@ -18,7 +18,12 @@ import { CatalogTable } from "./CatalogTable";
 import { makeTechnique } from "@/test/factories";
 
 const CATALOG = [
-  makeTechnique({ id: "REP-001", name: "Beaconing", ndr_uc: "UC-001" }),
+  makeTechnique({
+    id: "REP-001",
+    name: "Beaconing",
+    ndr_uc: "UC-001",
+    search_aliases: ["phone home"],
+  }),
   makeTechnique({
     id: "REP-004",
     name: "DNS tunneling",
@@ -88,6 +93,17 @@ describe("CatalogTable grouping", () => {
 });
 
 describe("CatalogTable filtering", () => {
+  it("finds an alias and lets the operator select its technique", () => {
+    const { onSelect } = renderRail();
+
+    fireEvent.change(filterBox(), { target: { value: "phone home" } });
+
+    expect(screen.getByText(/1 of 3/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /DNS tunneling/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Beaconing/ }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "REP-001" }));
+  });
+
   it("narrows on a use case id and drops the groups that empty out", () => {
     renderRail();
 

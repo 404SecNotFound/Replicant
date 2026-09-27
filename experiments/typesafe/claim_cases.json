@@ -1,0 +1,182 @@
+[
+  {
+    "id": "claim-01",
+    "technique_id": "REP-024",
+    "claim": "The emitted relay telemetry can exercise byte-volume correlation and timing correlation at one-second or coarser resolution.",
+    "expected": "supported",
+    "rationale": "The transferability note explicitly preserves these two uses despite the integer-second eventtime limit; the builder correlates inbound and outbound bytes.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:794",
+      "replicant/scenario/engine.py:3028"
+    ]
+  },
+  {
+    "id": "claim-02",
+    "technique_id": "REP-011",
+    "claim": "A passing geovelocity test with this technique demonstrates that the production rule correctly performs live GeoIP and ASN enrichment of login source addresses.",
+    "expected": "contradicted",
+    "rationale": "The catalog explicitly says synthetic country tags on documentation-range IPs do not exercise the live GeoIP/ASN enrichment on which the production rule depends.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:382",
+      "replicant/data/technique-catalog.yaml:386"
+    ]
+  },
+  {
+    "id": "claim-03",
+    "technique_id": "REP-016",
+    "claim": "An evaluation of this technique against a production SIEM measured 98 percent recall and a false-positive rate below 1 percent.",
+    "expected": "unsupported",
+    "rationale": "The catalog describes synthetic distributions and limitations, not a measured production-SIEM recall or false-positive result.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:519"
+    ]
+  },
+  {
+    "id": "claim-04",
+    "technique_id": "REP-043",
+    "claim": "An inbound IPS alert followed by accepted inbound traffic and later egress establishes an observable progression hypothesis, rather than proof of compromise.",
+    "expected": "supported",
+    "rationale": "The catalog explicitly limits this ordered, role-aware victim correlation to an observable progression hypothesis.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:854",
+      "replicant/data/technique-catalog.yaml:859"
+    ]
+  },
+  {
+    "id": "claim-05",
+    "technique_id": "REP-020",
+    "claim": "The generated DNS records include WHOIS registration-age metadata, allowing this technique to exercise the cited detector's registration-age scoring.",
+    "expected": "contradicted",
+    "rationale": "The transferability note says the emitted domains carry no registration metadata and Replicant performs no WHOIS lookup, so registration-age scoring is not exercised.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:675",
+      "replicant/data/technique-catalog.yaml:677"
+    ]
+  },
+  {
+    "id": "claim-06",
+    "technique_id": "REP-016",
+    "claim": "This technique emits a benign NXDOMAIN trickle that can be isolated as the negative control stream.",
+    "expected": "supported",
+    "rationale": "The entry declares emits_foil true and describes the generated benign NXDOMAIN trickle; the builder appends that foil.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:543",
+      "replicant/data/technique-catalog.yaml:544",
+      "replicant/scenario/engine.py:2274",
+      "replicant/core/models.py:151"
+    ]
+  },
+  {
+    "id": "claim-07",
+    "technique_id": "REP-024",
+    "claim": "The parser-visible event timestamps preserve each chosen relay lag exactly in milliseconds, so a 20 ms inbound-to-outbound delta can be validated directly.",
+    "expected": "contradicted",
+    "rationale": "EventRecord.eventtime is integer seconds and relay lag is dithered to whole seconds; the transferability note explicitly excludes sub-second delta detection.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:794",
+      "replicant/core/models.py:81",
+      "replicant/scenario/engine.py:3012"
+    ]
+  },
+  {
+    "id": "claim-08",
+    "technique_id": "REP-043",
+    "claim": "This technique has received formal ArcSight certification for its emitted CEF records.",
+    "expected": "unsupported",
+    "rationale": "Neither the catalog nor the generator code supplies evidence of formal certification. A policy forbidding certification claims would not by itself prove the historical factual negation.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:831",
+      "replicant/scenario/engine.py:3286"
+    ]
+  },
+  {
+    "id": "claim-09",
+    "technique_id": "REP-011",
+    "claim": "With the supplied synthetic country tags, the emitted login sequence can exercise distance and threshold logic even though real source-IP enrichment is outside its coverage.",
+    "expected": "supported",
+    "rationale": "The transferability note makes exactly this distinction between supplied-tag threshold logic and live enrichment.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:386"
+    ]
+  },
+  {
+    "id": "claim-10",
+    "technique_id": "REP-011",
+    "claim": "Because this entry describes a normal consistent-country user in benign_baseline, selecting controls=negative yields a generated normal-login foil for it.",
+    "expected": "contradicted",
+    "rationale": "The entry has no emits_foil flag, which defaults to false. Its builder emits only the anomalous login sequence, and negative controls therefore yield no events; benign_baseline prose alone does not declare a shipped foil.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:383",
+      "replicant/core/models.py:151",
+      "replicant/core/models.py:157",
+      "replicant/core/models.py:291",
+      "replicant/scenario/engine.py:1478",
+      "tests/test_controls.py:184"
+    ]
+  },
+  {
+    "id": "claim-11",
+    "technique_id": "REP-020",
+    "claim": "The technique can exercise organization-wide first-contact novelty by introducing domains that were not queried by any host during its baseline phase.",
+    "expected": "supported",
+    "rationale": "The baseline and novel distributions, transferability note, and distinct generated domain sets explicitly support organization-wide novelty.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:670",
+      "replicant/data/technique-catalog.yaml:675",
+      "replicant/scenario/engine.py:2662"
+    ]
+  },
+  {
+    "id": "claim-12",
+    "technique_id": "REP-024",
+    "claim": "The generated relay byte-volume distribution has been empirically matched to captures from a live Check Point appliance with less than 2 percent statistical error.",
+    "expected": "unsupported",
+    "rationale": "The catalog and code specify synthetic correlated byte generation but supply no live-appliance distribution study or measured statistical error.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:788",
+      "replicant/scenario/engine.py:3067"
+    ]
+  },
+  {
+    "id": "claim-13",
+    "technique_id": "REP-016",
+    "claim": "Since the generated labels sit under .invalid, a green result still exercises the realistic-effective-TLD and domain-registration-enrichment stages of a DGA detector.",
+    "expected": "contradicted",
+    "rationale": "The catalog explicitly says reserved .invalid labels do not exercise those stages, although lexical features and NXDOMAIN clustering transfer.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:547",
+      "replicant/scenario/engine.py:2260"
+    ]
+  },
+  {
+    "id": "claim-14",
+    "technique_id": "REP-020",
+    "claim": "Production evaluation found this technique improves detection recall by 25 percentage points over REP-008.",
+    "expected": "unsupported",
+    "rationale": "The source distinguishes organization-wide novelty from per-host novelty, but gives no comparative production recall measurements.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:654",
+      "replicant/data/technique-catalog.yaml:672"
+    ]
+  },
+  {
+    "id": "claim-15",
+    "technique_id": "REP-043",
+    "claim": "When a detector matches the ordered IPS-to-egress pattern, those records prove that an exploit executed successfully and the victim was compromised.",
+    "expected": "contradicted",
+    "rationale": "The transferability note expressly denies proof of exploit execution or compromise from this observable pattern.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:859"
+    ]
+  },
+  {
+    "id": "claim-16",
+    "technique_id": "REP-016",
+    "claim": "Although its .invalid domains do not cover reputation or registration enrichment, this technique can exercise qname lexical features and NXDOMAIN-clustering logic.",
+    "expected": "supported",
+    "rationale": "These are precisely the covered signals retained in the parser-only transferability note.",
+    "source_refs": [
+      "replicant/data/technique-catalog.yaml:547"
+    ]
+  }
+]

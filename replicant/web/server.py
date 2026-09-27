@@ -669,6 +669,7 @@ def _technique_json(catalog: Catalog, profile: VendorProfile) -> list[dict[str, 
                 # sentence from log_type and rule id, which read as specific and
                 # was identical in meaning for every catalog entry.
                 "objective": technique.objective,
+                "search_aliases": technique.search_aliases,
                 "logical_log_type": binding.log_type,
                 "logical_subtype": binding.subtype,
                 "logical_families": [

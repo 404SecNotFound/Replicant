@@ -1,0 +1,16 @@
+{
+  "verified_without_authentication": true,
+  "checked_at": "2026-09-16",
+  "sources": {
+    "technique": {
+      "url": "https://raw.githubusercontent.com/404SecNotFound/Replicant/main/replicant/data/technique-catalog.yaml",
+      "sha256": "54b51635a0f45469ab13db405e17ee7c54d05429d7f7ffaff20f4e733183218b",
+      "byte_identical_to_local": true
+    },
+    "scenario": {
+      "url": "https://raw.githubusercontent.com/404SecNotFound/Replicant/main/replicant/data/scenario-catalog.yaml",
+      "sha256": "7b3b424f01de4931bbc2c69b2287f763e5aa78ad02bc94afb0a166cd98b1f21a",
+      "byte_identical_to_local": true
+    }
+  }
+}

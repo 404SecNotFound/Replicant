@@ -1,0 +1,193 @@
+{
+  "families": {
+    "discovery": {
+      "correct": 8,
+      "planned": 8,
+      "rows": [
+        {
+          "bm25_top3": [
+            "REP-024",
+            "REP-043",
+            "REP-017"
+          ],
+          "choice": "NO_MATCH",
+          "confidence": 0.95,
+          "correct": true,
+          "expected": [
+            "NO_MATCH"
+          ],
+          "id": "challenge-01",
+          "match_probability": 0.08,
+          "substring_matches": [],
+          "suggest": false,
+          "top3": [
+            "NO_MATCH",
+            "REP-024"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-024",
+            "REP-043",
+            "REP-023"
+          ],
+          "choice": "REP-024",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-024"
+          ],
+          "id": "challenge-02",
+          "match_probability": 0.95,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-024"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-023",
+            "REP-017",
+            "REP-021"
+          ],
+          "choice": "REP-023",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-023"
+          ],
+          "id": "challenge-03",
+          "match_probability": 0.97,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-023"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-021",
+            "REP-043",
+            "REP-010"
+          ],
+          "choice": "REP-021",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-021"
+          ],
+          "id": "challenge-04",
+          "match_probability": 0.97,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-021"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-016",
+            "REP-020",
+            "REP-004"
+          ],
+          "choice": "NO_MATCH",
+          "confidence": 0.88,
+          "correct": true,
+          "expected": [
+            "NO_MATCH"
+          ],
+          "id": "challenge-05",
+          "match_probability": 0.07,
+          "substring_matches": [],
+          "suggest": false,
+          "top3": [
+            "NO_MATCH",
+            "REP-016",
+            "REP-020"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-002",
+            "REP-006",
+            "REP-030"
+          ],
+          "choice": "REP-002",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-002"
+          ],
+          "id": "challenge-06",
+          "match_probability": 0.92,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-002"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-030",
+            "REP-007",
+            "REP-021"
+          ],
+          "choice": "REP-007",
+          "confidence": 0.89,
+          "correct": true,
+          "expected": [
+            "REP-007",
+            "REP-030"
+          ],
+          "id": "challenge-07",
+          "match_probability": 0.88,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-007",
+            "REP-030"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-011",
+            "REP-030",
+            "REP-018"
+          ],
+          "choice": "NO_MATCH",
+          "confidence": 0.93,
+          "correct": true,
+          "expected": [
+            "NO_MATCH"
+          ],
+          "id": "challenge-08",
+          "match_probability": 0.07,
+          "substring_matches": [],
+          "suggest": false,
+          "top3": [
+            "NO_MATCH",
+            "REP-011"
+          ]
+        }
+      ],
+      "total": 8
+    }
+  },
+  "latencies_seconds": [
+    1.42,
+    1.42,
+    1.361
+  ],
+  "repeat_agreement": {
+    "discovery-01-repeat": {
+      "same_choice": 4,
+      "total": 4
+    }
+  },
+  "requests": 3,
+  "usage": {
+    "input_tokens": 45798,
+    "output_tokens": 4020
+  }
+}

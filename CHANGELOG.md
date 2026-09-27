@@ -6,6 +6,18 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Added (catalog discovery and authoring)
+
+- Local web catalog filtering now includes reviewed search aliases and each
+  technique's objective, alongside the existing IDs and names. Aliases ship in
+  the packaged catalog and are exposed by the catalog API.
+- A separate source-checkout companion, `python -m tools.typesafe_authoring`,
+  suggests catalog techniques (`find`) and reviews coverage claims (`review`).
+  It previews its request by default; only explicit `--live` uses TypeSafe and
+  the `TYPESAFE_API_KEY` environment variable. Results remain human-reviewed
+  suggestions, with catalog evidence and uncertainty visible. It is outside the
+  packaged runtime and refuses live use from a confined web terminal.
+
 Review of 2026-09-26: 24 confirmed defects across the web layer, the send path and the engine, found against `1d517fb` and each reproduced before it was fixed. Every new guard was run against the reverted fix and observed to fail. Web decision record: `docs/security-review-2026-09-26.md`.
 
 ### Security (web layer, 2026-09-26 review)

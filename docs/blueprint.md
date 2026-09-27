@@ -125,6 +125,14 @@ Each module is a package under `replicant/`. Key responsibilities and the main t
 - `config/settings.py` load and save YAML/TOML config and saved collector profiles. Seed management.
 - `audit/manifest.py` exclusively creates unique, fsynced manifests and atomically replaces checkpoints and terminal records without exposing partial JSON. It also writes the human run summary.
 
+Authoring addition, 2026-09-27: `tools/typesafe_authoring.py` is separate
+source-checkout tooling, outside the packages above and excluded from the wheel.
+It reads the validated packaged catalog and offers technique suggestions and
+coverage-claim review. An explicit `--live` invocation calls TypeSafe; default
+preview performs no network I/O. No presentation surface or Orchestrator imports
+it. The telemetry runtime retains collector-only egress and the scenario advisory
+remains code-derived. See [the authoring contract](typesafe-authoring.md).
+
 ## 7. Menu UX flow (exactly as specified)
 
 Startup sequence:
@@ -211,6 +219,13 @@ Golden test oracle: the seven constructed sample lines in `replicant-fortigate-c
 ## 11. Technique catalog
 
 The catalog (`replicant-technique-catalog.yaml`) is loaded at startup and validated against the Pydantic `Technique` model. It powers the menu, the CLI `list`, and the Scenario Engine. Each entry names its NDR rule and UC so telemetry and detection stay in lockstep. Signature IDs marked `[Unverified]` must be confirmed on a live FortiOS build before customer use.
+
+Search addition, 2026-09-27: the packaged catalog also carries optional
+`search_aliases`, a list of reviewed phrases. Missing aliases default to an empty
+list; blank or duplicate normalized aliases are invalid. `/api/catalog` includes
+the list with each technique. The web filter searches the objective and aliases
+alongside IDs and names using local case-insensitive phrase matching. Aliases are
+discovery metadata and do not change scenario generation or detection contracts.
 
 ## 12. Scenario engine (the sophistication)
 

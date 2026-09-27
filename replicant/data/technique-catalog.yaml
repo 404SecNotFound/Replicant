@@ -24,6 +24,7 @@
 # SCHEMA (per entry)
 #   id:               stable Replicant id (REP-###)
 #   name:             human label shown in the menu
+#   search_aliases:   reviewed phrases for local discovery, not coverage claims
 #   ndr_rule:         generic Replicant label for the class of network
 #                     detection this technique exercises. Not tied to any
 #                     vendor's or product's rule pack. Map it to whatever
@@ -75,6 +76,7 @@ techniques:
 
   - id: REP-001
     name: "Periodic C2 callback (low-and-slow)"
+    search_aliases: ["beaconing", "regular callbacks", "phone home"]
     ndr_rule: "NDR-C2-001"
     ndr_uc: "UC-001"
     objective: >-
@@ -105,6 +107,7 @@ techniques:
 
   - id: REP-002
     name: "Vertical port scan (one host, many ports)"
+    search_aliases: ["many ports on one host", "service enumeration", "single target scan", "one server many services"]
     ndr_rule: "NDR-RECON-002"
     ndr_uc: "UC-002a"
     objective: >-
@@ -134,6 +137,7 @@ techniques:
 
   - id: REP-003
     name: "Horizontal sweep (one port, many hosts)"
+    search_aliases: ["one port across many hosts", "subnet sweep", "horizontal scanning"]
     ndr_rule: "NDR-RECON-002"
     ndr_uc: "UC-002b"
     objective: >-
@@ -162,6 +166,7 @@ techniques:
 
   - id: REP-004
     name: "DNS tunneling / DNS exfil"
+    search_aliases: ["high rate DNS tunnel", "encoded DNS labels", "DNS data channel"]
     ndr_rule: "NDR-C2-003"
     ndr_uc: "UC-003"
     objective: >-
@@ -191,6 +196,7 @@ techniques:
 
   - id: REP-005
     name: "Outbound exfil volume anomaly"
+    search_aliases: ["large outbound transfer", "upload spike", "host baseline deviation"]
     ndr_rule: "NDR-EXFIL-004"
     ndr_uc: "UC-004"
     objective: >-
@@ -220,6 +226,7 @@ techniques:
 
   - id: REP-006
     name: "Destination fan-out burst"
+    search_aliases: ["many destinations at once", "connection fanout", "destination count spike"]
     ndr_rule: "NDR-RECON-005"
     ndr_uc: "UC-005"
     objective: >-
@@ -248,6 +255,7 @@ techniques:
 
   - id: REP-007
     name: "Brute force and password spray"
+    search_aliases: ["single source password spray", "repeated login failures", "credential guessing"]
     ndr_rule: "NDR-ATO-006"
     ndr_uc: "UC-006"
     objective: >-
@@ -277,6 +285,7 @@ techniques:
 
   - id: REP-008
     name: "Newly observed external destination per host"
+    search_aliases: ["first seen destination", "new destination for a host", "per host novelty", "first seen by this workstation"]
     ndr_rule: "NDR-C2-007"
     ndr_uc: "UC-007"
     objective: >-
@@ -304,6 +313,7 @@ techniques:
 
   - id: REP-009
     name: "IDS/IPS event-rate spike"
+    search_aliases: ["intrusion alert burst", "IPS alert flood", "signature rate spike"]
     ndr_rule: "NDR-RECON-008"
     ndr_uc: "UC-008"
     objective: >-
@@ -332,6 +342,7 @@ techniques:
 
   - id: REP-010
     name: "Denied outbound connection burst"
+    search_aliases: ["blocked egress burst", "outbound deny spike", "policy denial burst"]
     ndr_rule: "NDR-C2-009"
     ndr_uc: "UC-009"
     objective: >-
@@ -360,6 +371,7 @@ techniques:
 
   - id: REP-011
     name: "VPN geovelocity anomaly"
+    search_aliases: ["impossible travel", "distant VPN logins", "synthetic country anomaly"]
     ndr_rule: "NDR-ATO-010"
     ndr_uc: "UC-010"
     objective: >-
@@ -402,6 +414,7 @@ techniques:
 
   - id: REP-012
     name: "Jittered and fleet-aggregate C2 callback"
+    search_aliases: ["fleet beaconing", "irregular callbacks", "aggregate callback rhythm"]
     ndr_rule: "NDR-C2-011"
     ndr_uc: "UC-011"
     objective: >-
@@ -431,6 +444,7 @@ techniques:
 
   - id: REP-013
     name: "Self-propagating malware spread (worm-like)"
+    search_aliases: ["worm propagation", "growing source population", "generational host spread"]
     ndr_rule: "NDR-LATERAL-012"
     ndr_uc: "UC-012"
     objective: >-
@@ -460,6 +474,7 @@ techniques:
 
   - id: REP-014
     name: "Cryptomining pool session"
+    search_aliases: ["mining pool traffic", "steady mining shares", "long lived pool connection"]
     ndr_rule: "NDR-IMPACT-013"
     ndr_uc: "UC-013"
     objective: >-
@@ -489,6 +504,7 @@ techniques:
 
   - id: REP-015
     name: "Low-throughput DNS exfiltration"
+    search_aliases: ["slow DNS leak", "queries per hour", "low rate DNS channel"]
     ndr_rule: "NDR-EXFIL-014"
     ndr_uc: "UC-014"
     objective: >-
@@ -519,6 +535,7 @@ techniques:
 
   - id: REP-016
     name: "DGA NXDOMAIN cluster"
+    search_aliases: ["algorithmic domain names", "failed DNS cluster", "NXDOMAIN burst"]
     ndr_rule: "NDR-C2-015"
     ndr_uc: "UC-015"
     objective: >-
@@ -551,6 +568,7 @@ techniques:
 
   - id: REP-017
     name: "Encrypted DNS (DoH) policy bypass"
+    search_aliases: ["DNS over HTTPS", "resolver traffic disappears", "encrypted resolver switch"]
     ndr_rule: "NDR-C2-016"
     ndr_uc: "UC-016"
     objective: >-
@@ -581,6 +599,7 @@ techniques:
 
   - id: REP-018
     name: "Lateral movement login chain"
+    search_aliases: ["host to host login chain", "authentication hop chain", "admin star comparison"]
     ndr_rule: "NDR-LATERAL-017"
     ndr_uc: "UC-017"
     objective: >-
@@ -620,6 +639,7 @@ techniques:
 
   - id: REP-019
     name: "Stealth scan below rate threshold"
+    search_aliases: ["distributed probing", "slow port scan", "rotating scan sources"]
     ndr_rule: "NDR-RECON-018"
     ndr_uc: "UC-018"
     objective: >-
@@ -649,6 +669,7 @@ techniques:
 
   - id: REP-020
     name: "First contact with a newly registered domain"
+    search_aliases: ["organization wide domain novelty", "first seen domain", "new domain in DNS history"]
     ndr_rule: "NDR-C2-019"
     ndr_uc: "UC-019"
     objective: >-
@@ -679,6 +700,7 @@ techniques:
 
   - id: REP-021
     name: "Inbound perimeter scan reception"
+    search_aliases: ["internet background scanning", "external probes at perimeter", "inbound scan noise"]
     ndr_rule: "NDR-RECON-020"
     ndr_uc: "UC-020"
     objective: >-
@@ -708,6 +730,7 @@ techniques:
 
   - id: REP-022
     name: "Multi-stage IDS alert chain (kill-chain ordered)"
+    search_aliases: ["ordered IPS alerts", "alert kill chain", "recon to exploit alert sequence"]
     ndr_rule: "NDR-CORR-021"
     ndr_uc: "UC-021"
     objective: >-
@@ -737,6 +760,7 @@ techniques:
 
   - id: REP-023
     name: "TLS 1.3 C2 with flow-only signal"
+    search_aliases: ["encrypted flow beacon", "stable session byte sizes", "TLS flow metadata"]
     ndr_rule: "NDR-C2-022"
     ndr_uc: "UC-022"
     objective: >-
@@ -767,6 +791,7 @@ techniques:
 
   - id: REP-024
     name: "Internal host as proxy relay node"
+    search_aliases: ["paired inbound outbound flows", "byte correlated relay", "unsanctioned proxy"]
     ndr_rule: "NDR-C2-023"
     ndr_uc: "UC-023"
     objective: >-
@@ -798,6 +823,7 @@ techniques:
 
   - id: REP-030
     name: "Distributed low-and-slow password spray"
+    search_aliases: ["many source password spray", "portal wide login failures", "sparse distributed authentication"]
     ndr_rule: "NDR-ATO-024"
     ndr_uc: "UC-024"
     objective: >-
@@ -831,6 +857,7 @@ techniques:
 
   - id: REP-043
     name: "Inbound alert to egress callback dialog correlation"
+    search_aliases: ["victim to callback correlation", "IPS and traffic join", "inbound alert then outbound session"]
     ndr_rule: "NDR-CORR-025"
     ndr_uc: "UC-025"
     objective: >-

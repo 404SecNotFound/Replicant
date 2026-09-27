@@ -1,0 +1,6 @@
+# Complete request/response records are retained in api-records.json.gz.
+# Keep the original local files for convenient resume without duplicating them in Git.
+/results/*/prepared.json
+/results/*/discovery-*.json
+/results/*/scenario-*.json
+/results/*/claim-*.json

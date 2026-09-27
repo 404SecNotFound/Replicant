@@ -41,6 +41,8 @@ export interface Technique {
   ndr_uc: string;
   /** What running this technique is meant to establish. One sentence. */
   objective: string;
+  /** Reviewed phrases used by local catalog search. */
+  search_aliases: string[];
   /** Vendor-neutral builder dispatch family. */
   logical_log_type: string;
   logical_subtype: string;

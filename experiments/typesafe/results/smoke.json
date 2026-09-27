@@ -1,0 +1,39 @@
+{
+  "request": {
+    "model": "jev-latest",
+    "state": {
+      "request": "Find a synthetic log pattern for one source testing many ports on one destination."
+    },
+    "questions": {
+      "selection": {
+        "type": "choice",
+        "instructions": "Which synthetic telemetry shape matches the request?",
+        "criteria": {
+          "vertical_scan": "One source, one destination, many destination ports",
+          "horizontal_sweep": "One source, many destination hosts, one destination port",
+          "no_match": "Neither shape matches"
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "selection": {
+        "type": "choice",
+        "choice": "vertical_scan",
+        "confidence": 1.0,
+        "probabilities": {
+          "horizontal_sweep": 0.0,
+          "no_match": 0.0,
+          "vertical_scan": 1.0
+        }
+      }
+    },
+    "usage": {
+      "input_tokens": 365,
+      "output_tokens": 44
+    }
+  },
+  "latency_seconds": 1.107
+}

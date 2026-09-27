@@ -23,6 +23,7 @@ function technique(overrides: Partial<Technique> = {}): Technique {
     ndr_rule: "rule",
     ndr_uc: "UC-001",
     objective: "Prove a detection can catch a beacon by its interval.",
+    search_aliases: [],
     logical_log_type: "traffic",
     logical_subtype: "forward",
     logical_families: ["traffic:forward"],
@@ -137,10 +138,18 @@ describe("groupByTactic", () => {
 
 describe("filterTechniques", () => {
   const catalog = [
-    technique({ id: "REP-001", name: "Beaconing", ndr_uc: "UC-001", attack: ["T1071.001"] }),
+    technique({
+      id: "REP-001",
+      name: "Beaconing",
+      ndr_uc: "UC-001",
+      attack: ["T1071.001"],
+      search_aliases: ["phone home", "regular callbacks"],
+    }),
     technique({
       id: "REP-004",
       name: "DNS tunneling",
+      objective: "Prove a DNS tunnelling rule fires on high unique-label cardinality.",
+      search_aliases: ["encoded DNS labels"],
       ndr_uc: "UC-003",
       attack: ["T1048.003"],
       native_log_type: "dns",
@@ -149,6 +158,8 @@ describe("filterTechniques", () => {
     technique({
       id: "REP-009",
       name: "VPN brute force",
+      objective: "Prove a credential-attack rule separates a spray from sparse auth failures.",
+      search_aliases: ["credential guessing"],
       ndr_uc: "UC-007",
       attack: ["T1110"],
       native_log_type: "event",
@@ -178,6 +189,39 @@ describe("filterTechniques", () => {
     expect(filterTechniques(catalog, { query: "T1048" }).map((t) => t.id)).toEqual(["REP-004"]);
   });
 
+  it.each([
+    ["  PHONE HOME  ", "REP-001"],
+    ["encoded DNS labels", "REP-004"],
+    ["credential guessing", "REP-009"],
+  ])("finds the technique for the operator phrase %s", (query, id) => {
+    expect(filterTechniques(catalog, { query }).map((t) => t.id)).toEqual([id]);
+  });
+
+  it("finds a detection objective even when its phrase is absent from the name", () => {
+    expect(
+      filterTechniques(catalog, { query: "unique-label cardinality" }).map((t) => t.id),
+    ).toEqual(["REP-004"]);
+  });
+
+  it("keeps existing search working with an older API payload that has no aliases", () => {
+    const legacy = { ...catalog[0], search_aliases: undefined } as unknown as Technique;
+    expect(filterTechniques([legacy], { query: "beacon" }).map((t) => t.id)).toEqual([
+      "REP-001",
+    ]);
+  });
+
+  it("preserves phrase order instead of treating words as independent matches", () => {
+    expect(filterTechniques(catalog, { query: "home phone" })).toEqual([]);
+    expect(filterTechniques(catalog, { query: "phone callbacks" })).toEqual([]);
+  });
+
+  it.each(["JA3 fingerprint", "WHOIS registration timestamp", "scheduled task persistence"])(
+    "returns no result for the absent phrase %s",
+    (query) => {
+      expect(filterTechniques(catalog, { query })).toEqual([]);
+    },
+  );
+
   it("filters by log type", () => {
     expect(filterTechniques(catalog, { logTypes: ["event:vpn"] }).map((t) => t.id)).toEqual([
       "REP-009",
@@ -192,6 +236,23 @@ describe("filterTechniques", () => {
 
   it("applies query and log type together", () => {
     expect(filterTechniques(catalog, { query: "REP", logTypes: ["dns:dns-query"] }).length).toBe(1);
+  });
+
+  it("applies the log filter to alias and objective matches", () => {
+    expect(
+      filterTechniques(catalog, { query: "phone home", logTypes: ["traffic:forward"] }).map(
+        (t) => t.id,
+      ),
+    ).toEqual(["REP-001"]);
+    expect(
+      filterTechniques(catalog, { query: "phone home", logTypes: ["event:vpn"] }),
+    ).toEqual([]);
+    expect(
+      filterTechniques(catalog, {
+        query: "unique-label cardinality",
+        logTypes: ["traffic:forward"],
+      }),
+    ).toEqual([]);
   });
 
   it("collapses to no groups when the query matches nothing", () => {

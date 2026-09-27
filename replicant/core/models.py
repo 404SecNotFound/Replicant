@@ -137,6 +137,8 @@ class Technique(BaseModel):
     #: therefore tells an operator nothing about which one to pick. Every entry
     #: states its own objective, and a parametrized test asserts none is missing.
     objective: str = ""
+    #: Reviewed phrases for local catalog search, not evidence of detection coverage.
+    search_aliases: list[str] = Field(default_factory=list)
     attack: AttackMapping = Field(default_factory=AttackMapping)
     fortigate: FortigateBinding
     #: Families beyond the primary dispatch/binding above. Most plans emit one
@@ -172,6 +174,17 @@ class Technique(BaseModel):
     transferability_note: str | None = None
     references: list[str] = Field(default_factory=list)
     safety_notes: str | None = None
+
+    @field_validator("search_aliases")
+    @classmethod
+    def _valid_search_aliases(cls, aliases: list[str]) -> list[str]:
+        normalized = [" ".join(alias.split()) for alias in aliases]
+        if any(not alias for alias in normalized):
+            raise ValueError("search_aliases must not contain blank phrases")
+        keys = [alias.casefold() for alias in normalized]
+        if len(keys) != len(set(keys)):
+            raise ValueError("search_aliases must be unique ignoring case and whitespace")
+        return normalized
 
     @model_validator(mode="after")
     def _parser_only_needs_a_reason(self) -> Technique:
