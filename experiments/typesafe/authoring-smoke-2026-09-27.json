@@ -1,0 +1,151 @@
+{
+  "timestamp": "2026-09-27T14:13:42.089659+00:00",
+  "purpose": "Two synthetic interface smoke checks, not an accuracy estimate.",
+  "public_metadata_proof": "public-authoring-metadata-2026-09-27.json",
+  "cases": [
+    {
+      "action": "find",
+      "arguments": [
+        "find",
+        "one server many services"
+      ],
+      "expected": "REP-002",
+      "elapsed_seconds": 2.531,
+      "output": {
+        "mode": "live",
+        "action": "find",
+        "model": "jev-1.13.0",
+        "requested_model": "jev-1.13.0",
+        "choice": "REP-002",
+        "confidence": 0.99,
+        "probabilities": {
+          "REP-008": 0.0,
+          "REP-022": 0.0,
+          "REP-014": 0.0,
+          "REP-020": 0.0,
+          "REP-016": 0.0,
+          "REP-012": 0.0,
+          "REP-009": 0.0,
+          "REP-006": 0.0,
+          "REP-015": 0.0,
+          "REP-007": 0.0,
+          "REP-005": 0.0,
+          "REP-011": 0.0,
+          "REP-018": 0.0,
+          "NO_MATCH": 0.01,
+          "REP-019": 0.0,
+          "REP-010": 0.0,
+          "REP-023": 0.0,
+          "REP-013": 0.0,
+          "REP-043": 0.0,
+          "REP-024": 0.0,
+          "REP-021": 0.0,
+          "REP-001": 0.0,
+          "REP-003": 0.0,
+          "REP-030": 0.0,
+          "REP-002": 0.99,
+          "REP-004": 0.0,
+          "REP-017": 0.0
+        },
+        "low_confidence": false,
+        "notice": "Suggestions for human review only. No commands or telemetry are executed.",
+        "uncertainty_notice": "Choice confidence describes the distribution, not proven correctness. The 0.8 review hint is not calibrated for production.",
+        "usage": {
+          "input_tokens": 13219,
+          "output_tokens": 332
+        },
+        "catalog_exists_probability": 0.74,
+        "existence_notice": "Probability any catalog entry matches, not the selected entry.",
+        "review_required": true,
+        "weak_match_evidence": true,
+        "judgments_disagree": false,
+        "candidates": [
+          {
+            "id": "REP-002",
+            "name": "Vertical port scan (one host, many ports)",
+            "probability": 0.99,
+            "objective": "Prove a port-scan rule fires when one source touches many ports on a single host inside a window.",
+            "transferability": "transfers",
+            "transferability_note": null,
+            "safety_notes": "dst is a single synthetic internal or DMZ target",
+            "emits_foil": true
+          }
+        ]
+      }
+    },
+    {
+      "action": "review",
+      "arguments": [
+        "review",
+        "REP-020",
+        "This exercises WHOIS registration-age scoring."
+      ],
+      "expected": "contradicted",
+      "elapsed_seconds": 7.197,
+      "output": {
+        "mode": "live",
+        "action": "review",
+        "model": "jev-1.13.0",
+        "requested_model": "jev-1.13.0",
+        "choice": "contradicted",
+        "confidence": 0.95,
+        "probabilities": {
+          "contradicted": 0.96,
+          "unsupported": 0.04,
+          "supported": 0.0
+        },
+        "low_confidence": false,
+        "notice": "Suggestions for human review only. No commands or telemetry are executed.",
+        "uncertainty_notice": "Choice confidence describes the distribution, not proven correctness. The 0.8 review hint is not calibrated for production.",
+        "usage": {
+          "input_tokens": 994,
+          "output_tokens": 44
+        },
+        "evidence_source": "Packaged technique catalog",
+        "evidence": {
+          "id": "REP-020",
+          "name": "First contact with a newly registered domain",
+          "ndr_uc": "UC-019",
+          "objective": "Prove an organisation-wide novelty rule fires on first contact with a newly registered domain, which per-host novelty (REP-008) cannot see.",
+          "attack": {
+            "tactics": [
+              "TA0011 Command and Control",
+              "TA0042 Resource Development"
+            ],
+            "techniques": [
+              "T1583.001",
+              "T1071"
+            ]
+          },
+          "fortigate": {
+            "log_type": "dns",
+            "subtype": "dns-query",
+            "signature_id": "54803",
+            "action": "pass"
+          },
+          "additional_log_families": [],
+          "cef_fields_held": [
+            "dst",
+            "dpt"
+          ],
+          "cef_fields_varied": [
+            "src",
+            "FTNTFGTqname",
+            "rt",
+            "FTNTFGTxid"
+          ],
+          "distributions": {
+            "baseline": "a stable set of synthetic domains, each queried once by one host, establishing organizational normal",
+            "novel": "domains never queried before by any host, low query count, contacted by few hosts"
+          },
+          "benign_baseline": "the baseline_domains phase IS the baseline. Novelty is organization-wide, unlike REP-008 which is novel per host",
+          "emits_foil": false,
+          "transferability": "parser-only",
+          "transferability_note": "The organisation-wide first-contact novelty (a domain never queried before) transfers, but the cited PREDATOR-class detector scores domain registration age from WHOIS. The emitted domains use reserved TLDs and carry no registration metadata, and Replicant performs no WHOIS, so the registration-age scoring the shipped rule depends on is not exercised.",
+          "safety_notes": "novel domains use reserved TLDs. Replicant performs no registration and no WHOIS lookup, and resolves nothing"
+        },
+        "review_required": true
+      }
+    }
+  ]
+}

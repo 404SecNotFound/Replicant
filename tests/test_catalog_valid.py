@@ -79,6 +79,66 @@ def test_by_id_raises_for_unknown() -> None:
         CATALOG.by_id("REP-999")
 
 
+def test_search_aliases_are_optional_for_custom_catalogs() -> None:
+    raw = CATALOG.by_id("REP-001").model_dump(exclude={"search_aliases"})
+    first = Technique.model_validate(raw)
+    second = Technique.model_validate(raw)
+    assert first.search_aliases == []
+    first.search_aliases.append("custom phrase")
+    assert second.search_aliases == []
+
+
+def test_search_aliases_normalize_whitespace_and_preserve_spelling() -> None:
+    raw = CATALOG.by_id("REP-001").model_dump()
+    raw["search_aliases"] = ["  Phone\t home  ", "regular\ncallbacks"]
+    assert Technique.model_validate(raw).search_aliases == ["Phone home", "regular callbacks"]
+
+
+@pytest.mark.parametrize(
+    "aliases",
+    [
+        [""],
+        [" \n\t"],
+        ["phone home", "PHONE HOME"],
+        ["phone  home", " phone\thome "],
+    ],
+)
+def test_blank_or_duplicate_search_aliases_are_rejected(aliases: list[str]) -> None:
+    raw = CATALOG.by_id("REP-001").model_dump()
+    raw["search_aliases"] = aliases
+    with pytest.raises(ValidationError, match="search_aliases"):
+        Technique.model_validate(raw)
+
+
+def test_every_shipped_technique_has_search_aliases() -> None:
+    assert all(technique.search_aliases for technique in CATALOG.techniques)
+
+
+@pytest.mark.parametrize(
+    ("phrase", "technique_id"),
+    [
+        ("phone home", "REP-001"),
+        ("many ports on one host", "REP-002"),
+        ("one server many services", "REP-002"),
+        ("one port across many hosts", "REP-003"),
+        ("first seen by this workstation", "REP-008"),
+        ("impossible travel", "REP-011"),
+        ("fleet beaconing", "REP-012"),
+        ("slow DNS leak", "REP-015"),
+        ("DNS over HTTPS", "REP-017"),
+        ("first seen domain", "REP-020"),
+        ("portal wide login failures", "REP-030"),
+        ("IPS and traffic join", "REP-043"),
+    ],
+)
+def test_operator_phrases_are_attached_to_the_intended_technique(
+    phrase: str, technique_id: str
+) -> None:
+    assert {
+        technique.id for technique in CATALOG.techniques if phrase in technique.search_aliases
+    } == {technique_id}
+
+
 def test_duplicate_uc_rejected() -> None:
     raw = {
         "version": "0.1.0",

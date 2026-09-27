@@ -82,6 +82,13 @@ than vendored source.
 -------------------------------------------------------------------------------
 Design acknowledgements
 -------------------------------------------------------------------------------
+The repository includes the TypeSafe AI agent skill under
+.agents/skills/typesafe-ai/, Copyright 2026 TypeSafe AI, MIT License (full text:
+.agents/skills/typesafe-ai/LICENSE), from https://github.com/typesafe-ai/skills.
+The separate authoring tools and experiments use its structured-decision patterns.
+Their HTTP client implementation is original; no cookbook source code was copied.
+These development tools are not bundled in the Replicant wheel.
+
 Replicant's design was informed by the open-source projects below. No code from
 these projects is bundled in this repository at this time. If permissively
 licensed code is incorporated later, its required attribution notice will be

@@ -93,9 +93,9 @@ export function groupByTactic(techniques: Technique[]): TacticGroup[] {
 /**
  * Filter by a free-text query and a set of log types.
  *
- * The query matches the technique id, the name, the use case id, and the ATT&CK
- * technique ids at once, because an engineer arriving from a detection backlog has
- * whichever identifier their ticket happened to carry.
+ * The query matches identifiers, names, objectives, and reviewed search aliases.
+ * Keep contiguous phrase matching: aliases help discover existing techniques,
+ * while a match does not establish that a technique meets a detection requirement.
  */
 export function filterTechniques(
   techniques: Technique[],
@@ -111,6 +111,8 @@ export function filterTechniques(
       technique.name,
       technique.ndr_uc,
       ...technique.attack,
+      technique.objective,
+      ...(technique.search_aliases ?? []),
     ]
       .join(" ")
       .toLowerCase();

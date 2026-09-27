@@ -1,0 +1,928 @@
+{
+  "families": {
+    "claim": {
+      "correct": 16,
+      "planned": 16,
+      "rows": [
+        {
+          "choice": "supported",
+          "confidence": 0.58,
+          "correct": true,
+          "expected": [
+            "supported"
+          ],
+          "id": "claim-01",
+          "top3": [
+            "supported",
+            "unsupported",
+            "contradicted"
+          ]
+        },
+        {
+          "choice": "contradicted",
+          "confidence": 0.95,
+          "correct": true,
+          "expected": [
+            "contradicted"
+          ],
+          "id": "claim-02",
+          "top3": [
+            "contradicted",
+            "unsupported"
+          ]
+        },
+        {
+          "choice": "unsupported",
+          "confidence": 0.95,
+          "correct": true,
+          "expected": [
+            "unsupported"
+          ],
+          "id": "claim-03",
+          "top3": [
+            "unsupported",
+            "contradicted"
+          ]
+        },
+        {
+          "choice": "supported",
+          "confidence": 0.88,
+          "correct": true,
+          "expected": [
+            "supported"
+          ],
+          "id": "claim-04",
+          "top3": [
+            "supported",
+            "unsupported"
+          ]
+        },
+        {
+          "choice": "contradicted",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "contradicted"
+          ],
+          "id": "claim-05",
+          "top3": [
+            "contradicted"
+          ]
+        },
+        {
+          "choice": "supported",
+          "confidence": 0.27,
+          "correct": true,
+          "expected": [
+            "supported"
+          ],
+          "id": "claim-06",
+          "top3": [
+            "supported",
+            "unsupported",
+            "contradicted"
+          ]
+        },
+        {
+          "choice": "contradicted",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "contradicted"
+          ],
+          "id": "claim-07",
+          "top3": [
+            "contradicted"
+          ]
+        },
+        {
+          "choice": "unsupported",
+          "confidence": 0.99,
+          "correct": true,
+          "expected": [
+            "unsupported"
+          ],
+          "id": "claim-08",
+          "top3": [
+            "unsupported",
+            "contradicted"
+          ]
+        },
+        {
+          "choice": "supported",
+          "confidence": 0.35,
+          "correct": true,
+          "expected": [
+            "supported"
+          ],
+          "id": "claim-09",
+          "top3": [
+            "supported",
+            "unsupported",
+            "contradicted"
+          ]
+        },
+        {
+          "choice": "contradicted",
+          "confidence": 0.43,
+          "correct": true,
+          "expected": [
+            "contradicted"
+          ],
+          "id": "claim-10",
+          "top3": [
+            "contradicted",
+            "unsupported",
+            "supported"
+          ]
+        },
+        {
+          "choice": "supported",
+          "confidence": 0.51,
+          "correct": true,
+          "expected": [
+            "supported"
+          ],
+          "id": "claim-11",
+          "top3": [
+            "supported",
+            "unsupported",
+            "contradicted"
+          ]
+        },
+        {
+          "choice": "unsupported",
+          "confidence": 0.88,
+          "correct": true,
+          "expected": [
+            "unsupported"
+          ],
+          "id": "claim-12",
+          "top3": [
+            "unsupported",
+            "contradicted"
+          ]
+        },
+        {
+          "choice": "contradicted",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "contradicted"
+          ],
+          "id": "claim-13",
+          "top3": [
+            "contradicted"
+          ]
+        },
+        {
+          "choice": "unsupported",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "unsupported"
+          ],
+          "id": "claim-14",
+          "top3": [
+            "unsupported"
+          ]
+        },
+        {
+          "choice": "contradicted",
+          "confidence": 0.97,
+          "correct": true,
+          "expected": [
+            "contradicted"
+          ],
+          "id": "claim-15",
+          "top3": [
+            "contradicted",
+            "unsupported"
+          ]
+        },
+        {
+          "choice": "supported",
+          "confidence": 0.9,
+          "correct": true,
+          "expected": [
+            "supported"
+          ],
+          "id": "claim-16",
+          "top3": [
+            "supported",
+            "unsupported"
+          ]
+        }
+      ],
+      "total": 16
+    },
+    "discovery": {
+      "correct": 24,
+      "planned": 24,
+      "rows": [
+        {
+          "bm25_top3": [
+            "REP-024",
+            "REP-018",
+            "REP-013"
+          ],
+          "choice": "REP-001",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-001"
+          ],
+          "id": "discover-01",
+          "match_probability": 0.97,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-001"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-012",
+            "REP-001",
+            "REP-043"
+          ],
+          "choice": "REP-012",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-012"
+          ],
+          "id": "discover-02",
+          "match_probability": 0.95,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-012"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-006",
+            "REP-023",
+            "REP-013"
+          ],
+          "choice": "REP-002",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-002"
+          ],
+          "id": "discover-03",
+          "match_probability": 0.96,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-002"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-024",
+            "REP-017",
+            "REP-014"
+          ],
+          "choice": "REP-003",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-003"
+          ],
+          "id": "discover-04",
+          "match_probability": 0.94,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-003"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-019",
+            "REP-030",
+            "REP-021"
+          ],
+          "choice": "REP-019",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-019"
+          ],
+          "id": "discover-05",
+          "match_probability": 0.96,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-019"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-015",
+            "REP-004",
+            "REP-016"
+          ],
+          "choice": "REP-004",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-004"
+          ],
+          "id": "discover-06",
+          "match_probability": 0.93,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-004"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-015",
+            "REP-016",
+            "REP-013"
+          ],
+          "choice": "REP-015",
+          "confidence": 0.98,
+          "correct": true,
+          "expected": [
+            "REP-015"
+          ],
+          "id": "discover-07",
+          "match_probability": 0.89,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-015",
+            "NO_MATCH"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-016",
+            "REP-024",
+            "REP-020"
+          ],
+          "choice": "REP-016",
+          "confidence": 0.99,
+          "correct": true,
+          "expected": [
+            "REP-016"
+          ],
+          "id": "discover-08",
+          "match_probability": 0.96,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-016",
+            "NO_MATCH"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-017",
+            "REP-001",
+            "REP-006"
+          ],
+          "choice": "REP-017",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-017"
+          ],
+          "id": "discover-09",
+          "match_probability": 0.98,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-017"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-030",
+            "REP-018",
+            "REP-007"
+          ],
+          "choice": "REP-007",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-007"
+          ],
+          "id": "discover-10",
+          "match_probability": 0.96,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-007"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-030",
+            "REP-007",
+            "REP-018"
+          ],
+          "choice": "REP-030",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-030"
+          ],
+          "id": "discover-11",
+          "match_probability": 0.98,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-030"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-008",
+            "REP-020",
+            "REP-005"
+          ],
+          "choice": "REP-008",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-008"
+          ],
+          "id": "discover-12",
+          "match_probability": 0.97,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-008"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-020",
+            "REP-008",
+            "REP-016"
+          ],
+          "choice": "REP-020",
+          "confidence": 0.96,
+          "correct": true,
+          "expected": [
+            "REP-020"
+          ],
+          "id": "discover-13",
+          "match_probability": 0.84,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-020",
+            "NO_MATCH"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-006",
+            "REP-024",
+            "REP-017"
+          ],
+          "choice": "REP-006",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-006"
+          ],
+          "id": "discover-14",
+          "match_probability": 0.97,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-006"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-005",
+            "REP-043",
+            "REP-006"
+          ],
+          "choice": "REP-005",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-005"
+          ],
+          "id": "discover-15",
+          "match_probability": 0.96,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-005"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-013",
+            "REP-021",
+            "REP-030"
+          ],
+          "choice": "REP-013",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-013"
+          ],
+          "id": "discover-16",
+          "match_probability": 0.95,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-013"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-014",
+            "REP-001",
+            "REP-021"
+          ],
+          "choice": "REP-014",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-014"
+          ],
+          "id": "discover-17",
+          "match_probability": 0.98,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-014"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-018",
+            "REP-030",
+            "REP-024"
+          ],
+          "choice": "REP-018",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-018"
+          ],
+          "id": "discover-18",
+          "match_probability": 0.98,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-018"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-043",
+            "REP-024",
+            "REP-021"
+          ],
+          "choice": "REP-043",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-043"
+          ],
+          "id": "discover-19",
+          "match_probability": 0.98,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-043"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-022",
+            "REP-043",
+            "REP-009"
+          ],
+          "choice": "REP-022",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "REP-022"
+          ],
+          "id": "discover-20",
+          "match_probability": 0.93,
+          "substring_matches": [],
+          "suggest": true,
+          "top3": [
+            "REP-022"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-001",
+            "REP-012",
+            "REP-017"
+          ],
+          "choice": "REP-001",
+          "confidence": 0.68,
+          "correct": true,
+          "expected": [
+            "REP-001",
+            "REP-012"
+          ],
+          "id": "discover-21",
+          "match_probability": 0.97,
+          "substring_matches": [],
+          "suggest": false,
+          "top3": [
+            "REP-001",
+            "REP-012"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-023",
+            "REP-022",
+            "REP-024"
+          ],
+          "choice": "NO_MATCH",
+          "confidence": 0.98,
+          "correct": true,
+          "expected": [
+            "NO_MATCH"
+          ],
+          "id": "discover-22",
+          "match_probability": 0.06,
+          "substring_matches": [],
+          "suggest": false,
+          "top3": [
+            "NO_MATCH",
+            "REP-023"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-020",
+            "REP-016",
+            "REP-015"
+          ],
+          "choice": "NO_MATCH",
+          "confidence": 0.93,
+          "correct": true,
+          "expected": [
+            "NO_MATCH"
+          ],
+          "id": "discover-23",
+          "match_probability": 0.08,
+          "substring_matches": [],
+          "suggest": false,
+          "top3": [
+            "NO_MATCH",
+            "REP-020"
+          ]
+        },
+        {
+          "bm25_top3": [
+            "REP-016",
+            "REP-043",
+            "REP-022"
+          ],
+          "choice": "NO_MATCH",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "NO_MATCH"
+          ],
+          "id": "discover-24",
+          "match_probability": 0.04,
+          "substring_matches": [],
+          "suggest": false,
+          "top3": [
+            "NO_MATCH"
+          ]
+        }
+      ],
+      "total": 24
+    },
+    "scenario": {
+      "correct": 12,
+      "planned": 12,
+      "rows": [
+        {
+          "choice": "SCEN-001",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "SCEN-001"
+          ],
+          "id": "s01",
+          "match_probability": 0.98,
+          "suggest": true,
+          "top3": [
+            "SCEN-001"
+          ]
+        },
+        {
+          "choice": "SCEN-002",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "SCEN-002"
+          ],
+          "id": "s02",
+          "match_probability": 0.98,
+          "suggest": true,
+          "top3": [
+            "SCEN-002"
+          ]
+        },
+        {
+          "choice": "SCEN-003",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "SCEN-003"
+          ],
+          "id": "s03",
+          "match_probability": 0.97,
+          "suggest": true,
+          "top3": [
+            "SCEN-003"
+          ]
+        },
+        {
+          "choice": "SCEN-001",
+          "confidence": 0.97,
+          "correct": true,
+          "expected": [
+            "SCEN-001"
+          ],
+          "id": "s04",
+          "match_probability": 0.95,
+          "suggest": true,
+          "top3": [
+            "SCEN-001",
+            "NO_MATCH"
+          ]
+        },
+        {
+          "choice": "SCEN-002",
+          "confidence": 0.99,
+          "correct": true,
+          "expected": [
+            "SCEN-002"
+          ],
+          "id": "s05",
+          "match_probability": 0.93,
+          "suggest": true,
+          "top3": [
+            "SCEN-002",
+            "NO_MATCH"
+          ]
+        },
+        {
+          "choice": "SCEN-003",
+          "confidence": 0.96,
+          "correct": true,
+          "expected": [
+            "SCEN-003"
+          ],
+          "id": "s06",
+          "match_probability": 0.89,
+          "suggest": true,
+          "top3": [
+            "SCEN-003",
+            "NO_MATCH"
+          ]
+        },
+        {
+          "choice": "NO_MATCH",
+          "confidence": 0.98,
+          "correct": true,
+          "expected": [
+            "NO_MATCH"
+          ],
+          "id": "s07",
+          "match_probability": 0.05,
+          "suggest": false,
+          "top3": [
+            "NO_MATCH",
+            "SCEN-001"
+          ]
+        },
+        {
+          "choice": "NO_MATCH",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "NO_MATCH"
+          ],
+          "id": "s08",
+          "match_probability": 0.05,
+          "suggest": false,
+          "top3": [
+            "NO_MATCH"
+          ]
+        },
+        {
+          "choice": "NO_MATCH",
+          "confidence": 0.95,
+          "correct": true,
+          "expected": [
+            "NO_MATCH"
+          ],
+          "id": "s09",
+          "match_probability": 0.1,
+          "suggest": false,
+          "top3": [
+            "NO_MATCH",
+            "SCEN-002"
+          ]
+        },
+        {
+          "choice": "NO_MATCH",
+          "confidence": 1.0,
+          "correct": true,
+          "expected": [
+            "NO_MATCH"
+          ],
+          "id": "s10",
+          "match_probability": 0.08,
+          "suggest": false,
+          "top3": [
+            "NO_MATCH"
+          ]
+        },
+        {
+          "choice": "SCEN-002",
+          "confidence": 0.74,
+          "correct": true,
+          "expected": [
+            "SCEN-002"
+          ],
+          "id": "s11",
+          "match_probability": 0.83,
+          "suggest": false,
+          "top3": [
+            "SCEN-002",
+            "NO_MATCH"
+          ]
+        },
+        {
+          "choice": "SCEN-001",
+          "confidence": 0.99,
+          "correct": true,
+          "expected": [
+            "SCEN-001"
+          ],
+          "id": "s12",
+          "match_probability": 0.96,
+          "suggest": true,
+          "top3": [
+            "SCEN-001",
+            "NO_MATCH"
+          ]
+        }
+      ],
+      "total": 12
+    }
+  },
+  "latencies_seconds": [
+    1.22,
+    1.173,
+    1.184,
+    1.277,
+    1.211,
+    1.135,
+    0.844,
+    1.05,
+    0.817,
+    1.198,
+    1.118,
+    1.122,
+    1.151,
+    1.185,
+    1.148
+  ],
+  "repeat_agreement": {
+    "claim-01-repeat": {
+      "same_choice": 4,
+      "total": 4
+    },
+    "discovery-01-repeat": {
+      "same_choice": 4,
+      "total": 4
+    }
+  },
+  "requests": 15,
+  "usage": {
+    "input_tokens": 175041,
+    "output_tokens": 11259
+  }
+}

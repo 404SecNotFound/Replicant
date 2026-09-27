@@ -1,0 +1,313 @@
+[
+  {
+    "id": "discover-01",
+    "query": "I need harmless firewall records where one workstation phones the same outside address every minute. Each session is tiny, and regular spacing is the signal I want to test.",
+    "tags": [
+      "paraphrase",
+      "beacon"
+    ],
+    "reason": "One-source small periodic callbacks explicitly target interval regularity.",
+    "expected": [
+      "REP-001"
+    ]
+  },
+  {
+    "id": "discover-02",
+    "query": "The callback is too rare and irregular to spot on one machine. I want to combine several dozen workstations talking to the same destination so the rhythm appears across the fleet.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "beacon"
+    ],
+    "reason": "Fleet aggregation across source hosts and broad jitter distinguish REP-012 from REP-001.",
+    "expected": [
+      "REP-012"
+    ]
+  },
+  {
+    "id": "discover-03",
+    "query": "One synthetic client should try hundreds of different services against exactly one server within a minute. I want to test the distinct destination-port count for that pair.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "scan"
+    ],
+    "reason": "A fixed source/destination pair with many ports is a vertical scan.",
+    "expected": [
+      "REP-002"
+    ]
+  },
+  {
+    "id": "discover-04",
+    "query": "Keep the service fixed at RDP while a single source checks it on a thousand internal addresses. Which synthetic pattern exercises that rule?",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "scan"
+    ],
+    "reason": "One port across many destinations is a horizontal sweep.",
+    "expected": [
+      "REP-003"
+    ]
+  },
+  {
+    "id": "discover-05",
+    "query": "Our minute-long scan rule misses probes separated by several minutes and shared across rotating sources. I need the slow distributed probing pattern for long-window aggregation.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "scan"
+    ],
+    "reason": "Sparse probes and source rotation are the stated REP-019 discriminators.",
+    "expected": [
+      "REP-019"
+    ]
+  },
+  {
+    "id": "discover-06",
+    "query": "Give me many long encoded subdomain labels under one parent, with dozens of DNS queries per second and lots of TXT or CNAME requests. I want to exercise tunneling cardinality.",
+    "tags": [
+      "near-neighbor",
+      "dns"
+    ],
+    "reason": "High query rate, long labels, and TXT/CNAME weighting identify the original DNS tunnel technique.",
+    "expected": [
+      "REP-004"
+    ]
+  },
+  {
+    "id": "discover-07",
+    "query": "The data leak is only six ordinary-looking A or AAAA questions an hour for two days. Volume stays normal; a growing set of labels below one parent should be the clue.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "dns"
+    ],
+    "reason": "Queries per hour, A/AAAA, and long duration distinguish low-throughput DNS exfiltration from REP-004.",
+    "expected": [
+      "REP-015"
+    ]
+  },
+  {
+    "id": "discover-08",
+    "query": "The ticket is called DNS tunneling, but its actual acceptance condition is a burst of algorithmic-looking names returning NXDOMAIN, followed by a fresh set of names in each epoch. Find the pattern matching the condition.",
+    "tags": [
+      "misleading-keywords",
+      "near-neighbor",
+      "dns"
+    ],
+    "reason": "NXDOMAIN response clustering and regenerated name sets identify DGA behavior despite the misleading ticket title.",
+    "expected": [
+      "REP-016"
+    ]
+  },
+  {
+    "id": "discover-09",
+    "query": "First show a workstation using the internal resolver normally. Then those port-53 questions disappear and repeated small HTTPS sessions start to synthetic resolver addresses. The missing DNS activity is what matters.",
+    "tags": [
+      "paraphrase",
+      "dns",
+      "absence"
+    ],
+    "reason": "Resolver queries stopping when HTTPS sessions begin is the encrypted-DNS bypass pattern.",
+    "expected": [
+      "REP-017"
+    ]
+  },
+  {
+    "id": "discover-10",
+    "query": "I want one origin to fail VPN authentication against hundreds of different usernames, only a couple of guesses for each person.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "authentication"
+    ],
+    "reason": "One source targeting many users with few attempts each is the original password spray technique.",
+    "expected": [
+      "REP-007"
+    ]
+  },
+  {
+    "id": "discover-11",
+    "query": "Spread one failed VPN login per account across sixty source addresses over several hours. Neither any one account nor any one source should cross a burst threshold; the portal-wide failure graph is the test.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "authentication"
+    ],
+    "reason": "The many-source many-user sparse failure graph is the newer distributed password spray.",
+    "expected": [
+      "REP-030"
+    ]
+  },
+  {
+    "id": "discover-12",
+    "query": "An external server is familiar elsewhere in the company but has never been contacted by this workstation. I need host-specific first-seen behavior after a warm-up history.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "novelty"
+    ],
+    "reason": "Novelty is explicitly per host, rather than organization-wide domain first contact.",
+    "expected": [
+      "REP-008"
+    ]
+  },
+  {
+    "id": "discover-13",
+    "query": "Show DNS names that nobody in the organization has queried before, after a shared history of known names. I only need first-contact novelty, with no domain-age or WHOIS enrichment.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "novelty",
+      "explicit-limitation"
+    ],
+    "reason": "Organization-wide DNS novelty is supported by REP-020; the request explicitly excludes its unsupported age-enrichment dependency.",
+    "expected": [
+      "REP-020"
+    ]
+  },
+  {
+    "id": "discover-14",
+    "query": "I need one workstation suddenly reaching far more destinations than usual, across different services. Include an ordinary proxy with similarly high destination counts so the rule must use destination context.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "fanout"
+    ],
+    "reason": "Destination fan-out with a legitimate-proxy foil is more specific than a one-port sweep.",
+    "expected": [
+      "REP-006"
+    ]
+  },
+  {
+    "id": "discover-15",
+    "query": "The alert should care that this host usually uploads very little but suddenly sends gigabytes overnight. Include an equally large transfer by a host that normally does that so a global byte threshold fails.",
+    "tags": [
+      "paraphrase",
+      "baseline",
+      "exfiltration"
+    ],
+    "reason": "A per-host historical outbound-volume anomaly with matched high-volume benign history is REP-005.",
+    "expected": [
+      "REP-005"
+    ]
+  },
+  {
+    "id": "discover-16",
+    "query": "For synthetic east-west SMB telemetry, the destinations contacted in one generation should become the sources in the next. I want the population of initiating hosts to grow, not just one scanner touching many machines.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "lateral-movement"
+    ],
+    "reason": "Geometrically increasing sources across generations is the worm-like spread discriminator.",
+    "expected": [
+      "REP-013"
+    ]
+  },
+  {
+    "id": "discover-17",
+    "query": "Our backlog calls this a C2 issue, but I need a mining-pool pattern: sessions lasting hours, small steady two-way byte counts, and a bursty long-lived business connection as the foil.",
+    "tags": [
+      "misleading-keywords",
+      "near-neighbor",
+      "mining"
+    ],
+    "reason": "Long pool sessions with balanced steady bytes identify mining despite the broad C2 label.",
+    "expected": [
+      "REP-014"
+    ]
+  },
+  {
+    "id": "discover-18",
+    "query": "After a login into host A, A logs into B and B logs into C, with a username change partway through. Contrast that with an administrator reaching all the machines directly from one workstation.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "lateral-movement"
+    ],
+    "reason": "A host-to-host authentication chain and admin-star foil specifically describe REP-018.",
+    "expected": [
+      "REP-018"
+    ]
+  },
+  {
+    "id": "discover-19",
+    "query": "Test a join where an incoming IPS alert and accepted inbound traffic name the same victim, and that victim later becomes the source of outbound sessions. Broken host joins and reversed order should not qualify.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "correlation"
+    ],
+    "reason": "The mixed IPS/traffic victim-role join and reversed-order controls are REP-043, not an IPS-only alert sequence.",
+    "expected": [
+      "REP-043"
+    ]
+  },
+  {
+    "id": "discover-20",
+    "query": "I only need IPS alerts for a fixed source and target, progressing from recon to exploitation to command-and-control in time. Interleave unrelated alerts so counting everything in the window is not enough.",
+    "tags": [
+      "paraphrase",
+      "near-neighbor",
+      "correlation"
+    ],
+    "reason": "An ordered IPS-only kill-chain sequence for a fixed entity pair is REP-022 rather than REP-043.",
+    "expected": [
+      "REP-022"
+    ]
+  },
+  {
+    "id": "discover-21",
+    "query": "I want a synthetic callback example with small repeated connections to an outside endpoint. Timing regularity or its jittered version would both be useful; I have not chosen which yet.",
+    "tags": [
+      "ambiguity",
+      "multiple-acceptable",
+      "beacon"
+    ],
+    "reason": "The request explicitly accepts either ordinary regularity or jittered callbacks; either listed technique is a valid discovery result.",
+    "expected": [
+      "REP-001",
+      "REP-012"
+    ]
+  },
+  {
+    "id": "discover-22",
+    "query": "Find synthetic TLS C2 telemetry that contains JA3 hashes and negotiated cipher suites. Those exact handshake fields are mandatory inputs to the detector I need to exercise.",
+    "tags": [
+      "absent-capability",
+      "misleading-keywords",
+      "mandatory-field"
+    ],
+    "reason": "REP-023 explicitly emits no handshake-derived fields. Similar TLS or C2 names do not satisfy mandatory JA3 and cipher evidence.",
+    "expected": [
+      "NO_MATCH"
+    ]
+  },
+  {
+    "id": "discover-23",
+    "query": "I must test whether the domain-registration-age stage flags domains registered less than a day ago. The synthetic records need registration timestamps or WHOIS evidence, not merely a name appearing for the first time.",
+    "tags": [
+      "absent-capability",
+      "near-neighbor",
+      "mandatory-enrichment"
+    ],
+    "reason": "REP-020 contains no registration metadata or WHOIS evidence and documents that its age-scoring stage is not exercised.",
+    "expected": [
+      "NO_MATCH"
+    ]
+  },
+  {
+    "id": "discover-24",
+    "query": "I need endpoint process-creation records showing a PowerShell process installing a scheduled task for persistence. Firewall connections or alert-name labels would not satisfy this test.",
+    "tags": [
+      "absent-capability",
+      "endpoint-telemetry"
+    ],
+    "reason": "The catalog emits firewall/network telemetry and has no endpoint process or scheduled-task telemetry generator.",
+    "expected": [
+      "NO_MATCH"
+    ]
+  }
+]

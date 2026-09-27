@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "name": "Replicant natural-language technique discovery pilot",
+  "created": "2026-09-16",
+  "catalog": "replicant/data/technique-catalog.yaml",
+  "catalog_size": 26,
+  "provenance": "Independently authored from the local catalog and UI search implementation before observing API answers.",
+  "evaluation_contract": "Given the current full technique catalog and a request to find a synthetic telemetry technique, select one best supported technique or NO_MATCH. An answer in expected_ids is accepted; multiple expected IDs mean the request is intentionally under-specified and any listed choice is acceptable. NO_MATCH means the requested core capability is absent, including a required field or enrichment that a superficially similar technique explicitly omits. Do not turn catalog discovery into execution.",
+  "blinding": "Send only query plus catalog evidence and task instructions to the API. Never send expected_ids, reason, tags, case IDs, or this evaluation contract's label-specific implications as per-case state.",
+  "limitations": "Small hand-authored diagnostic pilot, not an estimate of production accuracy. No train/test tuning split. Some catalog entries are not covered. Coverage constraints must be supplied in catalog state for the NO_MATCH capability-gap cases."
+}

@@ -36,6 +36,7 @@ Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS
 - [Offline detection validation](#offline-detection-validation)
 - [Three ways to run it](#three-ways-to-run-it)
 - [Safety model](#safety-model)
+- [Optional authoring tools](#optional-authoring-tools)
 - [Determinism and testing](#determinism-and-testing)
 - [Roadmap](#roadmap)
 - [Prior art and positioning](#prior-art-and-positioning)
@@ -376,7 +377,7 @@ Restrict where web callers may connect-test and send with `--collector-allow 10.
 
 The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser. Because it is a real PTY, it is **off by default** whenever anything but this machine can reach the UI: a non-loopback bind, a non-loopback `--allowed-host` (a reverse proxy), or `--collector-allow`. `--enable-terminal` turns it back on. The terminal child runs with a minimal environment and `REPLICANT_WEB_CONFINED=1`, under which the menu writes output files only to the run-output directory (`<manifest dir parent>/out`, by file name, symlinks refused), accepts a TLS CA bundle only as a file in `<config dir>/ca/` named by file name, and does not save collector profiles. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
 
-At 26 techniques the Techniques library is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, and ATT&CK technique id at the same time, so whichever identifier your detection backlog happens to use will find the entry. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
+At 26 techniques the Techniques library is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, ATT&CK technique id, objective, and reviewed search aliases. For example, `one server many services` finds the vertical scan, and `first seen by this workstation` finds host-specific novelty. Matching is a local, case-insensitive phrase search; it does not call an AI service. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
 
 <img src="docs/images/webui-techniques.jpg" alt="The technique library with its search box, log-type filters, and expandable ATT&CK tactic groups" width="900" />
 
@@ -488,6 +489,24 @@ The web server adds its own controls. It binds to loopback by default, and requi
 Binding to a routable address is supported and turns the embedded terminal tab off by default. `--no-auth` is refused outright on a non-loopback bind unless `--i-understand-this-is-unauthenticated` is also passed. The server speaks plain HTTP, so the token and the traffic are readable on the wire: put it on a management segment, or behind a TLS-terminating proxy named with `--allowed-host`.
 
 The web server bounds what one caller can cost it: request bodies over 64 KiB are refused, one validation runs at a time and never beside a run, connect tests are limited to 10 per session per minute, and live event streams are capped at 16. The systemd unit runs under `ProtectSystem=strict` with only its config, manifests and output directories writable (the code and venv are read-only to it), `MemoryMax=1536M` and `TasksMax=256`; see [`docs/deployment-boundary.md`](docs/deployment-boundary.md).
+
+## Optional authoring tools
+
+From a source checkout with Replicant installed, `python -m tools.typesafe_authoring`
+can suggest a technique from a description or review a coverage claim against the
+catalog. Both commands preview the payload by default:
+
+```bash
+python -m tools.typesafe_authoring find "one server many services"
+python -m tools.typesafe_authoring review REP-020 "This exercises WHOIS registration-age scoring."
+```
+
+With `TYPESAFE_API_KEY` exported, adding `--live` sends the supplied text and
+selected catalog metadata to TypeSafe. These are separate source-checkout tools,
+outside the Replicant wheel and its runtime. They return suggestions and evidence
+for review; they do not run a technique or write detection rules. Local UI search
+works without them. See [setup, output, and limits](docs/typesafe-authoring.md)
+and the [initial experiment results](docs/typesafe-experiments-2026-09-16.md).
 
 ## Determinism and testing
 

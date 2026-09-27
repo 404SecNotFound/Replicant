@@ -35,6 +35,7 @@ function fakeTechnique(id: string): Technique {
     signature_id: "00000",
     action: "accept",
     objective: "",
+    search_aliases: [],
     tactics: [],
     attack: [],
     intensities: [],

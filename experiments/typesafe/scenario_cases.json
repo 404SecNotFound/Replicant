@@ -1,0 +1,98 @@
+[
+  {
+    "id": "s01",
+    "query": "Start with an internal horizontal sweep, establish a periodic callback, then send a large outbound transfer from that same host.",
+    "expected": [
+      "SCEN-001"
+    ],
+    "category": "exact"
+  },
+  {
+    "id": "s02",
+    "query": "Probe many ports on one host, make first contact with an unfamiliar external address, then use DNS for data egress.",
+    "expected": [
+      "SCEN-002"
+    ],
+    "category": "exact"
+  },
+  {
+    "id": "s03",
+    "query": "I want IDS scan noise, password guessing across users, a suspicious distant VPN login and finally a beacon.",
+    "expected": [
+      "SCEN-003"
+    ],
+    "category": "exact"
+  },
+  {
+    "id": "s04",
+    "query": "Help me exercise discovery across internal machines followed by a quiet foothold signal and overnight bulk data leaving.",
+    "expected": [
+      "SCEN-001"
+    ],
+    "category": "paraphrase"
+  },
+  {
+    "id": "s05",
+    "query": "A single target has lots of services tested. Later there is an unseen destination and finally high-cardinality DNS labels. Which existing chain matches?",
+    "expected": [
+      "SCEN-002"
+    ],
+    "category": "paraphrase"
+  },
+  {
+    "id": "s06",
+    "query": "Which chain covers a perimeter alert burst and failed VPN sign-ins before impossible travel and internal callbacks?",
+    "expected": [
+      "SCEN-003"
+    ],
+    "category": "paraphrase"
+  },
+  {
+    "id": "s07",
+    "query": "I need host-to-host credential hopping followed by ransomware file encryption.",
+    "expected": [
+      "NO_MATCH"
+    ],
+    "category": "absent"
+  },
+  {
+    "id": "s08",
+    "query": "Select a chain that observes a relay proxy before mining traffic, with no scanning or authentication.",
+    "expected": [
+      "NO_MATCH"
+    ],
+    "category": "absent"
+  },
+  {
+    "id": "s09",
+    "query": "I need DNS data leakage first, then a port scan. The order must be preserved.",
+    "expected": [
+      "NO_MATCH"
+    ],
+    "category": "wrong-order"
+  },
+  {
+    "id": "s10",
+    "query": "I need one chain with all of these: vertical scan, password spray, and bulk outbound byte spike. Do not substitute stages.",
+    "expected": [
+      "NO_MATCH"
+    ],
+    "category": "hybrid"
+  },
+  {
+    "id": "s11",
+    "query": "I need the chain for DNS exfiltration; the incident notes mention password spray, but we explicitly do not want authentication events in this test.",
+    "expected": [
+      "SCEN-002"
+    ],
+    "category": "misleading-keyword"
+  },
+  {
+    "id": "s12",
+    "query": "Pick the internal host discovery, periodic C2 and bulk-transfer chain. DNS was mentioned in the ticket, but DNS events must be excluded.",
+    "expected": [
+      "SCEN-001"
+    ],
+    "category": "misleading-keyword"
+  }
+]

@@ -1,0 +1,653 @@
+{
+  "date": "2026-09-27",
+  "kind": "authored-alias coverage check, not held-out accuracy",
+  "source": "webui/src/lib/catalogView.ts",
+  "source_sha256": "fc5b609c5f9f37c42dd5850b9f89e3aac31c76b9973e38d4533cafdc16f6d8aa",
+  "queries": 80,
+  "before_hits": 0,
+  "after_hits": 80,
+  "rows": [
+    {
+      "query": "beaconing",
+      "expected": "REP-001",
+      "before": [],
+      "after": [
+        "REP-001",
+        "REP-012"
+      ]
+    },
+    {
+      "query": "regular callbacks",
+      "expected": "REP-001",
+      "before": [],
+      "after": [
+        "REP-001",
+        "REP-012"
+      ]
+    },
+    {
+      "query": "phone home",
+      "expected": "REP-001",
+      "before": [],
+      "after": [
+        "REP-001"
+      ]
+    },
+    {
+      "query": "many ports on one host",
+      "expected": "REP-002",
+      "before": [],
+      "after": [
+        "REP-002"
+      ]
+    },
+    {
+      "query": "service enumeration",
+      "expected": "REP-002",
+      "before": [],
+      "after": [
+        "REP-002"
+      ]
+    },
+    {
+      "query": "single target scan",
+      "expected": "REP-002",
+      "before": [],
+      "after": [
+        "REP-002"
+      ]
+    },
+    {
+      "query": "one server many services",
+      "expected": "REP-002",
+      "before": [],
+      "after": [
+        "REP-002"
+      ]
+    },
+    {
+      "query": "one port across many hosts",
+      "expected": "REP-003",
+      "before": [],
+      "after": [
+        "REP-003"
+      ]
+    },
+    {
+      "query": "subnet sweep",
+      "expected": "REP-003",
+      "before": [],
+      "after": [
+        "REP-003"
+      ]
+    },
+    {
+      "query": "horizontal scanning",
+      "expected": "REP-003",
+      "before": [],
+      "after": [
+        "REP-003"
+      ]
+    },
+    {
+      "query": "high rate DNS tunnel",
+      "expected": "REP-004",
+      "before": [],
+      "after": [
+        "REP-004"
+      ]
+    },
+    {
+      "query": "encoded DNS labels",
+      "expected": "REP-004",
+      "before": [],
+      "after": [
+        "REP-004"
+      ]
+    },
+    {
+      "query": "DNS data channel",
+      "expected": "REP-004",
+      "before": [],
+      "after": [
+        "REP-004"
+      ]
+    },
+    {
+      "query": "large outbound transfer",
+      "expected": "REP-005",
+      "before": [],
+      "after": [
+        "REP-005"
+      ]
+    },
+    {
+      "query": "upload spike",
+      "expected": "REP-005",
+      "before": [],
+      "after": [
+        "REP-005"
+      ]
+    },
+    {
+      "query": "host baseline deviation",
+      "expected": "REP-005",
+      "before": [],
+      "after": [
+        "REP-005"
+      ]
+    },
+    {
+      "query": "many destinations at once",
+      "expected": "REP-006",
+      "before": [],
+      "after": [
+        "REP-006"
+      ]
+    },
+    {
+      "query": "connection fanout",
+      "expected": "REP-006",
+      "before": [],
+      "after": [
+        "REP-006"
+      ]
+    },
+    {
+      "query": "destination count spike",
+      "expected": "REP-006",
+      "before": [],
+      "after": [
+        "REP-006"
+      ]
+    },
+    {
+      "query": "single source password spray",
+      "expected": "REP-007",
+      "before": [],
+      "after": [
+        "REP-007"
+      ]
+    },
+    {
+      "query": "repeated login failures",
+      "expected": "REP-007",
+      "before": [],
+      "after": [
+        "REP-007"
+      ]
+    },
+    {
+      "query": "credential guessing",
+      "expected": "REP-007",
+      "before": [],
+      "after": [
+        "REP-007"
+      ]
+    },
+    {
+      "query": "first seen destination",
+      "expected": "REP-008",
+      "before": [],
+      "after": [
+        "REP-008"
+      ]
+    },
+    {
+      "query": "new destination for a host",
+      "expected": "REP-008",
+      "before": [],
+      "after": [
+        "REP-008"
+      ]
+    },
+    {
+      "query": "per host novelty",
+      "expected": "REP-008",
+      "before": [],
+      "after": [
+        "REP-008"
+      ]
+    },
+    {
+      "query": "first seen by this workstation",
+      "expected": "REP-008",
+      "before": [],
+      "after": [
+        "REP-008"
+      ]
+    },
+    {
+      "query": "intrusion alert burst",
+      "expected": "REP-009",
+      "before": [],
+      "after": [
+        "REP-009"
+      ]
+    },
+    {
+      "query": "IPS alert flood",
+      "expected": "REP-009",
+      "before": [],
+      "after": [
+        "REP-009"
+      ]
+    },
+    {
+      "query": "signature rate spike",
+      "expected": "REP-009",
+      "before": [],
+      "after": [
+        "REP-009"
+      ]
+    },
+    {
+      "query": "blocked egress burst",
+      "expected": "REP-010",
+      "before": [],
+      "after": [
+        "REP-010"
+      ]
+    },
+    {
+      "query": "outbound deny spike",
+      "expected": "REP-010",
+      "before": [],
+      "after": [
+        "REP-010"
+      ]
+    },
+    {
+      "query": "policy denial burst",
+      "expected": "REP-010",
+      "before": [],
+      "after": [
+        "REP-010"
+      ]
+    },
+    {
+      "query": "impossible travel",
+      "expected": "REP-011",
+      "before": [],
+      "after": [
+        "REP-011"
+      ]
+    },
+    {
+      "query": "distant VPN logins",
+      "expected": "REP-011",
+      "before": [],
+      "after": [
+        "REP-011"
+      ]
+    },
+    {
+      "query": "synthetic country anomaly",
+      "expected": "REP-011",
+      "before": [],
+      "after": [
+        "REP-011"
+      ]
+    },
+    {
+      "query": "fleet beaconing",
+      "expected": "REP-012",
+      "before": [],
+      "after": [
+        "REP-012"
+      ]
+    },
+    {
+      "query": "irregular callbacks",
+      "expected": "REP-012",
+      "before": [],
+      "after": [
+        "REP-012"
+      ]
+    },
+    {
+      "query": "aggregate callback rhythm",
+      "expected": "REP-012",
+      "before": [],
+      "after": [
+        "REP-012"
+      ]
+    },
+    {
+      "query": "worm propagation",
+      "expected": "REP-013",
+      "before": [],
+      "after": [
+        "REP-013"
+      ]
+    },
+    {
+      "query": "growing source population",
+      "expected": "REP-013",
+      "before": [],
+      "after": [
+        "REP-013"
+      ]
+    },
+    {
+      "query": "generational host spread",
+      "expected": "REP-013",
+      "before": [],
+      "after": [
+        "REP-013"
+      ]
+    },
+    {
+      "query": "mining pool traffic",
+      "expected": "REP-014",
+      "before": [],
+      "after": [
+        "REP-014"
+      ]
+    },
+    {
+      "query": "steady mining shares",
+      "expected": "REP-014",
+      "before": [],
+      "after": [
+        "REP-014"
+      ]
+    },
+    {
+      "query": "long lived pool connection",
+      "expected": "REP-014",
+      "before": [],
+      "after": [
+        "REP-014"
+      ]
+    },
+    {
+      "query": "slow DNS leak",
+      "expected": "REP-015",
+      "before": [],
+      "after": [
+        "REP-015"
+      ]
+    },
+    {
+      "query": "queries per hour",
+      "expected": "REP-015",
+      "before": [],
+      "after": [
+        "REP-015"
+      ]
+    },
+    {
+      "query": "low rate DNS channel",
+      "expected": "REP-015",
+      "before": [],
+      "after": [
+        "REP-015"
+      ]
+    },
+    {
+      "query": "algorithmic domain names",
+      "expected": "REP-016",
+      "before": [],
+      "after": [
+        "REP-016"
+      ]
+    },
+    {
+      "query": "failed DNS cluster",
+      "expected": "REP-016",
+      "before": [],
+      "after": [
+        "REP-016"
+      ]
+    },
+    {
+      "query": "NXDOMAIN burst",
+      "expected": "REP-016",
+      "before": [],
+      "after": [
+        "REP-016"
+      ]
+    },
+    {
+      "query": "DNS over HTTPS",
+      "expected": "REP-017",
+      "before": [],
+      "after": [
+        "REP-017"
+      ]
+    },
+    {
+      "query": "resolver traffic disappears",
+      "expected": "REP-017",
+      "before": [],
+      "after": [
+        "REP-017"
+      ]
+    },
+    {
+      "query": "encrypted resolver switch",
+      "expected": "REP-017",
+      "before": [],
+      "after": [
+        "REP-017"
+      ]
+    },
+    {
+      "query": "host to host login chain",
+      "expected": "REP-018",
+      "before": [],
+      "after": [
+        "REP-018"
+      ]
+    },
+    {
+      "query": "authentication hop chain",
+      "expected": "REP-018",
+      "before": [],
+      "after": [
+        "REP-018"
+      ]
+    },
+    {
+      "query": "admin star comparison",
+      "expected": "REP-018",
+      "before": [],
+      "after": [
+        "REP-018"
+      ]
+    },
+    {
+      "query": "distributed probing",
+      "expected": "REP-019",
+      "before": [],
+      "after": [
+        "REP-019"
+      ]
+    },
+    {
+      "query": "slow port scan",
+      "expected": "REP-019",
+      "before": [],
+      "after": [
+        "REP-019"
+      ]
+    },
+    {
+      "query": "rotating scan sources",
+      "expected": "REP-019",
+      "before": [],
+      "after": [
+        "REP-019"
+      ]
+    },
+    {
+      "query": "organization wide domain novelty",
+      "expected": "REP-020",
+      "before": [],
+      "after": [
+        "REP-020"
+      ]
+    },
+    {
+      "query": "first seen domain",
+      "expected": "REP-020",
+      "before": [],
+      "after": [
+        "REP-020"
+      ]
+    },
+    {
+      "query": "new domain in DNS history",
+      "expected": "REP-020",
+      "before": [],
+      "after": [
+        "REP-020"
+      ]
+    },
+    {
+      "query": "internet background scanning",
+      "expected": "REP-021",
+      "before": [],
+      "after": [
+        "REP-021"
+      ]
+    },
+    {
+      "query": "external probes at perimeter",
+      "expected": "REP-021",
+      "before": [],
+      "after": [
+        "REP-021"
+      ]
+    },
+    {
+      "query": "inbound scan noise",
+      "expected": "REP-021",
+      "before": [],
+      "after": [
+        "REP-021"
+      ]
+    },
+    {
+      "query": "ordered IPS alerts",
+      "expected": "REP-022",
+      "before": [],
+      "after": [
+        "REP-022"
+      ]
+    },
+    {
+      "query": "alert kill chain",
+      "expected": "REP-022",
+      "before": [],
+      "after": [
+        "REP-022"
+      ]
+    },
+    {
+      "query": "recon to exploit alert sequence",
+      "expected": "REP-022",
+      "before": [],
+      "after": [
+        "REP-022"
+      ]
+    },
+    {
+      "query": "encrypted flow beacon",
+      "expected": "REP-023",
+      "before": [],
+      "after": [
+        "REP-023"
+      ]
+    },
+    {
+      "query": "stable session byte sizes",
+      "expected": "REP-023",
+      "before": [],
+      "after": [
+        "REP-023"
+      ]
+    },
+    {
+      "query": "TLS flow metadata",
+      "expected": "REP-023",
+      "before": [],
+      "after": [
+        "REP-023"
+      ]
+    },
+    {
+      "query": "paired inbound outbound flows",
+      "expected": "REP-024",
+      "before": [],
+      "after": [
+        "REP-024"
+      ]
+    },
+    {
+      "query": "byte correlated relay",
+      "expected": "REP-024",
+      "before": [],
+      "after": [
+        "REP-024"
+      ]
+    },
+    {
+      "query": "unsanctioned proxy",
+      "expected": "REP-024",
+      "before": [],
+      "after": [
+        "REP-024"
+      ]
+    },
+    {
+      "query": "many source password spray",
+      "expected": "REP-030",
+      "before": [],
+      "after": [
+        "REP-030"
+      ]
+    },
+    {
+      "query": "portal wide login failures",
+      "expected": "REP-030",
+      "before": [],
+      "after": [
+        "REP-030"
+      ]
+    },
+    {
+      "query": "sparse distributed authentication",
+      "expected": "REP-030",
+      "before": [],
+      "after": [
+        "REP-030"
+      ]
+    },
+    {
+      "query": "victim to callback correlation",
+      "expected": "REP-043",
+      "before": [],
+      "after": [
+        "REP-043"
+      ]
+    },
+    {
+      "query": "IPS and traffic join",
+      "expected": "REP-043",
+      "before": [],
+      "after": [
+        "REP-043"
+      ]
+    },
+    {
+      "query": "inbound alert then outbound session",
+      "expected": "REP-043",
+      "before": [],
+      "after": [
+        "REP-043"
+      ]
+    }
+  ]
+}

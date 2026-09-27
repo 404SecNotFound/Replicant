@@ -21,6 +21,7 @@ export function makeTechnique(overrides: Partial<Technique> = {}): Technique {
     ndr_rule: "rule",
     ndr_uc: "UC-001",
     objective: "Prove a detection can catch a beacon by keying on the interval between sessions.",
+    search_aliases: [],
     logical_log_type: "traffic",
     logical_subtype: "forward",
     logical_families: ["traffic:forward"],

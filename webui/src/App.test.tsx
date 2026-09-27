@@ -40,6 +40,7 @@ const TECHNIQUE: api.Technique = {
   ndr_rule: "rule",
   ndr_uc: "UC-001",
   objective: "Prove a detection can catch a beacon by its interval.",
+  search_aliases: [],
   logical_log_type: "traffic",
   logical_subtype: "forward",
   logical_families: ["traffic:forward"],
