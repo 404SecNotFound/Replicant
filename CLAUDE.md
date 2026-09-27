@@ -41,7 +41,7 @@ Key rule: no behavior lives only in the TUI. The menu and the CLI both call the 
 ## CEF serialization (get this exact)
 
 Header: `CEF:Version|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension`.
-Escaping: header values escape `\` and `|`; extension values escape `\` and `=`; newlines encode as `\n`/`\r` in extension only. UTF-8. The syslog prefix is added by transport and is not part of the header.
+Escaping: header values escape `\` and `|`; extension values escape `\` and `=`; newlines encode as `\n`/`\r` in extension only. Header values have no newline escape, so CR and LF in a header value become a space (a raw one ends the syslog record); the syslog HOSTNAME is validated at the settings boundary. UTF-8. The syslog prefix is added by transport and is not part of the header.
 FortiGate: Vendor `Fortinet`, Product `Fortigate` (lower-case g), Signature ID is last five digits of FortiOS `logid`, severity is reversed FortiOS level, non-standard fields prefixed `FTNTFGT`. The oracle for correctness is the eight golden sample lines in `docs/fortigate-cef-reference.md`.
 
 ## How to run
@@ -49,6 +49,7 @@ FortiGate: Vendor `Fortinet`, Product `Fortigate` (lower-case g), Signature ID i
 ```
 replicant list
 replicant connect --host 10.20.0.50 --port 514 --transport udp --test
+replicant run REP-001 --anchor now --syslog-format rfc5424   # header with explicit offset
 replicant run REP-001 --intensity medium --duration 30m --seed 1337
 replicant run REP-004 --intensity high --to-file ./out/dns.log --no-send
 replicant run REP-001 --vendor checkpoint --to-file ./out/cp.log --no-send
@@ -64,6 +65,7 @@ replicant scenario run SCEN-001 --seed 1337 --to-file ./out/s1.log --no-send
 replicant menu                                # Rich TUI
 replicant web --no-browser                    # 127.0.0.1:9787, persistent token
 replicant web --host 0.0.0.0 --no-browser     # reachable on the segment, terminal tab off
+replicant web --collector-allow 10.0.20.0/24:514   # web may only reach this collector range
 ```
 
 Output convention: command results go to stdout, operator-facing errors go to stderr.
@@ -82,7 +84,7 @@ Output convention: command results go to stdout, operator-facing errors go to st
   1. `benign_baseline` is a property to **generate**, not just document. A plan that emits only the malicious pattern lets any detection score perfectly. Bilot et al. (USENIX Sec 2025) is the argument; see the CHANGELOG.
   2. A technique that cannot be expressed honestly is not added. REP-016 was catalogued but left unbuildable until `dns:dns-response` existed, because a DGA entry with no NXDOMAIN in it is worse than no entry.
 
-- v0.3.0 (web UI access and navigation, complete): the UI serves on fixed port **9787** and can bind an address the rest of the segment reaches, with a persistent token in `~/.config/replicant/web-token`, an httpOnly `SameSite=Strict` session cookie, a Host allowlist that follows the bind address, and the embedded terminal off by default once the bind is not loopback. The left rail is grouped by ATT&CK tactic with a filter box and log-type toggles, a Docs tab renders the vendor CEF references, and the event-time anchor is a visible control in the run form. `scripts/replicant-web.service` is verified under a real systemd by a CI job (`systemd-unit`), not by inspection. Spec and decisions: `tasks/webui-access-and-nav-spec.md`.
+- v0.3.0 (web UI access and navigation, complete): the UI serves on fixed port **9787** and can bind an address the rest of the segment reaches, with a persistent token in `~/.config/replicant/web-token`, an httpOnly `SameSite=Strict` session cookie, a Host allowlist that follows the bind address, and the embedded terminal off by default once the bind is not loopback (2026-09-26: it now follows reachability, so a loopback bind behind a proxy via `--allowed-host`, or with `--collector-allow`, is off by default too). The left rail is grouped by ATT&CK tactic with a filter box and log-type toggles, a Docs tab renders the vendor CEF references, and the event-time anchor is a visible control in the run form. `scripts/replicant-web.service` is verified under a real systemd by a CI job (`systemd-unit`), not by inspection. Spec and decisions: `tasks/webui-access-and-nav-spec.md`.
 
   Three things this established, worth keeping:
   1. **A control whose output cannot change is decoration.** The spec's vendor filter was dropped because all 24 techniques apply to all 3 vendors, so it could never exclude an entry. Same call as REP-016.
@@ -144,6 +146,13 @@ Output convention: command results go to stdout, operator-facing errors go to st
      express and a hard ceiling on useful compression. Past the plan's own gap size every
      event collapses into the same second.
 
+  Implementation note (2026-09-26 review): events sharing an integer second are now spread
+  across it (k-th of n at k/n), because planning them all at the second's start sent a dense
+  second back to back at the rate floor. The invariant is unchanged: each event still leaves
+  inside its own second. The emit loop's resync bound moved from one rate interval to
+  `max(1.0s, interval)`: at one interval, ordinary render and send cost tripped it on every
+  dense stretch and the run drifted permanently late. Convention 2 is unchanged.
+
 - Duration across the catalog and scenarios (complete): `--duration` works on all 24
   techniques and on scenarios. Four builders ignored it (REP-005, REP-014, REP-019,
   REP-023) and are fixed; `tests/test_duration.py` asserts all 24 by parameter.
@@ -160,7 +169,10 @@ Output convention: command results go to stdout, operator-facing errors go to st
   1. **A technique pinned to an absolute window outranks the requested duration.** REP-005
      is off-hours and off-hours is 00:00-06:00, so a longer request is capped and a
      scenario containing it cannot compress below its whole-day alignment jump. Both are
-     recorded in the manifest rather than silently returned.
+     recorded in the manifest rather than silently returned. Implementation note
+     (2026-09-26): REP-005 now uses the next 00:00-06:00 window at or after its anchor, so the
+     whole-day jump is gone; a scenario containing it cannot compress below the gap to that
+     window.
   2. **A flag that works on most entries is worse than one that works on none**, because
      the operator learns to trust it. Catalog-wide behaviour needs a parametrized test
      over the whole catalog, not a test of one representative entry.
@@ -197,6 +209,13 @@ Output convention: command results go to stdout, operator-facing errors go to st
      entirely. What replaced it is disclosure, not a probe: a measured UDP probe to the mistyped lab
      address returns no error at all, so it would not have caught the bug. Printing the source
      beside the destination does.
+
+     Implementation note (2026-09-26): the CLI `connect --test` and the menu `[c]` flow still
+     used the bool `send_test` and printed `test log sent` for a UDP datagram to a closed port.
+     Both now call the same probe as the web and print its full report, limits included;
+     `connect --test` exits 1 on refused, failed or unresolved. The path line now reaches the
+     CLI and menu on stderr before any send, and `replicant.*` WARNINGs have a real stderr
+     handler instead of Python's lastResort.
 
   One product rule came out of the same work: **every catalog entry states its objective**, one
   sentence on what running it is meant to establish. The UI used to generate "emits synthetic X
@@ -260,10 +279,34 @@ Output convention: command results go to stdout, operator-facing errors go to st
   surfaced as five failures, every one a true report about shared global state rather than a
   defect in the thing under test, which is why the fix was isolation and not a weaker lock.
 
+- 2026-09-26 review (complete): 24 confirmed defects fixed across the web layer, the send
+  path and the engine. Web record: `docs/security-review-2026-09-26.md`. Validation is one at a
+  time and never beside a run, request bodies are capped before they are read, connect tests
+  are metered with an optional `--collector-allow` list, the terminal child runs with a minimal
+  environment and the menu under it is confined (`replicant/config/confine.py`), the systemd
+  unit is sandboxed, the RFC 3164 header is UTC by default, TCP/TLS sends reconnect, SIGTERM
+  finalizes the manifest, REP-006/007 plans are time-ordered, REP-004/015 foils share the
+  attack's label prefixes, REP-012 fleet callbacks sit on a grid, and Tier 0 has a
+  `fail_contract` verdict plus a catalog-wide `event-order` check.
+
+  Three conventions this established:
+  1. **Tier 0 green was not evidence.** Every engine defect passed every contract, because most
+     contracts asserted that events exist. A property the catalog claims needs a check that
+     measures the property.
+  2. **A resource bound needs a real socket to prove.** The body cap, the stream cap and the
+     forwarded-header fix passed or were untestable under `TestClient`; their guards run against
+     a live uvicorn (`tests/_live_server.py`).
+  3. **Hardening that removes a disclosure is a regression.** `ProcSubset=pid` hid
+     `/proc/net/route`, which silently removed the route from the connect test's path line, the
+     fix for the transposed-address lab defect. The verify script asserts the route is visible.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
-**The LogRhythm lab test has still never run**, so every timing and delivery claim in this
-project is loopback-only. It also gates the adopted roadmap order: F2 (CI detection regression)
+**The LogRhythm lab test has still never observed a rule fire.** Implementation note
+(2026-09-26): delivery itself was observed on 2026-08-03, when Replicant CEF from the sensor VM
+landed in the lab LogRhythm as an unidentified log source (no parsing rule yet). Every timing
+claim is still loopback-only, and the gate below is unchanged: it is the first observed rule
+fire, not the first delivery. It also gates the adopted roadmap order: F2 (CI detection regression)
 is a verification layer on a send path never once observed working end to end. **Per
 `docs/roadmap-2026-09.md` this is now a hard launch gate:** external claims hold at "generates
 vendor-accurate CEF, detection-unverified" until the first observed rule fire, and nothing that

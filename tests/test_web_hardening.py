@@ -133,3 +133,29 @@ def test_a_traversal_attempt_is_confined_rather_than_honoured(tmp_path: Path) ->
 
     assert resp.status_code == 200
     assert not Path("/etc/replicant-should-never-write-here").exists()
+
+
+def test_a_symlink_planted_inside_the_output_directory_is_refused(tmp_path: Path) -> None:
+    """2026-09-26 review. The old check called ``is_symlink()`` on the resolved
+    path, which can never be a link, so a symlink inside ``out/`` pointing at
+    another file there passed and FileSink truncated the target."""
+
+    out = tmp_path / "out"
+    out.mkdir()
+    target = out / "keep.txt"
+    target.write_text("do not truncate me", encoding="utf-8")
+    (out / "link.log").symlink_to(target)
+
+    resp = _client(tmp_path).post(
+        "/api/runs",
+        headers=HEADERS,
+        json={
+            "technique_id": "REP-002",
+            "intensity": "low",
+            "no_send": True,
+            "to_file": "link.log",
+        },
+    )
+
+    assert resp.status_code == 400
+    assert target.read_text(encoding="utf-8") == "do not truncate me"

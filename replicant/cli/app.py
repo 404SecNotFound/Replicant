@@ -30,6 +30,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from replicant import __version__
@@ -43,6 +44,7 @@ from replicant.config.settings import (
     save_profile,
     stale_anchor_warning,
 )
+from replicant.core.lifecycle import SIGTERM_EXIT, stop_on_sigterm
 from replicant.core.models import (
     SCENARIO_CATALOG_PATH,
     Catalog,
@@ -54,9 +56,11 @@ from replicant.core.models import (
     load_scenario_catalog,
 )
 from replicant.core.orchestrator import Orchestrator
+from replicant.obs.log import install_stderr
 from replicant.resources import TECHNIQUE_CATALOG
 from replicant.scenario.advisory import build_advisory
 from replicant.scenario.composer import compose
+from replicant.transport.syslog import PathReport, describe_path
 
 
 def _find_catalog(settings: Settings) -> Path | None:
@@ -108,6 +112,55 @@ def _first_error(exc: ValidationError) -> str:
 
     message = str(exc.errors()[0]["msg"])
     return message.removeprefix("Value error, ")
+
+
+def print_path(collector: CollectorProfile | None, *, sending: bool) -> None:
+    """Print the source -> destination line to stderr before anything is sent.
+
+    ``describe_path`` has always computed this, but it only reached an INFO log
+    record, and the CLI installs no INFO handler, so the operator never saw it.
+    A destination on its own never looks wrong; beside its source address,
+    interface and next hop, a transposed octet (``10.20.0.125`` typed for
+    ``10.0.20.125``) does. This is the line that would have caught it.
+    """
+
+    if not sending or collector is None:
+        return
+    line = describe_path(collector.host, collector.port)
+    _err_console.print(f"path: {escape(line)} over {collector.transport}", highlight=False)
+
+
+def print_probe_report(report: PathReport, console: Console) -> None:
+    """Render a connect probe the same way on every surface: verdict and limits."""
+
+    for line in report.render_lines():
+        console.print(escape(line), highlight=False)
+
+
+def _framing_overrides(args: argparse.Namespace, settings: Settings) -> Settings:
+    """Apply ``--syslog-format`` / ``--syslog-timezone`` over the loaded settings."""
+
+    updates: dict[str, str] = {}
+    if getattr(args, "syslog_format", None):
+        updates["syslog_format"] = args.syslog_format
+    if getattr(args, "syslog_timezone", None):
+        updates["syslog_timezone"] = args.syslog_timezone
+    return settings.model_copy(update=updates) if updates else settings
+
+
+def _add_framing_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--syslog-format",
+        choices=["rfc3164", "rfc5424"],
+        help="syslog envelope (default from settings: rfc3164, FortiGate's own format). "
+        "rfc5424 carries an explicit UTC offset in its timestamp",
+    )
+    parser.add_argument(
+        "--syslog-timezone",
+        choices=["utc", "local"],
+        help="zone of the syslog header timestamp (default from settings: utc). RFC 3164 "
+        "has no field to say which zone it is in, so a collector must be told",
+    )
 
 
 def _load_catalog(settings: Settings, console: Console) -> Catalog | None:
@@ -172,7 +225,32 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument(
         "--enable-terminal",
         action="store_true",
-        help="keep the embedded terminal tab on a non-loopback bind (off by default there)",
+        help="keep the embedded terminal tab on when other machines can reach the UI "
+        "(off by default on a non-loopback bind, a non-loopback --allowed-host, or "
+        "with --collector-allow)",
+    )
+    web.add_argument(
+        "--collector-allow",
+        action="append",
+        default=[],
+        metavar="CIDR[:PORT]",
+        help="collector destinations web callers may connect-test and send to, e.g. "
+        "10.0.20.0/24:514 or [2001:db8::/32]:6514; repeatable. Unset allows any",
+    )
+    web.add_argument(
+        "--evidence-keep",
+        type=int,
+        default=20,
+        metavar="N",
+        help="validation evidence packs the web server keeps, newest first (default 20)",
+    )
+    web.add_argument(
+        "--forwarded-allow-ips",
+        action="append",
+        default=[],
+        metavar="IP",
+        help="reverse proxy address whose X-Forwarded-For is trusted; repeatable. "
+        "Unset trusts none",
     )
 
     connect = sub.add_parser("connect", help="configure a collector and optionally send a test log")
@@ -190,7 +268,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip TLS certificate verification (lab self-signed collectors only)",
     )
-    connect.add_argument("--test", action="store_true", help="send one benign test log")
+    connect.add_argument(
+        "--test",
+        action="store_true",
+        help="send one benign test log and report what that did and did not establish; "
+        "exits non-zero when the collector refused or could not be reached",
+    )
     connect.add_argument("--save", metavar="NAME", help="save this collector as a named profile")
     connect.add_argument(
         "--vendor",
@@ -275,6 +358,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=list(VENDORS),
         help="vendor profile (default from settings)",
     )
+    _add_framing_flags(run)
 
     validate = sub.add_parser("validate", help="evaluate a technique contract")
     validate.add_argument(
@@ -335,6 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
     scen_run.add_argument("--tls-insecure", dest="tls_insecure", action="store_true")
     scen_run.add_argument("--profile", help="saved collector profile name")
     scen_run.add_argument("--vendor", choices=list(VENDORS))
+    _add_framing_flags(scen_run)
     return parser
 
 
@@ -405,11 +490,14 @@ def cmd_connect(
         return 0
     orchestrator = Orchestrator(catalog, settings)
     console.print("sending one benign traffic:forward accept test log ...")
-    ok = orchestrator.send_test(profile)
-    if ok:
-        console.print("[green]test log sent[/green]. Confirm receipt on your collector.")
+    # The same probe as the web connection card. The old path printed "test log
+    # sent" and exited 0 for a UDP datagram to a closed port.
+    report = orchestrator.probe(profile)
+    print_probe_report(report, console)
+    if report.ok:
+        console.print("Confirm receipt on your collector; nothing here can.")
         return 0
-    _fail("[red]test failed[/red]: transport error (is the collector reachable?)")
+    _fail(f"[red]connect test failed[/red]: {report.verdict}")
     return 1
 
 
@@ -510,26 +598,31 @@ def cmd_run(
         # would apply it; _resolve_marker gives this precedence over benign_marker.
         settings = settings.model_copy(update={"no_marker": True})
 
+    settings = _framing_overrides(args, settings)
     orchestrator = Orchestrator(catalog, settings)
+    sending = not args.no_send and collector is not None
     # Said before the run, not after it. Plan pacing turns a three second run into
     # a four hour one, and an operator who finds that out by watching a prompt not
     # come back has been surprised by their own tool.
     try:
-        preview = orchestrator.preview_pacing(
-            request, sending=not args.no_send and collector is not None
-        )
+        preview = orchestrator.preview_pacing(request, sending=sending)
     except (RuntimeError, NotImplementedError, OSError) as exc:
         _fail(f"[red]run refused[/red]: {exc}")
         return 1
     console.print(preview.describe())
+    print_path(collector, sending=sending)
 
     try:
-        result = orchestrator.run(request)
+        with stop_on_sigterm(orchestrator) as signalled:
+            result = orchestrator.run(request)
     except (RuntimeError, NotImplementedError, OSError) as exc:
         _fail(f"[red]run refused[/red]: {exc}")
         return 1
 
     console.print(result.summary())
+    if signalled.received:
+        _fail("[yellow]run stopped by SIGTERM[/yellow]; the manifest records it as stopped")
+        return SIGTERM_EXIT
     if result.stopped:
         console.print("[yellow]run stopped early (kill switch)[/yellow]")
     return 0
@@ -613,18 +706,20 @@ def cmd_scenario(
         _fail(f"[red]run refused[/red]: {_first_error(exc)}")
         return 1
 
+    settings = _framing_overrides(args, settings)
     orchestrator = Orchestrator(catalog, settings)
+    sending = not args.no_send and collector is not None
     try:
-        preview = orchestrator.preview_scenario_pacing(
-            request, scenarios, sending=not args.no_send and collector is not None
-        )
+        preview = orchestrator.preview_scenario_pacing(request, scenarios, sending=sending)
     except (RuntimeError, NotImplementedError, OSError) as exc:
         _fail(f"[red]run refused[/red]: {exc}")
         return 1
     console.print(preview.describe())
+    print_path(collector, sending=sending)
 
     try:
-        result = orchestrator.run_scenario(request, scenarios)
+        with stop_on_sigterm(orchestrator) as signalled:
+            result = orchestrator.run_scenario(request, scenarios)
     except (RuntimeError, NotImplementedError, OSError) as exc:
         _fail(f"[red]run refused[/red]: {exc}")
         return 1
@@ -634,6 +729,9 @@ def cmd_scenario(
     )
     console.print(f"manifest: {result.manifest_path}")
     console.print(f"advisory: {result.advisory_path}")
+    if signalled.received:
+        _fail("[yellow]run stopped by SIGTERM[/yellow]; the manifest records it as stopped")
+        return SIGTERM_EXIT
     if result.stopped:
         console.print("[yellow]run stopped early (kill switch)[/yellow]")
     return 0
@@ -739,7 +837,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     console = Console()
-    settings = load_settings()
+    # WARNING and above from replicant loggers reach the operator on stderr. The
+    # off-segment gateway warning used to arrive only via Python's lastResort.
+    install_stderr()
+    try:
+        settings = load_settings()
+    except (ValidationError, ValueError) as exc:
+        detail = _first_error(exc) if isinstance(exc, ValidationError) else str(exc)
+        _fail(f"[red]settings refused[/red]: {escape(detail)}")
+        return 1
     if getattr(args, "vendor", None):
         settings = settings.model_copy(update={"vendor": args.vendor})
     catalog = _load_catalog(settings, console)
@@ -783,6 +889,9 @@ def main(argv: list[str] | None = None) -> int:
                 acknowledged_unauthenticated=args.i_understand_this_is_unauthenticated,
                 rotate_token=args.rotate_token,
                 enable_terminal=args.enable_terminal,
+                collector_allow=args.collector_allow,
+                evidence_keep=args.evidence_keep,
+                forwarded_allow_ips=args.forwarded_allow_ips,
             )
         except (OSError, ValueError) as exc:
             # A refused bind and a refused exposure are both operator errors, not

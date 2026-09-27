@@ -297,9 +297,10 @@ techniques:
       high:   { baseline_days: 30, novel_dst: 5 }
     distributions:
       approach: "engine first emits a baseline of known dst per host, then introduces first-seen external dst"
+      baseline_time: "compressed. baseline_days sets the history's volume (one contact per known destination per simulated day), not its span: the whole baseline sits in the hour before first contact, so plan pacing and --duration stay bounded. A novelty rule with a multi-day lookback sees one hour of history"
     benign_baseline: "host talks to a stable set of external destinations"
     references: ["UC-007 Whitelist Profile", "fortigate-cef-reference: T1583"]
-    safety_notes: "requires a baseline phase; document the warm-up in the run summary"
+    safety_notes: "requires a baseline phase; the run summary states the warm-up and that its history is compressed into one hour of event time"
 
   - id: REP-009
     name: "IDS/IPS event-rate spike"
@@ -323,7 +324,7 @@ techniques:
       high:   { hits: 1000, window_min: 1, signature_mode: mixed, baseline_window_min: 60 }
     distributions:
       attackid: "one repeated signature (targeted) or many distinct (broad recon), selectable with --signature-mode"
-      severity: "high or critical (CEF 6-7)"
+      severity: "ips_severity high or critical (FTNTFGTseverity, PAN-OS cs2, Check Point header High/Very-High); FortiOS level alert on both, so the FortiGate header is CEF 7 and PAN-OS 8 for every hit"
     benign_baseline: "the same hits, signatures, severities and counters are emitted against a second target over a 60-minute window, so event rate is the intended discriminator"
     emits_foil: true
     references: ["UC-008 Signature ID prereq", "fortigate-cef-reference: utm:ips"]
@@ -420,10 +421,10 @@ techniques:
       medium: { mode: "fleet",  hosts: 12, interval_s: 1800, jitter_pct: 80,  duration_min: 480, out_bytes: [200, 1500] }
       high:   { mode: "fleet",  hosts: 40, interval_s: 3600, jitter_pct: 100, duration_min: 720, out_bytes: [400, 2000] }
     distributions:
-      interval: "jitter mode holds one src and widens jitter until per-host periodicity is weak. fleet mode gives each src a rare callback with an offset phase, so the period is only visible in the aggregate across src"
+      interval: "jitter mode holds one src and widens jitter until per-host periodicity is weak (each gap is the interval +/- jitter_pct, so the phase random-walks). fleet mode gives each src a rare callback anchored to its own offset phase on a shared interval grid, displaced by at most jitter_pct/100 * 0.375 of the interval, so the period is only strongly visible in the aggregate across src"
       out_bytes: "log-normal, low variance, same profile as REP-001"
       dpt_choices: [443, 8443]
-    benign_baseline: "a benign periodic destination (software update check) is emitted alongside, because both source papers name legitimate periodic software as the dominant false positive"
+    benign_baseline: "a benign periodic destination (software update check every 30 minutes, from a host outside the attacking fleet) is emitted alongside, with the same jitter process and jitter_pct as the beacon, because both source papers name legitimate periodic software as the dominant false positive. A zero-jitter update check would be more periodic than the attack and reward the wrong detector"
     emits_foil: true
     references: ["BAYWATCH DSN 2016", "Zhang et al. ACSAC 2023 aggregation-based beaconing detection"]
     safety_notes: "one synthetic external destination from 203.0.113.0/24"
@@ -727,7 +728,7 @@ techniques:
       high:   { stages: 5, hits_per_stage: [5, 25], stage_gap_s: [30, 180],  noise_alerts: 500 }
     distributions:
       stage_order: "recon, then exploit attempt, then post-exploitation or C2. Strictly ordered in time and never interleaved out of order, which is what a correlation rule keys on"
-      severity: "ascending across stages, so a severity-weighted rule sees escalation"
+      severity: "ascending across stages on every vendor, so a severity-weighted rule sees escalation. ips_severity low, medium, high, critical, critical; CEF header 3,4,5,7,7 on FortiGate, 3,5,6,8,8 on PAN-OS, Low to Very-High on Check Point"
       noise_alerts: "unrelated single alerts on other entity pairs, interleaved through the whole window"
     benign_baseline: "noise_alerts IS the baseline. A rule that fires on any N alerts in a window fires on the noise too. AACT reported 61% of real SOC alerts were closable, so a clean chain would badly overstate a rule's quality"
     emits_foil: true

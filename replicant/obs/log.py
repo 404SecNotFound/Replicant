@@ -185,6 +185,57 @@ def install(capacity: int = DEFAULT_CAPACITY, level: str = "info") -> RingBuffer
         return handler
 
 
+class _StderrHandler(logging.StreamHandler):  # type: ignore[type-arg]
+    """WARNING and above from ``replicant.*`` to whatever ``sys.stderr`` is now.
+
+    Resolved at emit time rather than bound at install, so a test that swaps
+    ``sys.stderr`` (capsys) and a later caller both see the records. Redacted on
+    the way out for the same reason the ring buffer redacts on the way in.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        import sys
+
+        self.stream = sys.stderr
+        super().emit(record)
+
+    def format(self, record: logging.LogRecord) -> str:
+        return f"{record.levelname.lower()}: {redact(record.getMessage())}"
+
+
+_stderr_handler: _StderrHandler | None = None
+
+
+def install_stderr(level: int = logging.WARNING) -> logging.Handler:
+    """Send WARNING+ records from ``replicant.*`` to stderr. Idempotent.
+
+    The CLI and the Rich menu had no handler at all, so the off-segment gateway
+    warning reached an operator only by way of Python's ``lastResort`` fallback,
+    and only while no other handler existed anywhere in the process. That is an
+    accident, not a contract. This is the contract. Propagation is left as it
+    is, so the web server's ring buffer and pytest's capture still see records.
+    """
+
+    global _stderr_handler
+    with _install_lock:
+        if _stderr_handler is None:
+            handler = _StderrHandler()
+            handler.setLevel(level)
+            logging.getLogger(ROOT_NAME).addHandler(handler)
+            _stderr_handler = handler
+        return _stderr_handler
+
+
+def uninstall_stderr() -> None:
+    """Detach the stderr handler. Tests only."""
+
+    global _stderr_handler
+    with _install_lock:
+        if _stderr_handler is not None:
+            logging.getLogger(ROOT_NAME).removeHandler(_stderr_handler)
+        _stderr_handler = None
+
+
 def get_logger(name: str) -> logging.Logger:
     """A child logger. ``name`` is a subsystem, e.g. ``transport``."""
 

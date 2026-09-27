@@ -196,15 +196,19 @@ export function ConnectionCard({
           </div>
           <div>
             <label className="u-label mb-1.5 block" htmlFor="cafile">
-              CA file (optional)
+              CA file name (optional)
             </label>
             <Input
               id="cafile"
               className="h-9 font-mono text-data"
               value={tlsCafile}
               onChange={(e) => setTlsCafile(e.target.value)}
-              placeholder="/path/to/ca.pem"
+              placeholder="lab-ca.pem"
+              aria-describedby="cafile-hint"
             />
+            <p id="cafile-hint" className="mt-1 text-label text-text-3">
+              A file in the server&apos;s Replicant config ca/ directory. Paths are not accepted.
+            </p>
           </div>
         </div>
       )}

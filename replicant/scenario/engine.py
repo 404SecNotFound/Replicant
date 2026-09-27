@@ -75,11 +75,37 @@ def port_service(dpt: int) -> tuple[str, str]:
 _DUBAI = timezone(timedelta(hours=4))  # UTC+04:00, the catalog timezone
 
 
-def _off_hours_start(anchor: int) -> int:
-    """Midnight (UTC+04:00) of the anchor's day: the start of an off-hours window."""
+OFF_HOURS_END_H = 6  # off-hours is 00:00-06:00 UTC+04:00 (catalog REP-005)
 
-    day = datetime.fromtimestamp(anchor, _DUBAI).replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(day.timestamp())
+
+OFF_HOURS_MIN_REMAINING_S = 3600  # shortest in-window remainder worth starting in
+
+
+def _off_hours_window(anchor: int, span_s: int) -> tuple[int, int]:
+    """(start, span) of the first off-hours window at or after ``anchor``.
+
+    Off-hours is 00:00-06:00 UTC+04:00. When the anchor already sits inside that
+    window the plan starts at the anchor itself and its span is capped at what
+    remains of the window, because the pinned window outranks the requested
+    duration. A remainder shorter than ``min(span_s, 1h)`` is too thin to hold
+    the history-plus-current comparison, so the plan moves to the next midnight
+    with the full requested span instead. It never starts before the anchor.
+
+    This used to snap BACKWARD to midnight of the anchor's own day, so ``--anchor
+    now`` at 14:00 produced a plan 8 to 14 hours in the past. Under plan pacing
+    that history was sent immediately, which breaks the invariant that an event is
+    sent at the moment its own timestamp says it happened. The scenario composer
+    had to compensate with ``align: next-off-hours``; that alignment is now a
+    no-op kept only as a guard.
+    """
+
+    local = datetime.fromtimestamp(anchor, _DUBAI)
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    window_end = int((midnight + timedelta(hours=OFF_HOURS_END_H)).timestamp())
+    remaining = window_end - anchor
+    if remaining >= min(span_s, OFF_HOURS_MIN_REMAINING_S):
+        return anchor, min(span_s, remaining)
+    return int((midnight + timedelta(days=1)).timestamp()), span_s
 
 
 def _scan_traffic_extra(is_open: bool, service: str, app: str) -> dict[str, str]:
@@ -213,15 +239,34 @@ _IPS_SIGNATURES: tuple[tuple[str, str], ...] = (
 # keys on, so the ordering matters and the specific names do not.
 # [Unverified] the recon and C2 entries are plausible-looking rather than
 # confirmed FortiGate signature ids; confirm before customer-facing use.
+#
+# Stage log levels. The catalog promises severity ascends across stages, and the
+# CEF header severity is derived from the LEVEL on FortiGate (reversed FortiOS
+# priority) and PAN-OS (not reversed). Those two mappings disagree about
+# "critical": FortiOS puts it BELOW alert (6 vs 7), PAN-OS puts it ABOVE (9 vs 8).
+# The stages used to escalate alert -> critical, which rendered 4,7,7,6,6 on
+# FortiGate and 5,8,8,9,9 on PAN-OS: a de-escalation on one vendor either way.
+# The levels below are the longest run that is strictly ordered the same way on
+# every vendor (notice < warning < error < alert), one per ips_severity step, so
+# the header rises exactly where FTNTFGTseverity rises: 3,4,5,7,7 on FortiGate,
+# 3,5,6,8,8 on PAN-OS. Check Point renders IPS severity from ips_severity and was
+# already Low, Medium, High, Very-High, Very-High.
+_IPS_LEVEL_BY_SEVERITY: dict[str, str] = {
+    "low": "notice",
+    "medium": "warning",
+    "high": "error",
+    "critical": "alert",
+}
+
 _IPS_STAGES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
     (
         "recon",
-        "warning",
+        "low",
         (("TCP.Port.Scan", "11279"), ("HTTP.Unix.Shell.IFS.Remote.Code.Execution", "34884")),
     ),
     (
         "exploit",
-        "alert",
+        "medium",
         (
             ("Apache.Log4j.Error.Log.Remote.Code.Execution", "51006"),
             ("PHPUnit.Eval.Stdin.Remote.Code.Execution", "44035"),
@@ -229,7 +274,7 @@ _IPS_STAGES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
     ),
     (
         "post-exploit",
-        "alert",
+        "high",
         (("Web.Server.Password.Files.Access", "12688"), ("Generic.Web.Shell.Access", "40312")),
     ),
     (
@@ -245,6 +290,61 @@ _IPS_STAGES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
 )
 
 
+# REP-012's benign update-check cadence (catalog benign_baseline).
+_UPDATE_CHECK_S = 1800.0
+
+# Fleet-mode callbacks are displaced from their slot by at most this fraction of
+# the interval at jitter_pct=100, so every callback stays inside the middle three
+# quarters of its own slot.
+_FLEET_JITTER_SPAN = 0.375
+
+
+def _callback_offsets(
+    rng: Any,
+    mode: str,
+    interval_s: float,
+    jitter_pct: float,
+    phase_s: float,
+    duration_s: float,
+) -> list[float]:
+    """Offsets of one source's callbacks for REP-012, in ascending order.
+
+    ``jitter`` mode is a renewal process: each gap is the interval scaled by a
+    uniform +/- ``jitter_pct``. Errors accumulate, so the phase random-walks and
+    per-host periodicity weakens as jitter widens, which is the property that
+    mode exists to demonstrate.
+
+    ``fleet`` mode is grid-anchored: callback ``k`` lands at
+    ``phase + k * interval + u`` with ``u`` uniform within
+    ``+/- jitter_pct/100 * 0.375 * interval``. It used to be the same renewal
+    process as jitter mode, and with 40 hosts each random-walking independently
+    the arrivals at the destination were statistically indistinguishable from
+    random (inter-arrival CV about 0.95), so the fleet-level period the catalog
+    promises was not in the data at all. With a bounded displacement each host's
+    phase stays put, so the evidence at the shared period adds up across hosts
+    while any single host, calling back a dozen times, carries too little of it
+    to stand out on its own. Offsets are clamped to the observation window.
+    """
+
+    pct = min(max(float(jitter_pct), 0.0), 100.0) / 100.0
+    offsets: list[float] = []
+    if mode != "fleet":
+        offset = phase_s
+        while offset <= duration_s:
+            offsets.append(offset)
+            offset += jittered_interval(rng, interval_s, jitter_pct)
+        return offsets
+    bound = pct * _FLEET_JITTER_SPAN * interval_s
+    slot = 0
+    while phase_s + slot * interval_s <= duration_s:
+        centre = phase_s + slot * interval_s
+        displaced = centre + float(rng.uniform(-bound, bound)) if bound > 0 else centre
+        offsets.append(min(max(displaced, 0.0), float(duration_s)))
+        slot += 1
+    offsets.sort()
+    return offsets
+
+
 _IPS_REQUESTS: tuple[str, ...] = (
     "/struts2/index.action",
     "/index.php?option=login",
@@ -255,15 +355,50 @@ _IPS_REQUESTS: tuple[str, ...] = (
 )
 
 
+def _last_excluding(pool: list[str], excluded: set[str]) -> str:
+    """The last entry of ``pool`` not in ``excluded``, for picking a foil entity.
+
+    A benign foil entity that is also an attack entity makes the foil part of
+    the attack. Taking the last free entry keeps every seed whose draw never
+    collided byte-identical to before; only the colliding seeds change.
+    """
+
+    for candidate in reversed(pool):
+        if candidate not in excluded:
+            return candidate
+    raise ValueError("entity pool is exhausted by the attack entities")
+
+
+_PHASE_TAGS = ("hs", "id", "tx")
+_COUNTER_SPACE = 0x10000  # four hex digits
+
+
+_PhaseSpans = tuple[tuple[int, int], tuple[int, int], tuple[int, int]]
+
+
 def _phase_label_pools(
-    rng: Any, count: int, minimum: int, maximum: int
-) -> tuple[list[str], list[str], list[str]]:
+    rng: Any,
+    count: int,
+    minimum: int,
+    maximum: int,
+    spans: _PhaseSpans | None = None,
+) -> tuple[tuple[list[str], list[str], list[str]], _PhaseSpans]:
     """Return setup, idle and transfer DNS labels with visible local structure.
 
     The random tail preserves the configured length and entropy envelope. The
-    short prefix gives adjacent labels within a phase a shared segment, which is
-    observable in firewall query logs without inventing packet payload, TTL or
-    response timing fields.
+    short ``<tag><counter>`` prefix gives adjacent labels within a phase a shared
+    segment, which is observable in firewall query logs without inventing packet
+    payload, TTL or response timing fields.
+
+    Each phase's counters occupy a ``(base, width)`` span whose base is seeded
+    rather than fixed at the label's index, and the spans are returned. The
+    benign control passes them back in: its fewer labels are spread evenly
+    across the SAME spans, so both streams share one prefix vocabulary, one
+    counter range and one phase sequence. Before this the control's labels all
+    began ``sv`` and the positive stream's began ``hs``/``id``/``tx``, so a regex
+    on the first two characters separated them perfectly, while the catalog says
+    unique-label cardinality is the only intended discriminator. Index-based
+    counters were a second leak: the largest counter read off the cardinality.
     """
 
     count = max(count, 1)
@@ -271,21 +406,43 @@ def _phase_label_pools(
     setup_end = max(1, count // 10)
     idle_end = max(setup_end + 1, count * 3 // 10) if count > 1 else count
     idle_end = min(idle_end, count)
+    chunks = (raw[:setup_end], raw[setup_end:idle_end], raw[idle_end:])
+    if spans is None:
+        widths = [max(len(chunk), 1) for chunk in chunks]
+        spans = (
+            (int(rng.integers(0, _COUNTER_SPACE - widths[0] + 1)), widths[0]),
+            (int(rng.integers(0, _COUNTER_SPACE - widths[1] + 1)), widths[1]),
+            (int(rng.integers(0, _COUNTER_SPACE - widths[2] + 1)), widths[2]),
+        )
 
-    def tagged(values: list[str], tag: str, offset: int) -> list[str]:
+    def tagged(values: list[str], tag: str, span: tuple[int, int]) -> list[str]:
+        base, width = span
         result: list[str] = []
-        for index, value in enumerate(values, start=offset):
-            prefix = f"{tag}{index:04x}"
+        for index, value in enumerate(values):
+            counter = base + (index * width) // max(len(values), 1)
+            prefix = f"{tag}{counter % _COUNTER_SPACE:04x}"
             result.append(prefix + value[len(prefix) :])
         return result
 
-    setup = tagged(raw[:setup_end], "hs", 0)
-    idle = tagged(raw[setup_end:idle_end], "id", setup_end)
-    transfer = tagged(raw[idle_end:], "tx", idle_end)
+    setup, idle, transfer = (
+        tagged(chunk, tag, span)
+        for chunk, tag, span in zip(chunks, _PHASE_TAGS, spans, strict=True)
+    )
     # Tiny parameter overrides still produce a valid plan. Reusing the only
     # available pool is preferable to an index error and does not affect shipped
     # presets, all of which contain hundreds of unique labels.
-    return setup, idle or setup, transfer or idle or setup
+    return (setup, idle or setup, transfer or idle or setup), spans
+
+
+def _phase_pool(pools: tuple[list[str], list[str], list[str]], index: int, total: int) -> list[str]:
+    """The setup (first 10%), idle (to 30%) or transfer pool for query ``index``."""
+
+    fraction = index / max(total, 1)
+    if fraction < 0.10:
+        return pools[0]
+    if fraction < 0.30:
+        return pools[1]
+    return pools[2]
 
 
 @dataclass
@@ -760,13 +917,16 @@ class ScenarioEngine:
         dpt = int(rng.choice(dpt_choices))
         service, app = port_service(dpt)
 
-        off_start = _off_hours_start(anchor)
         # 00:00-06:00 UTC+04:00, and that window is the signal rather than a
         # detail: the transfer is suspicious because of when it happens. A
         # shorter duration narrows the window inside off-hours, which stays
         # faithful. A longer one is capped instead of honoured, because spilling
         # into the working day would destroy the property being demonstrated.
-        off_window_s = min(duration_override_s, 6 * 3600) if duration_override_s else 6 * 3600
+        full_window_s = OFF_HOURS_END_H * 3600
+        off_window_s = (
+            min(duration_override_s, full_window_s) if duration_override_s else full_window_s
+        )
+        off_start, off_window_s = _off_hours_window(anchor, off_window_s)
         # The full comparison, not just the current spike, must honour
         # --duration. Divide the bounded off-hours span into three historical
         # buckets followed by one current bucket. This keeps the plan inside
@@ -1003,6 +1163,10 @@ class ScenarioEngine:
                     )
                 )
             self._mark_negative(events, foil_start)
+        # The foil is co-located in the attack's window but appended after it, so
+        # without this the plan stepped backwards in time: --to-file wrote a
+        # non-monotonic log and plan pacing sent the foil late.
+        events.sort(key=lambda event: event.eventtime)
         return events, None, truncated
 
     # -- REP-010 denied outbound connection burst -----------------------------
@@ -1243,6 +1407,9 @@ class ScenarioEngine:
                 )
                 k += 1
             self._mark_negative(events, foil_start)
+        # Same reason as REP-006: the NAT foil shares the attack window and is
+        # appended after it, so it has to be merged into time order.
+        events.sort(key=lambda event: event.eventtime)
         return events, None, truncated
 
     # -- REP-009 IDS/IPS event-rate spike -------------------------------------
@@ -1306,7 +1473,15 @@ class ScenarioEngine:
             nonlocal session
             attack, attackid = signatures[index]
             critical = index % 3 == 0
-            level = "critical" if critical else "alert"
+            # Both at FortiOS level "alert" (CEF 7 on FortiGate, 8 on PAN-OS).
+            # Critical hits used level "critical", which FortiOS reverses to 6,
+            # BELOW the high hits' 7: the most severe hits rendered as the least
+            # severe. The level ordering of critical versus alert is opposite on
+            # FortiGate and PAN-OS, so no pair of distinct levels ranks critical
+            # above high on both. The severity split is carried where each vendor
+            # defines it: FTNTFGTseverity, PAN-OS cs2, and Check Point's header,
+            # which maps ips_severity to High and Very-High.
+            level = "alert"
             ips_severity = "critical" if critical else "high"
             cnt = 1 + index // step
             events.append(
@@ -1448,6 +1623,14 @@ class ScenarioEngine:
             truncated = True
 
         dpt_choices = [443, 80, 8080, 8443, 22]
+        # The baseline is COMPRESSED on purpose: baseline_days sets how many
+        # contacts the history holds (one per known destination per simulated
+        # day), not how much time it spans. Spreading it over baseline_days of
+        # real time was considered and rejected: plan pacing reproduces the gap
+        # between the first and last event, so a 30 day baseline would take 30
+        # days of wall clock to send, and --duration could not bound it without
+        # discarding the history the novelty signal is measured against. The
+        # warm-up note states the compression rather than claiming the days.
         baseline_span_s = 3600  # compressed warm-up window
         anomaly_span_s = 300  # the first-seen destinations follow the warm-up
 
@@ -1467,9 +1650,12 @@ class ScenarioEngine:
             session += 1
 
         note = (
-            f"Baseline: {len(known)} known destinations over {baseline_days}d "
-            f"({baseline_events} events); anomaly begins at event {baseline_events} "
-            f"with {len(novel)} first-seen external destination(s)."
+            f"Baseline: {len(known)} known destinations, one contact each per simulated "
+            f"day for {baseline_days}d ({baseline_events} events), compressed into the "
+            f"{baseline_span_s}s before first contact rather than spread over "
+            f"{baseline_days} days of event time. A detection whose novelty window is "
+            f"measured in days sees this history as one hour. Anomaly begins at event "
+            f"{baseline_events} with {len(novel)} first-seen external destination(s)."
         )
         return events, note, truncated
 
@@ -1570,9 +1756,7 @@ class ScenarioEngine:
         dst = entities.resolver
         parent = str(rng.choice(entities.parents))
         label_count = min(unique_labels, total)
-        setup_labels, idle_labels, transfer_labels = _phase_label_pools(
-            rng, label_count, label_lo, label_hi
-        )
+        pools, spans = _phase_label_pools(rng, label_count, label_lo, label_hi)
 
         qtypes = ["TXT", "NULL", "CNAME", "A"]
         qtypevals = {"TXT": "16", "NULL": "10", "CNAME": "5", "A": "1"}
@@ -1582,13 +1766,7 @@ class ScenarioEngine:
         session = int(rng.integers(10_000, 60_000))
         chosen_qtypes: list[str] = []
         for index in range(total):
-            fraction = index / max(total, 1)
-            if fraction < 0.10:
-                pool = setup_labels
-            elif fraction < 0.30:
-                pool = idle_labels
-            else:
-                pool = transfer_labels
+            pool = _phase_pool(pools, index, total)
             label = pool[index % len(pool)]
             qname = f"{label}.{parent}"
             qtype = weighted_choice(rng, qtypes, weights)
@@ -1626,13 +1804,18 @@ class ScenarioEngine:
             rng.choice([item for item in entities.parents if item != parent] or [parent])
         )
         benign_unique = max(5, min(total, unique_labels // 8))
-        benign_raw = high_entropy_labels(rng, benign_unique, label_lo, label_hi)
-        benign_labels = [f"sv{index:04x}" + value[6:] for index, value in enumerate(benign_raw)]
+        # Same prefix vocabulary, same counter ranges and same phase sequence as
+        # the positive stream (see _phase_label_pools), so no leading-label regex
+        # separates them.
+        benign_pools, _ = _phase_label_pools(rng, benign_unique, label_lo, label_hi, spans)
+        benign_count = sum(len(set(pool)) for pool in benign_pools)
         # This synthetic service-discovery/cache-key stream matches query count,
-        # qtype sequence, label-length envelope and high-entropy tails. Its lower
-        # unique-label cardinality is the intended discriminator.
+        # qtype sequence, label-length envelope, high-entropy tails and label
+        # prefix scheme. Its lower unique-label cardinality is the intended
+        # discriminator.
         for index in range(total):
-            qname = f"{benign_labels[index % len(benign_labels)]}.{benign_parent}"
+            benign_pool = _phase_pool(benign_pools, index, total)
+            qname = f"{benign_pool[index % len(benign_pool)]}.{benign_parent}"
             events.append(
                 self._dns_query_record(
                     rng,
@@ -1651,7 +1834,7 @@ class ScenarioEngine:
         note = (
             f"{total} phase-aware tunnel queries and {total} matched machine-generated "
             f"queries at {qps}/s; positive cardinality {label_count}, control cardinality "
-            f"{len(benign_labels)}."
+            f"{benign_count}."
         )
         return events, note, truncated
 
@@ -1834,8 +2017,8 @@ class ScenarioEngine:
         # looks periodic over a short window, but the arrivals seen at the shared
         # destination are. That is the effect the ACSAC 2023 study measured.
         for index, src in enumerate(srcs):
-            offset = (index * interval_s / max(len(srcs), 1)) if mode == "fleet" else 0.0
-            while offset <= duration_s:
+            phase = (index * interval_s / max(len(srcs), 1)) if mode == "fleet" else 0.0
+            for offset in _callback_offsets(rng, mode, interval_s, jitter_pct, phase, duration_s):
                 out_b = lognormal_bytes(rng, out_low, out_high)
                 in_b = max(out_b, lognormal_bytes(rng, out_low, out_high))
                 events.append(
@@ -1855,7 +2038,6 @@ class ScenarioEngine:
                 if len(events) >= self.max_events:
                     truncated = True
                     break
-                offset += jittered_interval(rng, interval_s, jitter_pct)
             if truncated:
                 break
 
@@ -1863,10 +2045,28 @@ class ScenarioEngine:
         # Benign periodic destination. Both source papers name legitimate
         # periodic software as the dominant false positive, so a plan without one
         # overstates how well a periodicity test performs.
-        benign_src = str(rng.choice(pool))
+        #
+        # Drawn from outside the attacking fleet: at high intensity 40 of 254
+        # hosts beacon, so an unfiltered draw made the "benign" source one of
+        # the C2 hosts on about one seed in six.
+        #
+        # The update check runs on the SAME timing process and jitter fraction as
+        # the beacon, at its own 30 minute cadence. It used to be a perfect
+        # 1800 s comb with zero variance: the most periodic thing in the plan by
+        # a wide margin, so a trivial periodicity test flagged the foil far more
+        # strongly than the attack and the control rewarded the wrong detector.
+        # Matching the per-source timing shape leaves the discriminators the
+        # catalog names: aggregation across the fleet, and destination context.
+        attackers = set(srcs)
+        benign_pool = [host for host in pool if host not in attackers] or pool
+        benign_src = str(rng.choice(benign_pool))
         benign_dst = str(rng.choice(entities.benign_external))
-        benign_offset = 0.0
-        while benign_offset <= duration_s and len(events) < self.max_events:
+        for benign_offset in _callback_offsets(
+            rng, mode, _UPDATE_CHECK_S, jitter_pct, 0.0, duration_s
+        ):
+            if len(events) >= self.max_events:
+                truncated = True
+                break
             events.append(
                 self._steady_accept(
                     rng,
@@ -1881,14 +2081,13 @@ class ScenarioEngine:
                 )
             )
             session += 1
-            benign_offset += 1800.0  # update-check cadence, no jitter
 
         self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"mode={mode}: {len(srcs)} source(s) to one destination, jitter "
-            f"{jitter_pct:.0f}%. A benign periodic destination is included as a "
-            "false-positive control."
+            f"{jitter_pct:.0f}%. A benign periodic destination with the same jitter "
+            "process is included as a false-positive control."
         )
         return events, note, truncated
 
@@ -2107,9 +2306,7 @@ class ScenarioEngine:
         src = str(rng.choice(entities.internal_hosts))
         parent = str(rng.choice(entities.parents))
         label_count = min(unique_labels, total)
-        setup_labels, idle_labels, transfer_labels = _phase_label_pools(
-            rng, label_count, label_lo, label_hi
-        )
+        pools, spans = _phase_label_pools(rng, label_count, label_lo, label_hi)
         gap_s = 3600.0 / max(qph, 1)
 
         events: list[EventRecord] = []
@@ -2121,13 +2318,7 @@ class ScenarioEngine:
         weights = [0.75, 0.25]
         chosen_qtypes: list[str] = []
         for index in range(total):
-            fraction = index / max(total, 1)
-            if fraction < 0.10:
-                pool = setup_labels
-            elif fraction < 0.30:
-                pool = idle_labels
-            else:
-                pool = transfer_labels
+            pool = _phase_pool(pools, index, total)
             qname = f"{pool[index % len(pool)]}.{parent}"
             qtype = weighted_choice(rng, qtypes, weights)
             chosen_qtypes.append(qtype)
@@ -2150,10 +2341,12 @@ class ScenarioEngine:
         # five-label browsing was too easy and did not test the stated analytic.
         benign_parent = str(rng.choice([p for p in entities.parents if p != parent] or [parent]))
         benign_unique = max(5, min(total, unique_labels // 8))
-        benign_raw = high_entropy_labels(rng, benign_unique, label_lo, label_hi)
-        benign_labels = [f"sv{index:04x}" + value[6:] for index, value in enumerate(benign_raw)]
+        # Same prefix vocabulary, counter ranges and phase sequence as the
+        # positive stream, so a leading-label regex cannot separate them.
+        benign_pools, _ = _phase_label_pools(rng, benign_unique, label_lo, label_hi, spans)
         for index in range(min(total, self.max_events - len(events))):
-            qname = f"{benign_labels[index % len(benign_labels)]}.{benign_parent}"
+            benign_pool = _phase_pool(benign_pools, index, total)
+            qname = f"{benign_pool[index % len(benign_pool)]}.{benign_parent}"
             events.append(
                 self._dns_query_record(
                     rng,
@@ -2508,7 +2701,10 @@ class ScenarioEngine:
         foil_start = len(events)
         # Benign star: one workstation logging into several hosts. Same login
         # count, same ports, different shape. Chain versus star IS the detection.
-        star_src = pool[(len(pool) - 1)]
+        # The last host OFF the chain: a fixed pool[-1] sat on the chain itself
+        # whenever the hop draw included it, so the "benign" star source was
+        # also a lateral-movement hop.
+        star_src = _last_excluding(pool, set(hops))
         for index in range(1, len(hops)):
             if len(events) + 2 > self.max_events:
                 truncated = True
@@ -2612,7 +2808,9 @@ class ScenarioEngine:
 
         foil_start = len(events)
         # Sparse benign policy denies from an unrelated host, at a similar rate.
-        benign_src = pool[len(pool) - 1]
+        # Unrelated means outside the rotating probe pool, which a fixed
+        # pool[-1] was not whenever the pool draw included it.
+        benign_src = _last_excluding(pool, set(sources))
         for index in range(min(20, max(self.max_events - len(events), 0))):
             events.append(
                 self._deny_probe(
@@ -2817,14 +3015,14 @@ class ScenarioEngine:
 
         chain_src = str(rng.choice(entities.adversary_external))
         chain_dst = str(rng.choice(entities.internal_targets))
-        severities = ["low", "medium", "high", "critical", "critical"]
 
         events: list[EventRecord] = []
         session = int(rng.integers(100, 9999))
         truncated = False
         elapsed = 0
         for stage_index in range(stages):
-            stage_name, level, signatures = _IPS_STAGES[stage_index]
+            stage_name, ips_severity, signatures = _IPS_STAGES[stage_index]
+            level = _IPS_LEVEL_BY_SEVERITY[ips_severity]
             hits = int(rng.integers(hits_lo, hits_hi + 1))
             for hit in range(hits):
                 attack, attackid = signatures[hit % len(signatures)]
@@ -2843,7 +3041,7 @@ class ScenarioEngine:
                         session_id=session,
                         extra={
                             "eventtype": "signature",
-                            "ips_severity": severities[min(stage_index, len(severities) - 1)],
+                            "ips_severity": ips_severity,
                             "service": "HTTPS",
                             "policyid": "7",
                             "attack": attack,
@@ -2894,7 +3092,9 @@ class ScenarioEngine:
                     log_type="utm",
                     subtype="ips",
                     action="reset",
-                    level="warning",
+                    # The same level a low-severity chain alert carries, so the
+                    # header severity cannot pick recon hits out of the noise.
+                    level=_IPS_LEVEL_BY_SEVERITY["low"],
                     eventtime=anchor + int(index * window / max(noise_alerts, 1)),
                     src=str(rng.choice(entities.adversary_external)),
                     spt=int(rng.integers(1024, 65535)),
@@ -3101,7 +3301,8 @@ class ScenarioEngine:
         foil_start = len(events)
         # A sanctioned proxy host producing the same pairing. Identical pattern,
         # different asset role. Tests whether a detection uses role or pattern.
-        sanctioned = entities.internal_hosts[len(entities.internal_hosts) - 1]
+        # It must be a different host from the relay, or the two roles collapse.
+        sanctioned = _last_excluding(entities.internal_hosts, {relay})
         for pair in range(min(20, max((self.max_events - len(events)) // 2, 0))):
             when = anchor + int(pair * gap_s) + 3
             request_b = int(rng.integers(400, 2_400))

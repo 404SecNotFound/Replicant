@@ -348,8 +348,15 @@ def test_run_stream_reports_lines_and_done(client: TestClient) -> None:
 
 
 def test_connect_test_passes_tls_options(client: TestClient) -> None:
+    """TLS options reach the probe. The CA file is a name inside <config>/ca/
+    since 2026-09-26 L-06; the path is resolved server side."""
     from unittest.mock import patch
 
+    from replicant.config.settings import config_dir
+
+    ca_dir = config_dir() / "ca"
+    ca_dir.mkdir(parents=True)
+    (ca_dir / "ca.pem").write_text("not a real bundle\n", encoding="utf-8")
     captured: dict[str, object] = {}
 
     from replicant.transport.syslog import PathReport
@@ -375,14 +382,14 @@ def test_connect_test_passes_tls_options(client: TestClient) -> None:
                 "port": 6514,
                 "transport": "tls",
                 "tls_verify": False,
-                "tls_cafile": "/tmp/ca.pem",
+                "tls_cafile": "ca.pem",
             },
         )
     assert resp.status_code == 200
     collector = captured["collector"]
     assert collector.transport == "tls"  # type: ignore[attr-defined]
     assert collector.tls_verify is False  # type: ignore[attr-defined]
-    assert collector.tls_cafile == "/tmp/ca.pem"  # type: ignore[attr-defined]
+    assert collector.tls_cafile == str(ca_dir / "ca.pem")  # type: ignore[attr-defined]
 
 
 def test_connect_test_marks_a_non_loopback_probe(client: TestClient) -> None:

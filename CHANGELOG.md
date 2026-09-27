@@ -6,6 +6,124 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+Review of 2026-09-26: 24 confirmed defects across the web layer, the send path and the engine, found against `1d517fb` and each reproduced before it was fixed. Every new guard was run against the reverted fix and observed to fail. Web decision record: `docs/security-review-2026-09-26.md`.
+
+### Security (web layer, 2026-09-26 review)
+
+Decision record: `docs/security-review-2026-09-26.md`. Each guard was run against
+the reverted fix and observed to fail.
+
+- **One validation at a time, never beside a run (H-01).** Twelve concurrent
+  REP-004 high validations OOM-killed the server; each peaks at about 830 MB.
+  `/api/validate` now answers 409 (`validation_in_progress` or
+  `run_in_progress`) instead, and a run is refused while a validation holds the
+  slot. Plan pricing, samples and validation share one bounded build gate
+  (at most four waiting, 503 past that).
+- **Evidence packs are pruned (H-01).** The web server keeps the newest
+  `--evidence-keep` packs (default 20) under `manifests/evidence/`. Only
+  run-id-named entries are candidates and symlinks are never followed.
+- **Request bodies are capped (M-02).** Over 64 KiB, declared or chunked, is a
+  413 before the body is read, and an unauthenticated `/api` write is a 401
+  before its body is read. A 400 MB unauthenticated POST used to reach about
+  1.3 GB RSS.
+- **The terminal child gets a minimal environment (M-03, web half).** It no
+  longer inherits the server's environment, and it always runs with
+  `REPLICANT_WEB_CONFINED=1`.
+- **The terminal default follows reachability (M-04).** Off whenever a
+  non-loopback `--allowed-host` or any `--collector-allow` is configured, not
+  only on a non-loopback bind. `--enable-terminal` still overrides.
+- **Connect tests are metered and destinations can be restricted (M-05).** 10
+  per session per minute and 30 per server (429 with `Retry-After`). New
+  `--collector-allow CIDR[:PORT]`, repeatable, enforced on connect tests and on
+  sending runs from the web API; unset keeps today's behaviour with a startup
+  warning. Failed and refused connect tests keep their verdict but no longer
+  return exception text.
+- **Web `tls_cafile` is a file name in `<config>/ca/` (L-06).** A path, a
+  symlink or anything outside that directory is refused with one generic
+  message. The run form's CA field now says so.
+- **Abandoned run reservations expire (L-07)** after 60 seconds instead of
+  holding the single-run lock until restart.
+- **A non-ASCII token is a 401, not a 500 on every route (L-08).**
+- **The per-client terminal cap cannot be dodged with `X-Forwarded-For` (L-09).**
+  It is keyed on the browser session, and uvicorn trusts forwarded headers only
+  from `--forwarded-allow-ips` (none by default).
+- **Live event streams are capped** at 16, run and log streams together (429).
+- **The systemd unit is sandboxed (L-10).** `ProtectSystem=strict` with only the
+  config, manifests and out directories writable, so the code and venv are
+  read-only; `PrivateDevices`, kernel and proc protections, no capabilities,
+  `RestrictAddressFamilies`, a `@system-service` syscall filter, `UMask=0077`,
+  `MemoryMax=1536M`, `TasksMax=256`. `systemd-analyze security` 8.4 to 1.2.
+  `scripts/verify-systemd-unit.sh` asserts the sandbox and opens a real PTY
+  under it.
+
+### Added (web)
+
+- `replicant web --collector-allow CIDR[:PORT]` (repeatable).
+- `replicant web --evidence-keep N` (default 20).
+- `replicant web --forwarded-allow-ips IP` (repeatable).
+- A `sends to` line in the web startup banner.
+
+### Changed (web, operator-visible)
+
+- A web caller's `tls_cafile` must now be a bare file name inside
+  `<config>/ca/`; a path that used to work is refused. Move the bundle there.
+- The unit's writable paths are `/opt/replicant/.config`, `manifests` and `out`
+  only. A deployment that wrote elsewhere under `/opt/replicant` must add it to
+  `ReadWritePaths`.
+- A loopback bind with `--allowed-host proxy.example` no longer has a terminal
+  tab unless `--enable-terminal` is given.
+
+### Fixed (send path and CLI, 2026-09-26 review)
+
+- **Plan pacing spreads events that share a second across that second.** `eventtime` is integer seconds, and every event of a second was planned at its start, so REP-004 medium at `--speed 10` left as up to 120 datagrams back to back at the rate floor (6766 of 7000 gaps under 1ms, 146 datagrams per 100ms). The k-th of n events in one second is now planned at `k/n` into it (`replicant/core/pacing.py`). Each event still leaves inside its own second, so the plan-pacing invariant holds, and the rate floor still applies on top.
+- **The emit loop no longer drifts permanently late.** It resynchronised the schedule whenever it fell one rate interval (0.5ms) behind, which ordinary render and send cost tripped on every dense stretch, pushing the rest of the run later (1.24s late after 15s at `--speed 10`). The resync bound is now `max(1.0s, interval)`; below it the loop catches up at the rate floor, above it a real stall still moves the run later without squeezing what follows. The floor is still measured against the previous actual send and the catch-up check against the plan deadline.
+- **The RFC 3164 header timestamp is UTC by default.** It was host local time with no zone, so a collector reading it as UTC saw events from a Dubai host four hours in the future. New setting `syslog_timezone` / flag `--syslog-timezone {utc,local}` (default `utc`), and `syslog_format` / `--syslog-format {rfc3164,rfc5424}` (default `rfc3164`); RFC 5424 writes an explicit offset. Both are recorded in the run and scenario manifests.
+- **`--pace burst` sends of future-dated events are named.** With `--anchor now`, burst delivered a four hour plan in seconds stamped up to four hours ahead and nothing said so. A warning now goes to stderr before the run and into the manifest's new `notes` list whenever any event would reach the collector more than 60s ahead of its own send time; the menu shows it before "Start run?".
+- **The Rich menu asks for the event-time anchor** (`now`, `default`, an epoch, or ISO-8601; same meaning as `--anchor`). Menu live sends carried event times about 438 days old.
+- **Invalid menu input re-prompts instead of a traceback.** `banana` for a duration and `inf` for a speed raised an uncaught pydantic `ValidationError` out of the menu.
+- **`replicant connect --test` and the menu `[c]` flow use the real probe** (`probe_collector`, as the web card does) and print the full report: verdict, what happened, the path, what it proves and what it does not. The old path printed `test log sent` and exited 0 for a UDP datagram to a closed port. `connect --test` now exits 1 when the verdict is `refused`, `failed` or `name_not_resolved`, and 0 for `sent_unconfirmed` or `handshake_ok`.
+- **The CLI and menu print the source -> destination path before sending**, on stderr: source address, destination (with the resolved address for a name), interface, and on-link or next-hop gateway. WARNING and above from `replicant.*` loggers now reach stderr through a real handler; the gateway-route warning used to arrive only through Python's `lastResort` fallback.
+- **The gateway-route check runs for hostnames and IPv6.** `route_for` received the configured host verbatim, so `localhost`, any DNS name, `::1` and `2001:db8::1` all skipped it. It now gets the resolved address, and IPv6 routes are read from `/proc/net/ipv6_route` (Linux; None elsewhere, reject routes ignored).
+- **A dropped TCP or TLS collector is reconnected.** A `BrokenPipeError` used to end the run. The emitter now reconnects with a bounded backoff (0.5s, 1s, 2s) and sends the failed record once more; `send_stats` gains `reconnects` and `resent`. If all three attempts fail the run ends with the error as before. Limitation stated in `docs/run-manifest.md`: TCP has no application acknowledgement, so records the kernel accepted before the peer closed can still be lost silently.
+- **SIGTERM finalizes the manifest.** `systemd stop` and `docker stop` left it `status=running`, `ended_at=null`, identical to a crash. `replicant run`, `replicant scenario run` and menu runs now route SIGTERM to the kill switch, finalize as `stopped`, restore the previous handler, and exit 143.
+- **A header-unsafe syslog hostname is refused.** `Settings.hostname` is validated (1 to 255 of letters, digits, `.`, `-`, `_`, `:`; no whitespace or control characters) and a bad value in `config.yaml` is a one-line CLI error. CR and LF in CEF header values become a space in the serializer; no golden line changes.
+- **The web terminal's menu is confined.** With `REPLICANT_WEB_CONFINED=1` (set by the PTY spawner) the menu writes output only to `<manifest_dir parent>/out/<basename>` and refuses symlinks, accepts a TLS CA bundle only by file name from `<config dir>/ca/`, and does not save collector profiles. The shared logic is `replicant/config/confine.py`.
+- **UDP size checks use the family-correct figures.** The fragmentation warning uses 1452 bytes for IPv6 (1472 for IPv4), and a record above the UDP maximum (65507 IPv4, 65527 IPv6) is refused with an error naming the record number and the fix instead of a raw `EMSGSIZE` traceback.
+- Scenario manifests now carry `send_stats`, like run manifests.
+
+### Added (2026-09-26 review, send path)
+
+- `--syslog-format {rfc3164,rfc5424}` and `--syslog-timezone {utc,local}` on `replicant run` and `replicant scenario run`; settings `syslog_format` (default `rfc3164`) and `syslog_timezone` (default `utc`).
+- Manifest fields `syslog_format`, `syslog_timezone` (null without a collector) and `notes` (list); `send_stats.reconnects` and `send_stats.resent`.
+
+### Changed (2026-09-26 review, send path, operator-visible)
+
+- The RFC 3164 header timestamp moved from host local time to UTC. Operators whose collector was configured to read the header as the sending host's local time should pass `--syslog-timezone local` or set `syslog_timezone: local`.
+- `replicant connect --test` exit code now reflects the probe verdict.
+
+### Fixed (2026-09-26 review, engine, profiles and validation)
+
+- **REP-006 and REP-007 plans ran backwards in time.** Both builders appended their co-located benign foil after the attack without sorting, so `--to-file` wrote a non-monotonic log and plan pacing sent foil events up to a whole window late. Both now sort like every other builder. A new guard asserts every plan in the catalog, at every intensity and through every vendor, is non-decreasing in event time, and every scenario too.
+- **REP-004 and REP-015 foils were separable by a regex.** Every attack label began `hs`, `id` or `tx` and every foil label began `sv`, while the catalog names unique-label cardinality as the only discriminator. The foil now draws from the same prefix vocabulary, counter ranges and phase sequence as the attack. No 2 to 6 character prefix, and no alternation of 2 to 4 character prefixes, picks either stream with precision and recall above 0.8 on four seeds.
+- **REP-012 fleet mode had no fleet period.** Each host's callbacks random-walked, so the aggregate at the destination was indistinguishable from random (summed Rayleigh z below 2 at the preset period). Fleet callbacks are now anchored to a per-host phase on the shared interval grid with bounded jitter, and the period is recoverable in aggregate (z of at least 4 on every tested seed) while no single host stands out. The benign update-check foil was a perfect 1800 s comb with zero variance, more periodic than the attack, and now uses the same jitter process as the beacon.
+- **REP-022 severity fell as the kill chain advanced on two vendors.** FortiOS reverses priority, so level `critical` renders CEF 6, below `alert` at 7. The chain rendered 4, 7, 7, 6, 6 on FortiGate and the escalation was not monotonic with `ips_severity` on PAN-OS. Stage levels are now notice, warning, error, alert, alert, which renders 3, 4, 5, 7, 7 on FortiGate, 3, 5, 6, 8, 8 on PAN-OS and Low to Very-High on Check Point. REP-009 had the same inversion (critical hits rendered below high hits on FortiGate) and now emits both at level alert, with the split carried by `ips_severity`.
+- **REP-005 planned into the past with `--anchor now`.** The off-hours window used midnight of the anchor's own day, so an afternoon anchor produced events 8 to 14 hours earlier, which plan pacing then sent at once. REP-005 now uses the next 00:00 to 06:00 window at or after its anchor, starting at the anchor itself when it already falls inside the window with at least an hour left. It is still pinned to that window and still capped at what remains of it. SCEN-001 no longer needs the composer's one-day alignment shift, and its duration-overrun note still names the pinned stage.
+- **REP-008 claimed a baseline it did not emit.** The warm-up note said "over 30d" for history that sits inside one hour. Spreading it over real days was rejected because plan pacing would then take those days of wall clock. The note and catalog now state that the history is compressed.
+- **Foil entities collided with attack entities on some seeds.** The REP-012 update checker was a beaconing host on 15.5% of high-intensity seeds, the REP-019 foil source was a probe source on 6.4%, the REP-018 admin star source sat on the lateral chain on 3.8%, and the REP-024 sanctioned proxy was the relay itself on 0.4%. Foil entities now exclude attack entities, guarded over 500 seeds (1000 for REP-024) at every intensity.
+- **FortiGate successful admin login carried the failure signature.** A successful `event:system` login rendered signature 32002, which the reference defines as `login failed`. It now renders 32001 (logid `0100032001`), marked [Unverified] in the reference. The failed-login golden line is unchanged.
+- **Check Point successful system login rendered as a Low severity finding.** Success now renders `Unknown` with no `cp_severity`, per reference sections 2.2 and 2.3, matching the Mobile Access path.
+- **One bad datagram silently ended Tier 1 ingestion.** A non-UTF-8 datagram raised `UnicodeDecodeError` in the receive thread, which only caught `OSError`, so every later record was lost and the verdict read `fail_no_events`. The receiver now decodes with replacement characters, re-raises any receive-thread failure to the validation run, and accepts successive and concurrent TCP connections (up to 16) instead of exactly one.
+
+### Added (2026-09-26 review, validation)
+
+- **`fail_contract` verdict.** Tier 0 used to report every failed check as `fail_no_events`, including plans whose events were all present but missed a declared property. A truncated plan, a missing signal field, a missed axis threshold or an out-of-order plan is now `fail_contract`. `fail_no_events` is kept for absent telemetry. Both exit with code 1.
+- **Generic `event-order` plan check.** Every Tier 0 evaluation now fails a plan whose event times step backwards, the REP-006 and REP-007 defect expressed as a contract.
+
+### Fixed (2026-09-26 review, integration)
+
+- **The web output-path symlink check could never fire.** `_confined_output` in `replicant/web/server.py` called `is_symlink()` on the already-resolved path, which resolving has already followed, so a symlink planted inside `out/` pointing at another file there passed and `FileSink` truncated the target. The server now uses the shared `replicant/config/confine.py` helper, which checks the link before resolving. Guard: `tests/test_web_hardening.py::test_a_symlink_planted_inside_the_output_directory_is_refused`, observed to fail on the old check.
+- `webui/src/lib/api.ts` declares the new `fail_contract` verdict in its two type unions. Type accuracy only; the panel already rendered any non-pass verdict as a failure.
+
 ### Added
 
 - **Offline validation contracts for all 26 techniques.** `replicant validate

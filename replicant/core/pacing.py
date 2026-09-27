@@ -121,17 +121,104 @@ def send_offsets(events: Sequence[EventRecord], *, pace: Pace, interval: float) 
     The result is non-decreasing by construction. Builders sort their events, but
     a schedule that could run backwards would ask for a negative sleep and burst
     silently, so the invariant is enforced here rather than assumed upstream.
+
+    **Events that share a second are spread across it.** ``eventtime`` is integer
+    seconds, so a plan says only *which* second an event belongs to. Planning
+    every event of a second at its start delivered REP-004 medium at ``--speed
+    10`` as up to 120 datagrams back to back at the rate floor (6766 of 7000
+    gaps under 1ms, measured). The k-th of n events in one second is therefore
+    planned at ``(t - first) + k/n``. Each event still leaves inside its own
+    second, which is the plan-pacing invariant, and the gap between neighbours
+    becomes ``1/n`` rather than ``1/eps_cap``. The rate floor still applies on
+    top: a second holding more events than the cap allows spills over, because
+    safety rule 4 outranks the shape. ``speed`` needs no term here: the times
+    arriving at this function are already compressed (see
+    :func:`compress_timeline`), so the second being spread is the one the
+    rendered timestamp names.
     """
 
     offsets: list[float] = []
     previous = 0.0
     first = events[0].eventtime if events else 0
+    spread = _same_second_positions(events) if pace == "plan" else []
     for index, event in enumerate(events):
         floor = 0.0 if index == 0 else previous + interval
-        planned = float(event.eventtime - first) if pace == "plan" else floor
+        if pace == "plan":
+            position, size = spread[index]
+            planned = float(event.eventtime - first) + position / size
+        else:
+            planned = floor
         previous = max(planned, floor)
         offsets.append(previous)
     return offsets
+
+
+def _same_second_positions(events: Sequence[EventRecord]) -> list[tuple[int, int]]:
+    """(k, n) for every event: its index within its run of equal times, and the run's size.
+
+    Runs of *consecutive* equal ``eventtime`` values, not every event that shares
+    the value anywhere in the list. Builders emit sorted plans, and an unsorted
+    one is already clamped by the monotonic floor in :func:`send_offsets`, so
+    grouping only neighbours keeps this one linear pass with no reordering.
+    """
+
+    positions: list[tuple[int, int]] = []
+    start = 0
+    total = len(events)
+    while start < total:
+        end = start + 1
+        while end < total and events[end].eventtime == events[start].eventtime:
+            end += 1
+        size = end - start
+        positions.extend((k, size) for k in range(size))
+        start = end
+    return positions
+
+
+#: How far ahead of its own delivery an event may be stamped before a run is
+#: worth a warning. Wide enough to ignore ordinary clock skew between this host
+#: and the collector, narrow enough that "every event now, stamped up to four
+#: hours ahead" cannot pass quietly.
+FUTURE_TOLERANCE_S = 60.0
+
+
+def max_future_skew(
+    events: Sequence[EventRecord], offsets: Sequence[float], start_epoch: float
+) -> float:
+    """The furthest any event's timestamp runs ahead of the moment it is sent.
+
+    ``start_epoch`` is the wall-clock epoch of the first send and ``offsets`` the
+    schedule from :func:`send_offsets`, so event i leaves at ``start_epoch +
+    offsets[i]`` and claims ``events[i].eventtime``. Positive means the collector
+    receives an event stamped in its own future. Plan pacing with ``--anchor
+    now`` keeps this at or below zero by construction; burst with ``--anchor
+    now`` makes it the whole plan span, which is the case this exists to name.
+    """
+
+    if not events:
+        return 0.0
+    return max(
+        float(event.eventtime) - (start_epoch + offset)
+        for event, offset in zip(events, offsets, strict=True)
+    )
+
+
+def future_skew_warning(skew_s: float, *, pace: Pace) -> str | None:
+    """Operator-facing text for :func:`max_future_skew`, or None within tolerance."""
+
+    if skew_s <= FUTURE_TOLERANCE_S:
+        return None
+    fix = (
+        "Use --pace plan so each event leaves when its timestamp says it happened, "
+        "or an earlier --anchor."
+        if pace == "burst"
+        else "Use an earlier --anchor (for example 'now')."
+    )
+    return (
+        f"events will reach the collector stamped up to {format_span(skew_s)} in the "
+        f"future ({pace} pacing delivers them before their own event times). A SIEM "
+        f"that keys on event time may drop, hold or misorder them. {fix}"
+    )
 
 
 def projected_seconds(offsets: Sequence[float]) -> float:
