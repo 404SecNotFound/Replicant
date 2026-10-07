@@ -56,6 +56,7 @@ _PROTO: dict[int, str] = {6: "tcp", 17: "udp", 1: "icmp"}
 _DETECTION_FIELDS: dict[str, str | None] = {
     "FTNTFGTattack": "PanOSThreatName",
     "FTNTFGTattackid": "PanOSThreatID",
+    "FTNTFGTcfgpath": "cs2",
     "FTNTFGTduration": None,
     "FTNTFGTqname": "PanOSDNSQuery",
     "FTNTFGTqtype": "PanOSDNSType",
@@ -146,7 +147,9 @@ _DETECTION_FIELDS_BY_FAMILY: dict[tuple[str, str], frozenset[str]] = {
             "src",
         }
     ),
-    ("event", "system"): frozenset({"FTNTFGTreason", "act", "duser", "rt", "src"}),
+    ("event", "system"): frozenset(
+        {"FTNTFGTcfgpath", "FTNTFGTreason", "act", "duser", "rt", "src"}
+    ),
 }
 
 
@@ -257,6 +260,15 @@ class PaloAltoProfile(VendorProfile):
                 "Primary PAN-OS CEF name and signature ID",
             )
         if key == ("event", "system"):
+            if action in {"Add", "Edit", "Delete"}:
+                # A configuration change (REP-028) is a CONFIG log, not SYSTEM.
+                return DetectionMetadata(
+                    "CONFIG",
+                    "config",
+                    "config",
+                    action.lower(),
+                    "Primary PAN-OS CEF name and signature ID",
+                )
             return DetectionMetadata(
                 "SYSTEM",
                 "general",
@@ -468,6 +480,8 @@ class PaloAltoProfile(VendorProfile):
 
     def _system(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
         e = event.extra
+        if "cfgpath" in e:
+            return self._config(event)
         ext: dict[str, str] = {}
         ext["rt"] = str(event.eventtime)
         ext["deviceExternalId"] = self.device.serial
@@ -490,3 +504,29 @@ class PaloAltoProfile(VendorProfile):
         ext["reason"] = e["reason"]
         ext["msg"] = e["msg"]
         return self._header("general", "SYSTEM", event.level), ext
+
+    def _config(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
+        """A configuration change (REP-028) as a PAN-OS CONFIG log. The command
+        and the configuration path follow the file's custom-key convention;
+        [Unverified] against a live PAN-OS CEF export (reference s2)."""
+
+        e = event.extra
+        ext: dict[str, str] = {}
+        ext["rt"] = str(event.eventtime)
+        ext["deviceExternalId"] = self.device.serial
+        ext["duser"] = require(event.duser, "duser")
+        ext["suser"] = require(event.duser, "duser")
+        ext["src"] = require(event.src, "src")
+        ext["act"] = event.action.lower()
+        ext["PanOSCommand"] = event.action.lower()
+        ext["cs1Label"] = "Client"
+        ext["cs1"] = "Web" if e.get("method") == "https" else e.get("method", "Web")
+        ext["cs2Label"] = "Path"
+        ext["cs2"] = e["cfgpath"]
+        ext["cs3Label"] = "Virtual System"
+        ext["cs3"] = self.device.vsys
+        ext["PanOSResult"] = "Succeeded"
+        ext["cn1Label"] = "Sequence"
+        ext["cn1"] = e["cfgtid"]
+        ext["msg"] = e["msg"]
+        return self._header("config", "CONFIG", event.level), ext

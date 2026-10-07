@@ -166,6 +166,13 @@ Mobile Access / VPN login success:
 <189>Jul 16 10:35:22 CP-LAB-GW-01 CEF:0|Check Point|Mobile Access|Check Point|Log|Log|Unknown|act=Accept rt=1752662122000 src=203.0.113.60 duser=jsmith suser=jsmith auth_status=Successful Login cs3Label=User Group cs3=vpn-users cs5Label=Auth Method cs5=ssl-tunnel cn1Label=Tunnel ID cn1=1846277 reason=login-success msg=SSL tunnel established product=Mobile Access origin=192.0.2.1
 ```
 
+`[Unverified]` configuration change (REP-028, 2026-10-07): a change record renders
+as a management audit log under the same keys the admin login uses
+(`administrator`, `operation=<Add|Edit|Delete> Object`) plus `object_name=<path>`
+and `object_type=<object>` under their native names, `act=Accept`, header
+severity Unknown. Unconfirmed against a live Log Exporter; no golden line covers
+it.
+
 Mobile Access / VPN login failure:
 ```
 <187>Jul 16 10:35:40 CP-LAB-GW-01 CEF:0|Check Point|Mobile Access|Check Point|Log|Log|High|act=Reject rt=1752662140000 src=198.51.100.200 duser=jsmith suser=jsmith auth_status=Failed Login cp_severity=High cs5Label=Auth Method cs5=ssl-web reason=sslvpn_login_permission_denied msg=SSL user failed to logged in product=Mobile Access origin=192.0.2.1

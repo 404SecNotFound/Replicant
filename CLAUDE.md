@@ -349,6 +349,13 @@ Output convention: command results go to stdout, operator-facing errors go to st
   egress (Collection, SCEN-004 first), VPN login from an unfamiliar source network. The
   reasoning and the set-aside list are in the catalog record.
 
+  Implementation note (2026-10-07): the first of those, REP-028, is built, by the owner's
+  decision and with the gate unchanged. It is the first `event:system`-primary technique and
+  the first entry added under the tactic-gap rule. Two things it established: the foil's only
+  separating feature is the source's asset role, drawn from a new `mgmt_hosts` pool, and the
+  guard measures parity on everything else over seeds; and a configuration-change record now
+  exists on all three vendors, `[Unverified]` on each until a live capture.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 **The LogRhythm lab test has still never observed a rule fire.** Implementation note

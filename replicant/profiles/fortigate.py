@@ -66,6 +66,10 @@ LOGID_VPN_FAIL = "0101039426"
 # signature ID Fortinet documents as "login failed".
 LOGID_EVENT_SYSTEM_LOGIN_FAIL = "0100032002"
 LOGID_EVENT_SYSTEM_LOGIN_SUCCESS = "0100032001"  # [Unverified] adjacent success logid
+# Configuration change ("Object attribute configured", action Add/Edit/Delete),
+# the REP-028 primary. [Unverified] exact last-5 within FortiOS's 445xx
+# configuration-change family; confirm on a live build.
+LOGID_EVENT_SYSTEM_CONFIG = "0100044547"
 
 # Every field currently used by the catalog is named here. This is deliberately
 # exhaustive: adding a signal to the catalog without proving its rendered key
@@ -73,6 +77,7 @@ LOGID_EVENT_SYSTEM_LOGIN_SUCCESS = "0100032001"  # [Unverified] adjacent success
 _DETECTION_FIELDS: dict[str, str | None] = {
     "FTNTFGTattack": "FTNTFGTattack",
     "FTNTFGTattackid": "FTNTFGTattackid",
+    "FTNTFGTcfgpath": "FTNTFGTcfgpath",
     "FTNTFGTduration": "FTNTFGTduration",
     "FTNTFGTqname": "FTNTFGTqname",
     "FTNTFGTqtype": "FTNTFGTqtype",
@@ -159,7 +164,9 @@ _DETECTION_FIELDS_BY_FAMILY: dict[tuple[str, str], frozenset[str]] = {
     ("event", "vpn"): frozenset(
         {"FTNTFGTreason", "FTNTFGTsrccountry", "act", "duser", "rt", "src"}
     ),
-    ("event", "system"): frozenset({"FTNTFGTreason", "act", "duser", "rt", "src"}),
+    ("event", "system"): frozenset(
+        {"FTNTFGTcfgpath", "FTNTFGTreason", "act", "duser", "rt", "src"}
+    ),
 }
 
 
@@ -470,6 +477,8 @@ class FortiGateProfile(VendorProfile):
 
     def _event_system(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
         e = event.extra
+        if "cfgpath" in e:
+            return self._event_system_config(event)
         fgt_action = e.get("fgt_action", event.action)
         status = e["status"]
         logid = (
@@ -497,3 +506,33 @@ class FortiGateProfile(VendorProfile):
         ext["FTNTFGTmsg"] = e["msg"]
         name = f"event:system {fgt_action} {status}"
         return self._header(logid, name, event.level), ext
+
+    def _event_system_config(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
+        """A configuration change (REP-028). Native FortiOS fields cfgtid,
+        cfgpath, cfgobj and cfgattr under the FTNTFGT prefix; no status, because
+        a change record carries no login verdict. [Unverified] the logid and the
+        prefixed key names against a live build (reference s2.3)."""
+
+        e = event.extra
+        fgt_action = e.get("fgt_action", event.action)
+        ext: dict[str, str] = {}
+        self._common_prefix(
+            ext,
+            logid=LOGID_EVENT_SYSTEM_CONFIG,
+            cat="event:system",
+            subtype="system",
+            level=event.level,
+            eventtime=event.eventtime,
+        )
+        ext["FTNTFGTlogdesc"] = e.get("logdesc", "Object attribute configured")
+        ext["FTNTFGTaction"] = fgt_action
+        ext["duser"] = require(event.duser, "duser")
+        ext["src"] = require(event.src, "src")
+        ext["FTNTFGTui"] = e["ui"]
+        ext["FTNTFGTcfgtid"] = e["cfgtid"]
+        ext["FTNTFGTcfgpath"] = e["cfgpath"]
+        ext["FTNTFGTcfgobj"] = e["cfgobj"]
+        ext["FTNTFGTcfgattr"] = e["cfgattr"]
+        ext["FTNTFGTmsg"] = e["msg"]
+        name = f"event:system {fgt_action}"
+        return self._header(LOGID_EVENT_SYSTEM_CONFIG, name, event.level), ext

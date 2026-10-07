@@ -529,6 +529,32 @@ class ScenarioPlan:
         return len(self.events)
 
 
+# REP-028 configuration-change vocabulary. Labels only: nothing is configured.
+# The weights are what the catalog states; test_rep028_admin_plane measures the
+# emitted mix against them.
+CFG_PATH_WEIGHTS: tuple[tuple[str, float], ...] = (
+    ("firewall.policy", 0.35),
+    ("system.admin", 0.15),
+    ("log.syslogd.setting", 0.15),
+    ("system.interface", 0.15),
+    ("firewall.address", 0.10),
+    ("vpn.ssl.settings", 0.10),
+)
+CFG_ACTION_WEIGHTS: tuple[tuple[str, float], ...] = (("Edit", 0.7), ("Add", 0.2), ("Delete", 0.1))
+_CFG_ATTRS: dict[str, tuple[str, ...]] = {
+    "firewall.policy": (
+        "status[enable->disable]",
+        "action[deny->accept]",
+        "logtraffic[all->disable]",
+        "srcaddr[all]",
+    ),
+    "system.admin": ("trusthost1[0.0.0.0/0]", "accprofile[super_admin]", "password[*]"),
+    "log.syslogd.setting": ("status[enable->disable]", "server[203.0.113.9]"),
+    "system.interface": ("allowaccess[https ssh->https ssh ping]", "ip[10.20.30.1/24]"),
+    "firewall.address": ("subnet[0.0.0.0/0]",),
+    "vpn.ssl.settings": ("tunnel-ip-pools[SSLVPN_TUNNEL_ADDR1]", "source-interface[wan1]"),
+}
+
 _BuilderResult = tuple[list[EventRecord], str | None, bool]
 
 # Technique id -> the ScenarioEngine method that plans it. Module level, and
@@ -569,6 +595,7 @@ _BUILDER_METHOD_NAMES: dict[str, str] = {
     # Research follow-up additions (docs/catalog-research-review-2026-09-08.md).
     "REP-030": "_plan_distributed_spray",
     "REP-043": "_plan_exploit_egress_dialog",
+    "REP-028": "_plan_admin_config_burst",
 }
 
 
@@ -3879,5 +3906,135 @@ class ScenarioEngine:
             f"{len(victims)} victim chain(s) join an IPS destination to an accepted "
             "inbound destination and later outbound source. Negative controls break "
             "the victim join or event order; alerts do not assert exploit success."
+        )
+        return events, note, truncated
+
+    # -- REP-028 admin login from an unexpected source, then a config burst ----
+
+    def _plan_admin_config_burst(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        """One successful administrator login from a host outside the management
+        pool, then a burst of configuration changes by that account from that
+        source inside the window. The foil is the same shape from the management
+        jump host under the on-duty administrator's account: same count range,
+        same change vocabulary and mix, same irregular timing, so the source's
+        asset role is the only thing a detection can separate them on, and the
+        catalog says so.
+
+        ``--duration`` sets the window and keeps the count: the count inside the
+        window is the signal, not the spacing.
+        """
+
+        changes_lo, changes_hi = (int(v) for v in preset["changes"])
+        lead_lo, lead_hi = (int(v) for v in preset["login_lead_s"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+        window_s = max(int(window_s), 2)
+        # Direct constructions of EntityModel may predate the pool; the fallback
+        # is still disjoint from internal_hosts, which is what the foil needs.
+        mgmt_pool = entities.mgmt_hosts or entities.internal_targets[:4]
+        admin_accounts = synthetic_usernames(2, entities.users)
+        attack_src = str(rng.choice(entities.internal_hosts))
+        benign_src = str(rng.choice(mgmt_pool))
+
+        path_names = [path for path, _ in CFG_PATH_WEIGHTS]
+        path_weights = [weight for _, weight in CFG_PATH_WEIGHTS]
+        action_names = [action for action, _ in CFG_ACTION_WEIGHTS]
+        action_weights = [weight for _, weight in CFG_ACTION_WEIGHTS]
+
+        # Two bursts, each one login plus its changes, under the engine's ceiling.
+        # The ceiling binds the count, never the window: a shorter burst is still
+        # a burst, a longer window is a different technique.
+        truncated = False
+        per_burst_cap = max(1, self.max_events // 2 - 1)
+        if changes_hi > per_burst_cap:
+            changes_hi = per_burst_cap
+            changes_lo = min(changes_lo, changes_hi)
+            truncated = True
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+
+        def burst(source: str, user: str, control: Literal["positive", "negative"]) -> None:
+            nonlocal session
+            count = int(rng.integers(changes_lo, changes_hi + 1))
+            lead = min(int(rng.integers(lead_lo, lead_hi + 1)), max(1, window_s - 1))
+            events.append(
+                EventRecord(
+                    log_type="event",
+                    subtype="system",
+                    action="login",
+                    level="notice",
+                    eventtime=anchor,
+                    control=control,
+                    duser=user,
+                    src=source,
+                    session_id=session,
+                    extra={
+                        "logdesc": "Admin login successful",
+                        "fgt_action": "login",
+                        "status": "success",
+                        "ui": f"https({source})",
+                        "method": "https",
+                        "reason": "none",
+                        "msg": f"Administrator {user} logged in successfully from {source}",
+                    },
+                )
+            )
+            session += 1
+            # Changes land at uniform random offsets inside the window after the
+            # login: an operator working through a change list, not a timer.
+            offsets = sorted(
+                int(value) for value in rng.uniform(anchor + lead, anchor + window_s, size=count)
+            )
+            for when in offsets:
+                path = str(path_names[int(rng.choice(len(path_names), p=path_weights))])
+                action = str(action_names[int(rng.choice(len(action_names), p=action_weights))])
+                attrs = _CFG_ATTRS[path]
+                attr = attrs[int(rng.integers(0, len(attrs)))]
+                obj = str(int(rng.integers(1, 200)))
+                events.append(
+                    EventRecord(
+                        log_type="event",
+                        subtype="system",
+                        action=action,
+                        level="information",
+                        eventtime=when,
+                        control=control,
+                        duser=user,
+                        src=source,
+                        session_id=session,
+                        extra={
+                            "logdesc": "Object attribute configured",
+                            "fgt_action": action,
+                            "ui": f"GUI({source})",
+                            "method": "https",
+                            "cfgtid": str(int(rng.integers(100_000, 999_999))),
+                            "cfgpath": path,
+                            "cfgobj": obj,
+                            "cfgattr": attr,
+                            "msg": f"{action} {path} {obj}",
+                        },
+                    )
+                )
+                session += 1
+
+        burst(attack_src, admin_accounts[0], "positive")
+        burst(benign_src, admin_accounts[1], "negative")
+        events.sort(key=lambda e: (e.eventtime, e.control != "positive"))
+        note = (
+            f"admin login from {attack_src} (outside the management pool) followed by a "
+            f"configuration-change burst; the benign foil is the same burst from "
+            f"{benign_src}, a management jump host. Role is the intended discriminator."
         )
         return events, note, truncated

@@ -120,6 +120,7 @@ export const DIAGRAM_SPECS: Record<string, DiagramSpec> = {
   "REP-024": { glyph: "relay" },
   "REP-030": { glyph: "auth", caption: "many sources, one failure per user" },
   "REP-043": { glyph: "stages", caption: "IPS alert → inbound → victim egress" },
+  "REP-028": { glyph: "chain", source: ["user", "admin"], caption: "unexpected admin login → config burst" },
 };
 const YC = 112; // vertical center line of the signal path
 

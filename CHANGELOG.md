@@ -149,6 +149,37 @@ seeds at 3 presets; every check was run against the unfixed engine and failed.
   REP-020 state that T1583 is the adversary-side anchor; the header's
   Credential Access count is 2.
 
+### Added (catalog, 2026-10-07): REP-028, firewall admin-plane abuse
+
+- **REP-028, firewall admin login from an unexpected source and config-change
+  burst** (Defense Evasion, T1562.004 and T1078; UC-026). The first entry added
+  under the catalog's tactic-gap rule: Defense Evasion carried one technique
+  as a secondary tactic and nothing used `event:system` as a primary family.
+  One successful administrator login from a workstation outside the management
+  pool, then a burst of configuration changes (weighted over `firewall.policy`,
+  `system.admin`, `log.syslogd.setting`, `system.interface`,
+  `firewall.address`, `vpn.ssl.settings`; Edit, Add, Delete) by that account
+  from that source inside the window. The foil is the same burst from a
+  management jump host under the on-duty administrator, so the source's asset
+  role is the only separating feature; `tests/test_rep028_admin_plane.py`
+  measures count, vocabulary, mix and timing parity over 20 seeds at 3 presets.
+  `--duration` sets the window and keeps the count. Prevalence basis is the
+  2024/2025 campaign against internet-exposed FortiGate management interfaces,
+  cited in the entry with an `[Unverified]` marker on the quoted title.
+- **Configuration-change record on all three vendors.** FortiGate
+  `event:system` with Signature ID `44547` and `FTNTFGTcfgpath` and friends;
+  PAN-OS as a `CONFIG` log with `PanOSCommand` and the path in `cs2`; Check
+  Point as a management audit record with `operation=<action> Object` and
+  `object_name`. Each is `[Unverified]` against a live appliance, like the
+  other unverified keys in the references, and no golden line changed.
+  `FTNTFGTcfgpath` joins the catalog's signal vocabulary in every profile map
+  and the evaluator.
+- **`mgmt_hosts` entity pool** (`EntityConfig.mgmt_subnet`, 10.20.1.0/28):
+  management jump hosts, disjoint from every other pool, so "outside the
+  management pool" is decidable for every emitted address.
+- Built behind the launch gate in `CLAUDE.md` by the owner's decision; the
+  gate is unchanged and nothing here observes a rule fire.
+
 ### Added (catalog discovery and authoring)
 
 - Local web catalog filtering now includes reviewed search aliases and each

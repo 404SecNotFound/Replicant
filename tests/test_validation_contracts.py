@@ -32,7 +32,7 @@ ORCHESTRATOR = Orchestrator(CATALOG, Settings())
 
 
 def test_every_catalog_technique_has_one_resolved_contract() -> None:
-    assert len(CATALOG.techniques) == 26
+    assert len(CATALOG.techniques) == 27
     assert [contract.technique_id for contract in CONTRACTS.contracts] == [
         technique.id for technique in CATALOG.techniques
     ]
