@@ -52,6 +52,15 @@ DEFAULT_MAX_EVENTS = 200_000
 # is a clamp, not an exception out of a distribution helper.
 PORT_SPAN = 65535
 
+# Declared benign ceilings for the scan and deny foils (REP-002, REP-003,
+# REP-010). The foil spreads the attack's own probe volume over enough routine
+# sources that no benign source exceeds these per-minute loads, so the foil is
+# never itself a scan or a burst. Each number is written into the technique's
+# catalog benign_baseline and asserted by tests/test_foil_parity.py.
+BENIGN_PORTS_PER_MIN = 10  # distinct ports per source/destination pair
+BENIGN_HOSTS_PER_MIN = 10  # distinct destinations per source on one port
+BENIGN_DENIES_PER_MIN = 5  # denied attempts per source
+
 _PORT_SERVICE: dict[int, tuple[str, str]] = {
     443: ("HTTPS", "HTTPS"),
     8443: ("HTTPS", "HTTPS"),
@@ -290,9 +299,6 @@ _IPS_STAGES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
 )
 
 
-# REP-012's benign update-check cadence (catalog benign_baseline).
-_UPDATE_CHECK_S = 1800.0
-
 # Fleet-mode callbacks are displaced from their slot by at most this fraction of
 # the interval at jitter_pct=100, so every callback stays inside the middle three
 # quarters of its own slot.
@@ -367,6 +373,67 @@ def _last_excluding(pool: list[str], excluded: set[str]) -> str:
         if candidate not in excluded:
             return candidate
     raise ValueError("entity pool is exhausted by the attack entities")
+
+
+# (out_bytes range, in_bytes range, duration range) for one accepted east-west
+# leg. Shared by the attack and its foil in each technique, so a byte or
+# duration threshold cannot separate them: REP-013's worm and server baseline,
+# REP-018's chain and admin star.
+_LegShape = tuple[tuple[int, int], tuple[int, int], tuple[int, int]]
+_WORM_LEG: _LegShape = ((600, 2_400), (1_500, 7_000), (2, 40))
+_ADMIN_LEG: _LegShape = ((2_500, 6_500), (8_000, 18_000), (20, 120))
+
+
+def _lateral_leg_shape(rng: Any, shape: _LegShape) -> tuple[int, int, int]:
+    """One (out_bytes, in_bytes, duration) draw for an accepted lateral leg."""
+
+    (out_lo, out_hi), (in_lo, in_hi), (dur_lo, dur_hi) = shape
+    return (
+        lognormal_bytes(rng, out_lo, out_hi, sigma=0.3),
+        lognormal_bytes(rng, in_lo, in_hi, sigma=0.3),
+        int(rng.integers(dur_lo, dur_hi + 1)),
+    )
+
+
+def _forwarded_bytes(rng: Any, value: int) -> int:
+    """A forwarded leg's byte count: the original within a few percent.
+
+    REP-024's relay and sanctioned proxy both forward rather than originate,
+    so both outbound legs take this draw. The proxy used to copy the inbound
+    count verbatim, which made exact byte equality a perfect foil detector.
+    """
+
+    return int(value * float(rng.uniform(0.97, 1.03)))
+
+
+def _benign_sources_needed(volume: int, span_s: float, per_minute_ceiling: int) -> int:
+    """How many routine sources must share ``volume`` events over ``span_s``.
+
+    The answer keeps every source at or under ``per_minute_ceiling`` events in
+    any one-minute window. The per-source budget is taken at 90% of the ceiling
+    because event times are rounded to whole seconds, which can push one extra
+    event into a window that the real-valued spacing would have excluded.
+    """
+
+    per_source = max(1, int(per_minute_ceiling * max(span_s, 1.0) / 60.0 * 0.9))
+    return max(1, -(-volume // per_source))
+
+
+def _control_pairs(sources: list[str], targets: list[str], count: int) -> list[tuple[str, str]]:
+    """``count`` distinct (source, target) pairs cycling through both pools.
+
+    Walks the sources in order and steps the target index by one extra each
+    time the source list wraps, so no pair repeats until every combination has
+    been used. The count is clamped to the number of combinations.
+    """
+
+    if not sources or not targets:
+        return []
+    count = min(count, len(sources) * len(targets))
+    return [
+        (sources[i % len(sources)], targets[(i + i // len(sources)) % len(targets)])
+        for i in range(count)
+    ]
 
 
 _PHASE_TAGS = ("hs", "id", "tx")
@@ -696,7 +763,6 @@ class ScenarioEngine:
     ) -> _BuilderResult:
         unique_ports = int(preset["unique_ports"])
         window_s = int(preset["window_s"])
-        gap_lo, gap_hi = (float(v) for v in preset["gap_ms"])
 
         truncated = False
         # A scan cannot visit more distinct ports than exist. Without this,
@@ -718,9 +784,12 @@ class ScenarioEngine:
 
         # The window is the detection surface: a vertical-scan rule counts
         # distinct ports per source INSIDE window_s, so the probes are spread
-        # across the whole window (as REP-003 does) rather than fired at the
-        # gap_ms cadence and finishing long before the window closes. A
-        # duration override is honoured the REP-019 way: the preset density is
+        # across the whole window (as REP-003 does) rather than fired at a
+        # millisecond cadence and finishing long before the window closes. The
+        # catalog used to carry a gap_ms parameter for that cadence; eventtime
+        # is integer epoch seconds, so a 1 to 50 ms gap was not expressible and
+        # the parameter was dropped rather than kept as a label with no effect.
+        # A duration override is honoured the REP-019 way: the preset density is
         # kept and the probe count gives way to fit the shorter window.
         gap_s = window_s / max(unique_ports, 1)
         if duration_override_s is not None and gap_s > 0:
@@ -741,16 +810,13 @@ class ScenarioEngine:
             service, app = port_service(dpt)
             spt = int(rng.integers(1024, 65535))
             extra = _scan_traffic_extra(is_open, service, app)
-            # gap_ms survives as a small non-negative jitter on the even
-            # spread, so the walk is not a metronome.
-            jitter_s = float(rng.uniform(gap_lo, gap_hi)) / 1000.0
             events.append(
                 EventRecord(
                     log_type=technique.fortigate.log_type,
                     subtype=technique.fortigate.subtype,
                     action=action,
                     level=level,
-                    eventtime=anchor + int(index * gap_s + jitter_s),
+                    eventtime=anchor + int(index * gap_s),
                     src=src,
                     spt=spt,
                     dst=dst,
@@ -764,9 +830,16 @@ class ScenarioEngine:
             )
             session += 1
         foil_start = len(events)
-        control_sources = [host for host in entities.internal_hosts if host != src][:16]
-        control_targets = [host for host in entities.internal_targets if host != dst][:16]
-        pairs = list(zip(control_sources, control_targets, strict=False))
+        # The control spreads the SAME probes over enough routine pairs that no
+        # pair exceeds BENIGN_PORTS_PER_MIN distinct ports in any minute. It
+        # used to be sixteen fixed pairs whatever the preset, so at medium and
+        # high every "benign" pair was itself a 63 to 250 port scan and the
+        # per-pair rule it exists to test separated nothing.
+        pairs = _control_pairs(
+            [host for host in entities.internal_hosts if host != src],
+            [host for host in entities.internal_targets if host != dst],
+            _benign_sources_needed(unique_ports, unique_ports * gap_s, BENIGN_PORTS_PER_MIN),
+        )
         if pairs:
             for index, dpt in enumerate(ports):
                 control_src, control_dst = pairs[index % len(pairs)]
@@ -857,7 +930,17 @@ class ScenarioEngine:
             )
             session += 1
         foil_start = len(events)
-        control_sources = [host for host in entities.internal_hosts if host != src][:16]
+        # Enough routine sources that none reaches more than
+        # BENIGN_HOSTS_PER_MIN destinations in any minute. Sixteen fixed sources
+        # carried 64 to 256 hosts each at medium and high, which is a sweep. The
+        # target subnet joins the pool because the high preset needs more
+        # sources than one /24 holds; the sweep's own destinations are drawn
+        # from a different range, so none of these hosts is also swept.
+        source_pool = [host for host in entities.internal_hosts if host != src]
+        source_pool += [host for host in entities.internal_targets if host not in source_pool]
+        control_sources = source_pool[
+            : _benign_sources_needed(unique_hosts, window_s, BENIGN_HOSTS_PER_MIN)
+        ]
         if control_sources:
             for index, dst_index in enumerate(dst_indices):
                 is_open = index in open_indices
@@ -937,13 +1020,27 @@ class ScenarioEngine:
         bucket_s = off_window_s / comparison_windows
         current_start = off_start + int(history_windows * bucket_s)
         per_session_out = total_out_bytes // max(sessions, 1)
+        slot_s = bucket_s / max(sessions, 1)
+
+        def session_offsets() -> list[int]:
+            # One session per slot, placed somewhere inside its slot rather than
+            # on the slot boundary. Every window draws its own, so no window is
+            # an exact grid and no two windows share one timetable.
+            return [
+                int(index * slot_s + float(rng.uniform(0.0, 0.9 * slot_s)))
+                for index in range(sessions)
+            ]
+
+        def session_bytes(per_session: int) -> tuple[int, int]:
+            # The one byte draw every window uses, history and current alike.
+            out_b = max(1, int(per_session * float(rng.uniform(0.8, 1.2))))
+            return out_b, max(1, out_b // 40)  # out:in well above the 20:1 threshold
 
         events: list[EventRecord] = []
         session_id = int(rng.integers(10_000, 60_000))
+        current_offsets = session_offsets()
         for index in range(sessions):
-            factor = float(rng.uniform(0.8, 1.2))
-            out_b = max(1, int(per_session_out * factor))
-            in_b = max(1, out_b // 40)  # out:in well above the 20:1 exfil threshold
+            out_b, in_b = session_bytes(per_session_out)
             duration = int(rng.integers(60, 3600))
             spt = int(rng.integers(1024, 65535))
             events.append(
@@ -952,7 +1049,7 @@ class ScenarioEngine:
                     subtype=technique.fortigate.subtype,
                     action=technique.fortigate.action or "accept",
                     level="notice",
-                    eventtime=current_start + int(index * bucket_s / max(sessions, 1)),
+                    eventtime=current_start + current_offsets[index],
                     src=src,
                     spt=spt,
                     dst=destinations[index % len(destinations)],
@@ -975,33 +1072,44 @@ class ScenarioEngine:
             session_id += 1
 
         current_positive = list(events)
-        # Three preceding buckets establish that the positive host normally
-        # emits at most 500 KB per bucket. These are part of the positive stream
-        # because a per-host anomaly cannot be evaluated without history.
-        for history_index in range(history_windows):
-            history_total = int(rng.integers(100_000, 500_001))
-            history_out = max(1, history_total // max(sessions, 1))
+
+        def history_window(history_index: int, per_session: int, source: str, control: str) -> None:
+            # One preceding bucket of the same sessions (port, destinations,
+            # durations) at a per-session volume drawn with the current window's
+            # own jitter. History used to carry one constant byte value per
+            # window on an exact grid, so "every session in this window is the
+            # same size" picked the history out without reading any history.
+            nonlocal session_id
+            offsets = session_offsets()
             for index, current in enumerate(current_positive):
-                when = off_start + int(
-                    history_index * bucket_s + index * bucket_s / max(sessions, 1)
-                )
-                history_in = max(1, history_out // 40)
+                out_b, in_b = session_bytes(per_session)
                 events.append(
                     current.model_copy(
                         update={
-                            "eventtime": when,
+                            "control": control,
+                            "src": source,
+                            "eventtime": off_start + int(history_index * bucket_s) + offsets[index],
                             "session_id": session_id,
-                            "out_bytes": history_out,
-                            "in_bytes": history_in,
+                            "out_bytes": out_b,
+                            "in_bytes": in_b,
                             "extra": {
                                 **current.extra,
-                                "sentpkt": str(packet_count(history_out, session_id)),
-                                "rcvdpkt": str(packet_count(history_in, session_id)),
+                                "sentpkt": str(packet_count(out_b, session_id)),
+                                "rcvdpkt": str(packet_count(in_b, session_id)),
                             },
                         }
                     )
                 )
                 session_id += 1
+
+        # Three preceding buckets establish that the positive host normally
+        # emits at most 500 KB per bucket. These are part of the positive stream
+        # because a per-host anomaly cannot be evaluated without history.
+        for history_index in range(history_windows):
+            history_total = int(rng.integers(100_000, 500_001))
+            history_window(
+                history_index, max(1, history_total // max(sessions, 1)), src, "positive"
+            )
 
         foil_start = len(events)
         control_hosts = [host for host in entities.internal_hosts if host != src]
@@ -1021,22 +1129,12 @@ class ScenarioEngine:
                     )
                 )
                 session_id += 1
+            # The control's history carries the current window's bulk volume,
+            # drawn afresh per session rather than copied, so the control host
+            # has a real history of this workload rather than three replays of
+            # tonight's.
             for history_index in range(history_windows):
-                for current in current_positive:
-                    events.append(
-                        current.model_copy(
-                            update={
-                                "control": "negative",
-                                "src": control_src,
-                                "eventtime": off_start
-                                + int(
-                                    history_index * bucket_s + (current.eventtime - current_start)
-                                ),
-                                "session_id": session_id,
-                            }
-                        )
-                    )
-                    session_id += 1
+                history_window(history_index, per_session_out, control_src, "negative")
         self._mark_negative(events, foil_start)
         events.sort(key=lambda event: event.eventtime)
         note = (
@@ -1228,7 +1326,15 @@ class ScenarioEngine:
             )
             session_id += 1
         foil_start = len(events)
-        control_sources = [host for host in entities.internal_hosts if host != src][:16]
+        # Enough routine sources that none is denied more than
+        # BENIGN_DENIES_PER_MIN times in any minute. Sixteen fixed sources took
+        # 19 to 63 denies each inside the one-minute window at medium and high,
+        # so the "routine" foil was itself the burst the rule keys on.
+        source_pool = [host for host in entities.internal_hosts if host != src]
+        source_pool += [host for host in entities.internal_targets if host not in source_pool]
+        control_sources = source_pool[
+            : _benign_sources_needed(denies, window_s, BENIGN_DENIES_PER_MIN)
+        ]
         if control_sources:
             for index, positive in enumerate(events[:foil_start]):
                 dpt = positive.dpt or dpt_choices[0]
@@ -1352,7 +1458,11 @@ class ScenarioEngine:
         if not truncated and entities.benign_external:
             foil_start = len(events)
             nat = str(rng.choice(entities.benign_external))
-            nat_users = synthetic_usernames(max(4, len(usernames)), entities.users)
+            # Sized from the attack's login VOLUME, not its user count: in brute
+            # mode `users` is 1, so a NAT sized from it fronted four users and
+            # emitted 4 to 8 events against 400, and per-source count separated
+            # the two for free at the one preset where it should not.
+            nat_users = synthetic_usernames(max(4, len(pairs) // 2), entities.users)
             nat_session = int(rng.integers(60_000, 90_000))
             step = window_s / max(len(nat_users) * 2, 1)
             k = 0
@@ -2050,34 +2160,38 @@ class ScenarioEngine:
         # hosts beacon, so an unfiltered draw made the "benign" source one of
         # the C2 hosts on about one seed in six.
         #
-        # The update check runs on the SAME timing process and jitter fraction as
-        # the beacon, at its own 30 minute cadence. It used to be a perfect
-        # 1800 s comb with zero variance: the most periodic thing in the plan by
-        # a wide margin, so a trivial periodicity test flagged the foil far more
-        # strongly than the attack and the control rewarded the wrong detector.
-        # Matching the per-source timing shape leaves the discriminators the
-        # catalog names: aggregation across the fleet, and destination context.
+        # The update check runs on the SAME timing process, jitter fraction,
+        # interval, port, byte envelope and duration draw as the beacon. It used
+        # to be a perfect 1800 s comb with zero variance: the most periodic
+        # thing in the plan by a wide margin, so a trivial periodicity test
+        # flagged the foil far more strongly than the attack and the control
+        # rewarded the wrong detector. Then it kept its own 30 minute cadence
+        # with 2 to 40 KB responses and 1 to 20 s sessions against a beacon at
+        # 300 or 3600 s with sub-2 KB responses, so interval, in_bytes and
+        # duration each separated it on their own. Sharing every draw leaves
+        # the discriminators the catalog names: aggregation across the fleet,
+        # and destination context.
         attackers = set(srcs)
         benign_pool = [host for host in pool if host not in attackers] or pool
         benign_src = str(rng.choice(benign_pool))
         benign_dst = str(rng.choice(entities.benign_external))
-        for benign_offset in _callback_offsets(
-            rng, mode, _UPDATE_CHECK_S, jitter_pct, 0.0, duration_s
-        ):
+        for benign_offset in _callback_offsets(rng, mode, interval_s, jitter_pct, 0.0, duration_s):
             if len(events) >= self.max_events:
                 truncated = True
                 break
+            out_b = lognormal_bytes(rng, out_low, out_high)
+            in_b = max(out_b, lognormal_bytes(rng, out_low, out_high))
             events.append(
                 self._steady_accept(
                     rng,
                     benign_src,
                     benign_dst,
-                    443,
+                    dpt,
                     anchor + int(benign_offset),
                     session,
-                    int(rng.integers(400, 1200)),
-                    int(rng.integers(2_000, 40_000)),
-                    int(rng.integers(1, 20)),
+                    out_b,
+                    in_b,
+                    int(rng.integers(1, 180)),
                 )
             )
             session += 1
@@ -2133,9 +2247,10 @@ class ScenarioEngine:
                     landed = probe_index < landed_per_source
                     when = gen_start + int((host_index * fanout + probe_index) * gen_gap_s / probes)
                     if landed:
+                        out_b, in_b, duration = _lateral_leg_shape(rng, _WORM_LEG)
                         events.append(
                             self._steady_accept(
-                                rng, source, dst, port, when, session, 1200, 3400, 4
+                                rng, source, dst, port, when, session, out_b, in_b, duration
                             )
                         )
                         if dst not in next_infected and dst not in infected:
@@ -2156,27 +2271,42 @@ class ScenarioEngine:
         foil_start = len(events)
         # Benign east-west baseline: a small stable set of server sources on the
         # same port. Same protocol, same port, non-growing source population.
+        # Each server reaches `fanout` targets per generation window with the
+        # worm's own accept/deny mix and leg draws, so per-source volume, byte
+        # size, duration and action cannot pick it out. It used to be twelve
+        # constant accepted records (2400/8800/30 s) whatever the preset, which
+        # a rule could key on without ever counting sources.
         # Drawn from outside the seed set: a baseline server that is also a seed
         # host would grow like the worm and the control would stop being one.
         benign_pool = [host for host in pool if host not in seed_set]
         for server_index in range(3):
             server = benign_pool[(server_index + 1) % len(benign_pool)]
-            for step in range(4):
-                if len(events) >= self.max_events:
-                    break
-                dst = targets[(server_index * 4 + step) % len(targets)]
-                when = anchor + step * gen_gap_s
-                events.append(
-                    self._steady_accept(rng, server, dst, port, when, session, 2400, 8800, 30)
-                )
-                session += 1
+            for step in range(generations):
+                step_start = anchor + step * gen_gap_s
+                picks = unique_ints(rng, 0, len(targets) - 1, min(fanout, len(targets)))
+                for probe_index, target_index in enumerate(picks):
+                    if len(events) >= self.max_events:
+                        break
+                    dst = targets[target_index]
+                    when = step_start + int(probe_index * gen_gap_s / max(fanout, 1))
+                    if probe_index < landed_per_source:
+                        out_b, in_b, duration = _lateral_leg_shape(rng, _WORM_LEG)
+                        events.append(
+                            self._steady_accept(
+                                rng, server, dst, port, when, session, out_b, in_b, duration
+                            )
+                        )
+                    else:
+                        events.append(self._deny_probe(rng, server, dst, port, when, session))
+                    session += 1
 
         self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{generations} generation(s) from {seed_hosts} seed host(s) on port {port}; "
             "distinct source count grows per generation. A stable server baseline on "
-            "the same port is included as a false-positive control."
+            "the same port, with the same per-source fanout and accept/deny mix, is "
+            "included as a false-positive control."
         )
         return events, note, truncated
 
@@ -2693,14 +2823,21 @@ class ScenarioEngine:
                 )
             )
             session += 1
+            out_b, in_b, duration = _lateral_leg_shape(rng, _ADMIN_LEG)
             events.append(
-                self._steady_accept(rng, source, target, dpt, when + 2, session, 4200, 12_800, 60)
+                self._steady_accept(
+                    rng, source, target, dpt, when + 2, session, out_b, in_b, duration
+                )
             )
             session += 1
 
         foil_start = len(events)
         # Benign star: one workstation logging into several hosts. Same login
-        # count, same ports, different shape. Chain versus star IS the detection.
+        # count, same port rotation, same leg draw, different shape. Chain
+        # versus star IS the detection. The legs used to be constants, 4200 /
+        # 12800 / 60 s on the chain against 3900 / 11400 / 45 s on the star,
+        # and the star sat on 3389 while the chain rotated 3389 / 445 / 22, so
+        # bytes or port alone told them apart.
         # The last host OFF the chain: a fixed pool[-1] sat on the chain itself
         # whenever the hop draw included it, so the "benign" star source was
         # also a lateral-movement hop.
@@ -2733,9 +2870,18 @@ class ScenarioEngine:
                 )
             )
             session += 1
+            out_b, in_b, duration = _lateral_leg_shape(rng, _ADMIN_LEG)
             events.append(
                 self._steady_accept(
-                    rng, star_src, target, 3389, when + 2, session, 3900, 11_400, 45
+                    rng,
+                    star_src,
+                    target,
+                    admin_ports[index % len(admin_ports)],
+                    when + 2,
+                    session,
+                    out_b,
+                    in_b,
+                    duration,
                 )
             )
             session += 1
@@ -2807,22 +2953,39 @@ class ScenarioEngine:
                 elapsed += float(rng.uniform(gap_lo, gap_hi))
 
         foil_start = len(events)
-        # Sparse benign policy denies from an unrelated host, at a similar rate.
-        # Unrelated means outside the rotating probe pool, which a fixed
-        # pool[-1] was not whenever the pool draw included it.
-        benign_src = _last_excluding(pool, set(sources))
-        for index in range(min(20, max(self.max_events - len(events), 0))):
+        # Sparse benign policy denies: as many unrelated hosts as the probe pool,
+        # each retrying a couple of fixed (destination, port) targets it cannot
+        # reach, with the probes' own gap distribution and total count. What
+        # separates them is the graph: the probes cover many distinct targets
+        # across the pool, the benign hosts each hit the same two. It used to
+        # be one host on 445 at a fixed elapsed/20 spacing, twenty probes
+        # whatever the preset, so source count, port, gap regularity and volume
+        # each separated it alone. Unrelated means outside the rotating probe
+        # pool, which a fixed pool[-1] was not whenever the draw included it.
+        probing = set(sources)
+        benign_sources = [host for host in reversed(pool) if host not in probing][: len(sources)]
+        port_start = int(rng.integers(0, len(ports)))
+        benign_targets = [
+            [
+                (targets[int(rng.integers(0, len(targets)))], ports[(port_start + k) % len(ports)])
+                for k in (2 * which, 2 * which + 1)
+            ]
+            for which in range(len(benign_sources))
+        ]
+        benign_elapsed = float(rng.uniform(gap_lo, gap_hi))
+        for index in range(total_probes if benign_sources else 0):
+            if len(events) >= self.max_events:
+                truncated = True
+                break
+            which = index % len(benign_sources)
+            dst, dpt = benign_targets[which][int(rng.integers(0, 2))]
             events.append(
                 self._deny_probe(
-                    rng,
-                    benign_src,
-                    targets[index % len(targets)],
-                    445,
-                    anchor + int(index * (elapsed / 20 if elapsed else 600)),
-                    session,
+                    rng, benign_sources[which], dst, dpt, anchor + int(benign_elapsed), session
                 )
             )
             session += 1
+            benign_elapsed += float(rng.uniform(gap_lo, gap_hi))
 
         self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
@@ -2855,12 +3018,24 @@ class ScenarioEngine:
 
         pool = entities.internal_hosts
         srcs = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(hosts, len(pool)))]
-        parent = str(rng.choice(entities.parents))
-        # Organizational normal: a stable, repeatedly queried domain set.
-        known = [f"{label}.{parent}" for label in high_entropy_labels(rng, baseline_domains, 5, 9)]
-        # First-contact domains: never queried by any host before. Reserved-TLD
-        # parents guarantee they cannot resolve even by accident.
-        novel = [f"{label}.invalid" for label in high_entropy_labels(rng, novel_domains, 8, 14)]
+        # Organizational normal is a stable, repeatedly queried domain set, and
+        # a first-contact domain is one never queried by any host before. Both
+        # draw their parent from the same documentation and .invalid pool and
+        # their label from one draw with one length envelope, so the only thing
+        # that marks a novel name is its absence from the history. The baseline
+        # used to sit under one parent with 5 to 9 character labels and every
+        # novel name was a bare 8 to 14 character <label>.invalid, so "qname
+        # not under the baseline parent" scored perfectly without any history.
+        parents = list(entities.parents)
+        labels = high_entropy_labels(rng, baseline_domains + novel_domains, 5, 12)
+        known = [
+            f"{label}.{parents[int(rng.integers(0, len(parents)))]}"
+            for label in labels[:baseline_domains]
+        ]
+        novel = [
+            f"{label}.{parents[int(rng.integers(0, len(parents)))]}"
+            for label in labels[baseline_domains:]
+        ]
 
         truncated = False
         baseline_events = min(baseline_domains, max(self.max_events - novel_domains, 1))
@@ -3182,8 +3357,20 @@ class ScenarioEngine:
             session += 1
 
         foil_start = len(events)
-        # Concurrent browsing to 443: high byte variance, varied durations.
-        for index in range(min(sessions, max(self.max_events - len(events), 0))):
+        # Concurrent browsing to 443: high byte variance, varied durations, and
+        # irregular timing spread over the beacon's own span. It used to copy
+        # the beacon's exact period offset by 11 s, which made the browsing as
+        # periodic as the C2 and rewarded a detector that keys on anything but
+        # timing. The catalog names flow timing and destination context as the
+        # discriminators, so the foil must carry no period at all.
+        foil_count = min(sessions, max(self.max_events - len(events), 0))
+        span_s = float((sessions - 1) * interval_s)
+        weights = [float(rng.uniform(0.25, 1.75)) for _ in range(max(foil_count - 1, 0))]
+        weight_total = sum(weights) or 1.0
+        foil_elapsed = 0.0
+        for index in range(foil_count):
+            if index:
+                foil_elapsed += span_s * weights[index - 1] / weight_total
             events.append(
                 self._forward_accept(
                     technique,
@@ -3191,7 +3378,7 @@ class ScenarioEngine:
                     src,
                     str(rng.choice(entities.benign_external)),
                     443,
-                    anchor + index * interval_s + 11,
+                    anchor + int(foil_elapsed),
                     session,
                 )
             )
@@ -3201,8 +3388,10 @@ class ScenarioEngine:
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{sessions} session(s) to one destination on 443 every {interval_s}s with "
-            "narrow byte variance and no handshake metadata. Concurrent high-variance "
-            "browsing to 443 is included, so neither port nor destination count separates them."
+            "narrow byte variance and no handshake metadata. Concurrent high-variance, "
+            "irregularly timed browsing to 443 from the same host is included; port, source "
+            "and session count do not separate them, timing regularity, byte variance and "
+            "the single repeated destination do."
         )
         return events, note, truncated
 
@@ -3291,8 +3480,8 @@ class ScenarioEngine:
                     443,
                     when + lag_s,
                     session,
-                    int(request_b * float(rng.uniform(0.97, 1.03))),
-                    int(response_b * float(rng.uniform(0.97, 1.03))),
+                    _forwarded_bytes(rng, request_b),
+                    _forwarded_bytes(rng, response_b),
                     int(rng.integers(1, 30)),
                 )
             )
@@ -3302,8 +3491,12 @@ class ScenarioEngine:
         # A sanctioned proxy host producing the same pairing. Identical pattern,
         # different asset role. Tests whether a detection uses role or pattern.
         # It must be a different host from the relay, or the two roles collapse.
+        # Identical means identical: the same pair count as the relay (it was
+        # capped at twenty whatever the preset) and the same forwarding draw on
+        # the outbound leg (it copied the inbound bytes verbatim, so every
+        # proxy pair was byte-identical and no relay pair ever was).
         sanctioned = _last_excluding(entities.internal_hosts, {relay})
-        for pair in range(min(20, max((self.max_events - len(events)) // 2, 0))):
+        for pair in range(min(relay_pairs, max((self.max_events - len(events)) // 2, 0))):
             when = anchor + int(pair * gap_s) + 3
             request_b = int(rng.integers(400, 2_400))
             response_b = int(rng.integers(1_200, 48_000))
@@ -3332,8 +3525,8 @@ class ScenarioEngine:
                     443,
                     when + self._relay_lag_s(rng, lag_lo, lag_hi),
                     session,
-                    request_b,
-                    response_b,
+                    _forwarded_bytes(rng, request_b),
+                    _forwarded_bytes(rng, response_b),
                     int(rng.integers(1, 30)),
                 )
             )

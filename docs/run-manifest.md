@@ -43,6 +43,8 @@ terminal replacement failed.
 | `planned_event_count` | Number of records in the completed plan before output begins. |
 | `event_count` | Individual-run CEF records rendered so far. |
 | `total_event_count` | Scenario-run CEF records rendered so far. |
+| `controls` | Scenario manifests only (added 2026-10-07; older scenario manifests read as `positive`): which streams the stages contributed, `positive`, `both` or `negative`. Individual-run manifests record the same choice under `params.controls`. |
+| `negative_event_count` | Scenario manifests only: benign foil events composed onto the timeline. Counted in `planned_event_count`, never in any stage's `event_count`. |
 | `partial` | `true` exactly when the rendered count is below `planned_event_count`. |
 | `send_stats` | Socket statistics for an individual or scenario run, or `null` when there was no collector. |
 

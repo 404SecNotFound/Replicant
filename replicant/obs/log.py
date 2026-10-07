@@ -74,9 +74,14 @@ DEFAULT_CAPACITY = 5000
 # the one secret this process holds; it reaches log-adjacent places by way of the
 # URL in the startup banner, so the pattern targets that shape specifically
 # rather than trying to be a general secret scanner.
+# The browser session id is the second credential: a 12 hour bearer value that
+# the terminal bridge keyed its per-client cap on and then logged when it refused
+# a session (2026-10-07 review, N-04). The key is a digest now; this pattern is
+# the backstop should any path log the cookie value itself.
 _TOKEN_PATTERNS = (
     re.compile(r"(?i)(token=)[A-Za-z0-9_\-]{8,}"),
     re.compile(r"(?i)(x-replicant-token[\"']?\s*[:=]\s*[\"']?)[A-Za-z0-9_\-]{8,}"),
+    re.compile(r"(?i)(replicant_session=|session:)[A-Za-z0-9_\-]{32,}"),
 )
 
 

@@ -6,6 +6,121 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+Review of 2026-10-07: a fourth adversarial pass over the whole repository at `ef97905`, scoped to what the three closed reviews had not found. Security decision record: `docs/security-review-2026-10-07.md`. Catalog measurement record: `docs/catalog-review-2026-10-07.md`. Every new guard was run against the unfixed code and observed to fail.
+
+### Security (2026-10-07 review)
+
+- **Linear duration parsing (N-01, Medium).** The whole-string check in
+  `parse_duration` was `(?:\d+\s*[smhd]?\s*)+`, whose every optional part can
+  match empty, so a non-matching tail backtracked through 2^N splits of an
+  N-digit run: 1.2 s at 24 digits, 5 s at 26, about a day at 40, from one
+  40 byte authenticated `POST /api/plan`, the web terminal's duration prompt or
+  `--duration`. The parser now scans tokens from the end of the previous one
+  and is linear. Accepted and rejected inputs are unchanged.
+- **A malformed web duration is a 422 (N-02).** `RunBody.duration` carries the
+  same validator as the CLI and menu models, so `/api/plan` and `/api/runs`
+  name the field instead of answering 500.
+- **An over-long output name is a refusal (N-03).** `confined_output_path`
+  bounds the name at 255 bytes and turns any `OSError` from the lookup into a
+  `ConfinementError`, instead of a 500 from the API and a traceback in the
+  menu's output prompt.
+- **The session id never reaches a log (N-04).** The terminal's per-client cap
+  was keyed on the raw cookie value and the bridge logged the key when it
+  refused a session, so the 12 hour bearer credential reached the log ring,
+  `/api/logs`, the SSE log stream and the journal. The key is a digest now, and
+  the redactor also masks `replicant_session=` and `session:` values.
+- **The terminal frame bound is applied before the frame is buffered (N-05).**
+  `uvicorn_config` passes `ws_max_size=MAX_FRAME_BYTES`; the bridge's own check
+  ran after uvicorn had already buffered up to 16 MiB.
+- **Send-lock scope stated correctly (N-06, label).** README and the systemd
+  unit said one sending run per host; the lock lives under
+  `REPLICANT_CONFIG_DIR`, so the unit (which sets its own) and an operator
+  shell hold different slots. Both now say per configuration directory and how
+  to make one cap cover both. The code was already honest; the labels were not.
+- **Open, disclosed (N-07).** `npm audit` reports 8 advisories in the
+  frontend's development tree, all reached through tailwindcss 3.4.x, and the
+  only fix npm offers is tailwindcss 4, a toolchain migration that is a UI
+  change of its own. `npm audit --omit=dev` is zero; nothing in the wheel is
+  affected. The 2026-08 "zero advisories" claim no longer holds and is retired.
+
+### Added (scenarios, 2026-10-07 review)
+
+- **`replicant scenario run --controls {positive,both,negative}`.** `compose()`
+  dropped every negative-control event, so a scenario run was attack-only, the
+  one condition the catalog header says lets any detection score perfectly.
+  The default is `positive`, so every existing run, manifest and advisory means
+  what it meant. `both` composes each foil-emitting stage's benign foil onto the
+  same timeline; `negative` is the foils alone. Stage statistics and the
+  advisory describe the attack stream only; the advisory says when foils are on
+  the wire; the scenario manifest records `controls` and `negative_event_count`.
+
+### Changed (labels, 2026-10-07 review)
+
+- README's FortiGate badge read "verified". The golden lines it refers to are
+  `[Constructed]` from Fortinet's published field rules and confirmed CEF
+  examples, not captured from an appliance, and the reference still carries
+  `[Unverified]` on some extension keys. The badge now says "golden-line
+  checked" and the prose says what the oracle is. The maturity note two lines
+  above it was already honest.
+- README's safety model now states the reputation blind class in one place:
+  synthetic entities are on no threat list, so reputation, Tor, newly
+  registered domain feed and certificate reputation detections are out of
+  scope by design, and no catalog entry claims them. Round 4 of the catalog
+  research asked for this note; it had not been written.
+- The systemd unit's comments said the catalog and frontend load by
+  repository-relative path. They ship inside the package since v0.3.1.
+
+### Fixed (catalog foils, 2026-10-07 review)
+
+Record: `docs/catalog-review-2026-10-07.md`. A measurement pass over seeds 1 to
+25 at every preset found eleven of twenty benign foils separable on a constant,
+a copied value, a hard-coded port or parent, or a count ceiling that did not
+scale with the preset, and two in every seed on one feature. Every positive
+signal held; the foils were the defect, the class v0.7.0 named. The fix pattern
+is one rule: **the foil draws from the attack's own distributions and scales
+with its parameters, preserving only the discriminator the catalog names.**
+`tests/test_foil_parity.py` pins it as a per-technique table of checks over 20
+seeds at 3 presets; every check was run against the unfixed engine and failed.
+
+- **REP-024** the sanctioned-proxy foil copied its bytes verbatim while the
+  relay's legs carried a 3% forwarding draw, so foil pairs were byte-identical
+  in 20 of 20 seeds and attack pairs never. Both share the draw; the foil's pair
+  count now equals the relay's instead of a cap of 20.
+- **REP-020** novel names were bare `<label>.invalid` against a baseline under
+  one parent, so "not under the baseline parent" scored perfectly. Both draw
+  from the same parent pool with the same label envelope; nothing resolves.
+- **REP-002, REP-003, REP-010** foil volume was divided over a hard-coded 16
+  sources, so at medium and high the foil was itself a scan (250 ports per
+  pair, 256 hosts per source, 63 denies per source per minute). Each builder
+  now derives the source count from a declared benign ceiling (10 ports, 10
+  hosts, 5 denies per minute), the catalog states it, and the guard checks the
+  text. REP-002's `gap_ms` parameter is removed: event time is integer seconds,
+  so it was accepted and had no effect.
+- **REP-005** history windows carried one constant byte value on an exact
+  grid. Every window now draws per-session bytes and in-slot jitter.
+- **REP-019** the foil was one source on port 445 at fixed spacing. It is now
+  as many sources as the probe pool, on the probe port set, at the attack's gap
+  distribution and total volume.
+- **REP-018** chain and star legs were different constants and the star was
+  always 3389. They share one byte, duration and port draw.
+- **REP-012** the update-check foil had its own bytes, duration and (at low)
+  interval. It uses the beacon's interval, port, byte envelope and duration
+  draw, keeping the jitter parity that already existed.
+- **REP-013** the server baseline was 12 constant accepts. Servers now probe
+  `fanout` targets per generation with the worm's own accept/deny split and
+  draws; the source-growth property is unchanged and still asserted.
+- **REP-007** the NAT foil at high was 4 events against 401. It carries half
+  the attack's pair count.
+- **REP-023** the catalog claimed destination count could not separate the
+  streams; it could (1 destination against 89 to 184). The text now names
+  destination count, per-pair session count and timing regularity as
+  legitimate discriminators, and the foil is irregularly timed.
+- **Labels.** REP-013 adds T1021.001 (its high preset is RDP); REP-022 adds
+  TA0010 and T1041 (its fifth stage is an outbound-transfer alert, whose
+  `direction` is still `incoming` and is a recorded follow-up); REP-008 and
+  REP-020 state that T1583 is the adversary-side anchor; the header's
+  Credential Access count is 2.
+
 ### Added (catalog discovery and authoring)
 
 - Local web catalog filtering now includes reviewed search aliases and each

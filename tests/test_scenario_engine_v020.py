@@ -293,14 +293,14 @@ def test_rep013_benign_servers_never_overlap_infected_sources(intensity: str) ->
     (10.20.40.0/24) and the baseline comes from internal_hosts (10.20.30.0/24).
     """
     plan = _plan("REP-013", intensity, 108)
-    # The benign server legs carry a fixed byte/duration signature; every
-    # infected host emits at least one blocked probe.
-    benign_sources = {
-        str(e.src)
-        for e in plan.events
-        if e.out_bytes == 2400 and e.in_bytes == 8800 and e.extra.get("duration") == "30"
+    # The server baseline is the labelled negative stream (it used to be picked
+    # out by a constant 2400/8800/30 s leg signature, which was itself the
+    # separable feature test_foil_parity now forbids); every infected host
+    # emits at least one blocked probe.
+    benign_sources = {str(e.src) for e in plan.events if e.control == "negative"}
+    infected_sources = {
+        str(e.src) for e in plan.events if e.control == "positive" and e.action == "deny"
     }
-    infected_sources = {str(e.src) for e in plan.events if e.action == "deny"}
     assert benign_sources, "missing benign server baseline"
     assert not (benign_sources & infected_sources)
 
@@ -539,21 +539,29 @@ def test_rep019_total_probes_is_the_emitted_positive_count(intensity: str) -> No
 # -- REP-020 newly registered domain ------------------------------------------
 
 
+def _rep020_split(intensity: str = "low", seed: int = 1337):
+    """(baseline, novel) events. Novel names share the baseline's parent pool,
+    so they are the events after the baseline_domains count, not a suffix."""
+    plan = _plan("REP-020", intensity, seed)
+    baseline_count = int(CATALOG.by_id("REP-020").params[intensity]["baseline_domains"])
+    return plan.events[:baseline_count], plan.events[baseline_count:]
+
+
 def test_rep020_novel_domains_follow_the_baseline() -> None:
-    plan = _plan("REP-020", "low", 1337)
-    novel = [e for e in plan.events if str(e.extra["qname"]).endswith(".invalid")]
-    baseline = [e for e in plan.events if not str(e.extra["qname"]).endswith(".invalid")]
+    baseline, novel = _rep020_split()
     assert novel and baseline
     assert min(e.eventtime for e in novel) > max(e.eventtime for e in baseline)
+    known = {str(e.extra["qname"]) for e in baseline}
+    assert not known & {str(e.extra["qname"]) for e in novel}
 
 
 def test_rep020_novel_domains_cannot_resolve() -> None:
-    """Reserved TLD, so a generated name cannot resolve even by accident."""
-    plan = _plan("REP-020", "low", 1337)
-    novel = [e for e in plan.events if str(e.extra["qname"]).endswith(".invalid")]
+    """Documentation parent or reserved TLD, so a generated name cannot resolve
+    even by accident. Replicant resolves nothing either way."""
+    _, novel = _rep020_split()
     assert novel
     for event in novel:
-        assert str(event.extra["qname"]).endswith(".invalid")
+        assert str(event.extra["qname"]).split(".", 1)[1] in set(ENTITIES.parents)
 
 
 def test_rep020_warmup_note_marks_first_contact() -> None:

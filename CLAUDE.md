@@ -13,7 +13,7 @@ Full design is in `docs/blueprint.md`. The run-manifest lifecycle and field sema
 1. The only network egress is to the operator-configured collector. Never open a socket to anything else. If no collector is configured, sends must fail closed.
 2. All entities are synthetic. Default IPs are RFC1918 and documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). DNS parents come from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761); note example.net does resolve, .invalid does not, and Replicant resolves neither. No operator-owned or production domains, no real malware, no real C2.
 3. No real attacks. Replicant writes log strings. It never executes commands, scans, or moves data. Attack names and byte counts are fields, nothing more.
-4. Respect the events-per-second cap. Default configurable, protect the operator's own collector. A per-run rate may lower `Settings.eps_cap`, never raise it; a non-sending run is unthrottled and records `rate=null`. The cap is applied by one process's emit loop, so **the supported scope is one sending run per host and it is enforced**, not assumed: a second run that would open a socket to a collector is refused (`replicant/core/sendlock.py`). `--no-send` and file-only runs do not acquire the slot; a live collector send mirrored with `--to-file` does. Two hosts pointed at one collector are still two caps, and nothing on a single machine can see that.
+4. Respect the events-per-second cap. Default configurable, protect the operator's own collector. A per-run rate may lower `Settings.eps_cap`, never raise it; a non-sending run is unthrottled and records `rate=null`. The cap is applied by one process's emit loop, so **the supported scope is one sending run per configuration directory (one user on one host) and it is enforced**, not assumed: a second run that would open a socket to a collector is refused (`replicant/core/sendlock.py`). The lock lives under `REPLICANT_CONFIG_DIR`, so the shipped systemd unit and an operator shell on the same host hold different slots; README and the unit say so (2026-10-07). `--no-send` and file-only runs do not acquire the slot; a live collector send mirrored with `--to-file` does. Two hosts pointed at one collector are still two caps, and nothing on a single machine can see that.
 5. Every run durably writes a `running` manifest before opening any output, checkpoints the rendered-event count during emission, and atomically finalizes the same file (seed, technique, params, entities, target, planned/rendered counts, times, status, partial state). A preflight manifest failure prevents output; an interruption before terminal finalization leaves the last durable non-terminal record. `partial` is true exactly when that record's rendered count is below `planned_event_count`. Platforms or filesystems without directory-entry `fsync` support fail that preflight rather than silently weakening the guarantee. The complete contract is `docs/run-manifest.md`.
 6. The synthetic marker is destination-conditional (roadmap 2026-09 item 3, `Orchestrator._resolve_marker`): ON by default for a non-loopback send (stamps `flexString1`, an unused flex slot, with the run id, so lab data stays separable on a shared collector), OFF for a loopback or file-only (`--to-file --no-send`) run where the golden line is the oracle, `--no-marker` to override with a logged warning. The manifest records the decision in `marker_attestation`. Replicant is a detection-lab tool, not a production SIEM component: see `docs/deployment-boundary.md`.
 
@@ -299,6 +299,45 @@ Output convention: command results go to stdout, operator-facing errors go to st
   3. **Hardening that removes a disclosure is a regression.** `ProcSubset=pid` hid
      `/proc/net/route`, which silently removed the route from the connect test's path line, the
      fix for the transposed-address lab defect. The verify script asserts the route is visible.
+
+- 2026-10-07 review (complete): a fourth adversarial pass at `ef97905`, scoped to what the
+  three closed reviews had not found. Records: `docs/security-review-2026-10-07.md` and
+  `docs/catalog-review-2026-10-07.md`. Security: the duration parser's whole-string regex
+  backtracked exponentially (5 s at 26 digits, about a day at 40) from one authenticated
+  40 byte request, and is now a linear token scan; a malformed web duration is a 422; an
+  over-long output name is a refusal; the terminal cap key is a digest of the session id so
+  the credential never reaches a log; `ws_max_size` matches the frame bound; the send-lock
+  scope is stated as per configuration directory; the frontend's tailwindcss 3 advisories
+  are disclosed as open (dev tree only, the fix is a tailwind 4 migration). Catalog: eleven
+  of twenty benign foils were separable on a constant, a copied value, a hard-coded port or
+  parent, or a count ceiling that did not scale with the preset, and two (REP-024,
+  REP-020) in every seed on one feature. Every positive signal held. All are fixed and
+  `tests/test_foil_parity.py` pins parity per technique over 20 seeds at 3 presets.
+  Scenarios gained `--controls {positive,both,negative}`, default unchanged, because an
+  attack-only chain is the condition the catalog header warns about.
+
+  Three conventions this established:
+  1. **A guard that checks the answer and not the cost has not bounded the cost.** The
+     parser had a table of accepted and rejected inputs and every verdict was right. Any
+     input check reachable from the network needs a hostile input under a time budget, run
+     against the unfixed code. Nested quantifiers over optional parts are the shape to refuse.
+  2. **A foil that passes Tier 0 has not been tested against a rule.** Tier 0's separability
+     threshold equals the preset value, so a REP-002 foil of 250 ports per pair in 30 s was
+     "separable" from an attack of 4000 and was also a port scan to any production rule.
+     The foil draws from the attack's own distributions and scales with its parameters,
+     preserving only the discriminator the catalog names, the catalog states the benign
+     ceiling, and the guard asserts parity on every unnamed feature across seeds.
+  3. **"Verified" names the oracle or it is a label defect.** The README badge said FortiGate
+     verified; the golden lines are `[Constructed]` from vendor documentation. The code was
+     honest in every one of this review's label findings (send-lock scope, the unit file's
+     repository-relative note, the badge); the summaries were not. Same class as v0.3.0's
+     third lesson.
+
+  Ranked backlog from the coverage tally, all behind the launch gate: firewall admin-plane
+  login plus config-change burst (Defense Evasion), ransomware-like SMB write fan-out
+  (Impact), internal reflector participation (Impact, bytes not rate), staging fan-in then
+  egress (Collection, SCEN-004 first), VPN login from an unfamiliar source network. The
+  reasoning and the set-aside list are in the catalog record.
 
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 

@@ -1313,6 +1313,7 @@ class Orchestrator:
             self.entities,
             intensity_override=request.intensity_override,
             duration_s=parse_duration(request.duration) if request.duration else None,
+            controls=request.controls,
         )
         return self._pacing_preview(
             composed.events,
@@ -1440,6 +1441,7 @@ class Orchestrator:
             self.entities,
             intensity_override=request.intensity_override,
             duration_s=parse_duration(request.duration) if request.duration else None,
+            controls=request.controls,
         )
         target, transport = self._describe_target(request, send)
         eps_cap = self._effective_eps_cap(request.rate_override)
@@ -1492,6 +1494,8 @@ class Orchestrator:
             pace=pace,
             speed=request.speed,
             duration=request.duration,
+            controls=request.controls,
+            negative_event_count=composed.negative_count,
             rate=eps_cap if send else None,
             send_stats=None,
             syslog_format=self.settings.syslog_format if send else None,

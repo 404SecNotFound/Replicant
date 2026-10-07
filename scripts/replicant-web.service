@@ -34,15 +34,20 @@ Type=simple
 User=replicant
 Group=replicant
 
-# The repository checkout. Replicant loads its technique catalog and the built
-# frontend by repository-relative path, so this must be the checkout root and the
-# install must be editable (`pip install -e ".[web]"`).
+# The install root. Runtime data (catalog, built frontend) ships inside the
+# package since v0.3.1, so this only has to be a directory the service user can
+# read; the installer puts the checkout and its venv here.
 WorkingDirectory=/opt/replicant
 
 # Keep config beside the checkout rather than in the service user's home, so
 # ProtectHome below can stay on. Replicant creates this directory 0700 and the
 # token file inside it 0600 on first start. A TLS collector's CA bundle for the
 # web UI goes in its ca/ subdirectory and is named by file name only.
+#
+# The single-sending-run lock also lives here, so it covers runs started through
+# this service. A `replicant run` from an operator shell uses ~/.config/replicant
+# and holds a different slot; export the same REPLICANT_CONFIG_DIR in that shell
+# if one events-per-second cap must cover both.
 Environment=REPLICANT_CONFIG_DIR=/opt/replicant/.config/replicant
 
 # Bind to the address this host should answer on. 0.0.0.0 serves every interface.

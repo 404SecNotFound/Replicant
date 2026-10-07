@@ -129,6 +129,14 @@ def build_advisory(
     lines.append("")
     lines.append(_BOUNDARY)
     lines.append("")
+    if composed.negative_count:
+        lines.append(
+            f"Benign foils: {composed.negative_count} negative-control events were composed "
+            f"onto this timeline (`--controls {composed.controls}`). Every count below "
+            "describes the attack stream only; the foils are on the wire and in "
+            "`planned_event_count`, and a rule that fires on them is a false positive."
+        )
+        lines.append("")
 
     lines.append("## Through-line (correlate on these)")
     if victim_stages:

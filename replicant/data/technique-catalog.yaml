@@ -61,7 +61,7 @@
 # The next technique is gated on the tactic-gap tally, not on which paper had
 # measured results. This catalog is heavily weighted to Command and Control (13 of
 # 26 techniques carry TA0011, several of them beacon/callback variants) while
-# network-visible Impact (1), Credential Access (1) and Defense Evasion (1) sit
+# network-visible Impact (1), Credential Access (2) and Defense Evasion (1) sit
 # near zero. A ninth beacon variant has near-zero marginal coverage value; weight
 # a new entry by the tactic it fills, and record its prevalence basis. A recorded
 # rule, downstream of the coverage scorecard deferred until F2 produces real
@@ -123,14 +123,15 @@ techniques:
     cef_fields_held: ["src", "dst"]
     cef_fields_varied: ["dpt", "act", "rt", "externalId"]
     params:
-      low:    { unique_ports: 200,  window_s: 120, gap_ms: [10, 50] }
-      medium: { unique_ports: 1000, window_s: 60,  gap_ms: [2, 20] }
-      high:   { unique_ports: 4000, window_s: 30,  gap_ms: [1, 5] }
+      low:    { unique_ports: 200,  window_s: 120 }
+      medium: { unique_ports: 1000, window_s: 60 }
+      high:   { unique_ports: 4000, window_s: 30 }
     distributions:
       dpt: "randomized across 1-65535"
       out_bytes: "~0"
       action_mix: "mostly deny, occasional accept on open ports"
-    benign_baseline: "the same global probe volume, port set, actions and window are spread across routine source/destination pairs so per-pair unique-port count is the intended discriminator"
+      timing: "probes spread evenly across window_s. A gap_ms cadence parameter was removed: eventtime is integer epoch seconds, so a millisecond gap was accepted and had no effect"
+    benign_baseline: "the same global probe volume, port set, actions and window are spread across enough routine source/destination pairs that no benign pair exceeds 10 distinct ports per minute, so per-pair unique-port count is the intended discriminator"
     emits_foil: true
     references: ["UC-002a", "fortigate-cef-reference: T1046 vertical"]
     safety_notes: "dst is a single synthetic internal or DMZ target"
@@ -159,7 +160,7 @@ techniques:
     distributions:
       dst: "iterate a /24 to /16 synthetic internal range"
       port_choices: [445, 3389, 22, 23, 80]
-    benign_baseline: "the same global destination, action, port and time distributions are spread across routine administrative sources so per-source unique-host count is the intended discriminator"
+    benign_baseline: "the same global destination, action, port and time distributions are spread across enough routine administrative sources that no benign source exceeds 10 distinct hosts per minute on the port, so per-source unique-host count is the intended discriminator"
     emits_foil: true
     references: ["UC-002b", "fortigate-cef-reference: T1046 horizontal"]
     safety_notes: "dst pool is synthetic internal space only"
@@ -219,7 +220,7 @@ techniques:
       out_bytes: "large; out:in ratio > 20:1"
       dpt_choices: [443, 22, 21]
       timing: "pinned to off-hours (00:00-06:00) to raise anomaly score"
-    benign_baseline: "a matched current-window bulk transfer is preceded by the same host's established high-volume history; the positive host has three low-volume history windows, so deviation from per-host history is the intended discriminator"
+    benign_baseline: "a matched current-window bulk transfer is preceded by the same host's established high-volume history; the positive host has three low-volume history windows. Every window draws its per-session bytes and in-slot timing with the current window's own jitter, so deviation from per-host history is the intended discriminator"
     emits_foil: true
     references: ["UC-004 Outliers Nth Percentile", "fortigate-cef-reference: T1041/T1048"]
     safety_notes: "byte counts are integers in the log only; no real data moves"
@@ -308,7 +309,7 @@ techniques:
       approach: "engine first emits a baseline of known dst per host, then introduces first-seen external dst"
       baseline_time: "compressed. baseline_days sets the history's volume (one contact per known destination per simulated day), not its span: the whole baseline sits in the hour before first contact, so plan pacing and --duration stay bounded. A novelty rule with a multi-day lookback sees one hour of history"
     benign_baseline: "host talks to a stable set of external destinations"
-    references: ["UC-007 Whitelist Profile", "fortigate-cef-reference: T1583"]
+    references: ["UC-007 Whitelist Profile", "fortigate-cef-reference: T1583", "T1583 is the adversary-side anchor (infrastructure acquired before contact) and is not observable in victim telemetry; the observable is the first-contact behaviour"]
     safety_notes: "requires a baseline phase; the run summary states the warm-up and that its history is compressed into one hour of event time"
 
   - id: REP-009
@@ -364,7 +365,7 @@ techniques:
     distributions:
       dst: "one or many synthetic external destinations"
       pattern: "sharp rate spike, then decay"
-    benign_baseline: "the same global deny count, ports, destinations and action distribution are spread uniformly across routine internal sources; per-source count and the sharp temporal burst are the intended discriminators"
+    benign_baseline: "the same global deny count, ports, destinations and action distribution are spread uniformly across enough routine internal sources that no benign source exceeds 5 denies per minute; per-source count and the sharp temporal burst are the intended discriminators"
     emits_foil: true
     references: ["UC-009", "fortigate-cef-reference: T1090 denied burst"]
     safety_notes: "synthetic destinations only"
@@ -437,7 +438,7 @@ techniques:
       interval: "jitter mode holds one src and widens jitter until per-host periodicity is weak (each gap is the interval +/- jitter_pct, so the phase random-walks). fleet mode gives each src a rare callback anchored to its own offset phase on a shared interval grid, displaced by at most jitter_pct/100 * 0.375 of the interval, so the period is only strongly visible in the aggregate across src"
       out_bytes: "log-normal, low variance, same profile as REP-001"
       dpt_choices: [443, 8443]
-    benign_baseline: "a benign periodic destination (software update check every 30 minutes, from a host outside the attacking fleet) is emitted alongside, with the same jitter process and jitter_pct as the beacon, because both source papers name legitimate periodic software as the dominant false positive. A zero-jitter update check would be more periodic than the attack and reward the wrong detector"
+    benign_baseline: "a benign periodic destination (a software update check from a host outside the attacking fleet) is emitted alongside, at the beacon's own interval, port, byte envelope and session-duration draw and with the same jitter process and jitter_pct, because both source papers name legitimate periodic software as the dominant false positive. A zero-jitter update check would be more periodic than the attack and reward the wrong detector; one at its own cadence or byte size would hand the detector a feature the papers say it does not have"
     emits_foil: true
     references: ["BAYWATCH DSN 2016", "Zhang et al. ACSAC 2023 aggregation-based beaconing detection"]
     safety_notes: "one synthetic external destination from 203.0.113.0/24"
@@ -451,7 +452,7 @@ techniques:
       Prove a lateral-spread rule keys on a growing population of source hosts rather than on east-west SMB traffic, which is normal on its own.
     attack:
       tactics: ["TA0008 Lateral Movement", "TA0007 Discovery"]
-      techniques: ["T1210", "T1021.002", "T1046"]
+      techniques: ["T1210", "T1021.002", "T1021.001", "T1046"]   # T1021.001: the high preset spreads over RDP (3389)
     fortigate:
       log_type: "traffic"
       subtype: "forward"
@@ -467,7 +468,7 @@ techniques:
       growth: "each infected source probes fanout targets; a fixed fraction accept and become sources in the next generation, so the count of DISTINCT sources on the port grows geometrically"
       action_mix: "majority deny (target absent or not vulnerable), minority accept (successful spread)"
       port_choices: [445, 3389, 22, 23]
-    benign_baseline: "east-west SMB is normal, but from a small stable set of server sources; the signal is a growing source population, not the traffic itself"
+    benign_baseline: "east-west SMB is normal, but from a small stable set of server sources. Each server carries the worm's own per-source fanout, accept/deny mix and byte and duration draws, so the signal is a growing source population, not the traffic itself"
     emits_foil: true
     references: ["PORTFILER IEEE CNS 2021"]
     safety_notes: "nothing propagates. The generation count is arithmetic in a loop and every address is synthetic internal space. No code executes"
@@ -632,7 +633,7 @@ techniques:
       path: "a login into hop 1, then each hop becomes the source of the login into the next. Strictly ordered, never overlapping"
       user_switch: "duser changes at switch_at_hop, modelling credential theft partway along the path (the causal-user change Hopper keys on)"
       timing: "hops separated by minutes within window_min"
-    benign_baseline: "an admin star pattern is emitted alongside: one workstation logging into several hosts. The star emits path_len-1 logins against the chain's path_len total records (a tunnel-up plus one login per subsequent hop); the shapes, not the counts, are what separate them. Separating star from chain is the detection"
+    benign_baseline: "an admin star pattern is emitted alongside: one workstation logging into several hosts. The star emits path_len-1 logins against the chain's path_len total records (a tunnel-up plus one login per subsequent hop), with the chain's own port rotation and traffic-leg byte and duration draw; the shapes, not the counts, ports or bytes, are what separate them. Separating star from chain is the detection"
     emits_foil: true
     references: ["Hopper, USENIX Security 2021", "LMDetect 2024", "Euler NDSS 2022"]
     safety_notes: "usernames from the synthetic directory pool, same as REP-007. No authentication is attempted against anything"
@@ -662,7 +663,7 @@ techniques:
       gap: "minutes between probes, so no rate window accumulates enough events to trip a threshold"
       src_rotation: "probes spread across src_pool to keep per-source counts under per-source thresholds"
       order: "randomized destination and port order, defeating sequential-sweep signatures"
-    benign_baseline: "sparse policy denies look nearly identical. Separating them needs long-window aggregation across the whole source pool, which is exactly what TRW-style detectors do not do by default"
+    benign_baseline: "sparse policy denies from as many unrelated hosts as the probe pool, on the same port set, at the same gap distribution and total volume, look nearly identical; each benign host retries the same two targets while the probes cover many. Separating them needs long-window aggregation across the whole source pool, which is exactly what TRW-style detectors do not do by default"
     emits_foil: true
     references: ["Jung et al., Fast Portscan Detection Using Sequential Hypothesis Testing, IEEE S&P 2004"]
     safety_notes: "synthetic targets only. Long by design; the span is stated in the run summary"
@@ -689,14 +690,14 @@ techniques:
       medium: { baseline_domains: 500, novel_domains: 3, hosts: 3, window_min: 30 }
       high:   { baseline_domains: 800, novel_domains: 8, hosts: 8, window_min: 15 }
     distributions:
-      baseline: "a stable set of synthetic domains, each queried once by one host, establishing organizational normal"
-      novel: "domains never queried before by any host, low query count, contacted by few hosts"
+      baseline: "a stable set of synthetic domains under the documentation and .invalid parent pool, each queried once by one host, establishing organizational normal"
+      novel: "domains never queried before by any host, low query count, contacted by few hosts. Drawn under the same parent pool with the same label-length envelope as the baseline, so absence from the history is the only mark of novelty"
     benign_baseline: "the baseline_domains phase IS the baseline. Novelty is organization-wide, unlike REP-008 which is novel per host"
     transferability: "parser-only"
     transferability_note: >-
-      The organisation-wide first-contact novelty (a domain never queried before) transfers, but the cited PREDATOR-class detector scores domain registration age from WHOIS. The emitted domains use reserved TLDs and carry no registration metadata, and Replicant performs no WHOIS, so the registration-age scoring the shipped rule depends on is not exercised.
-    references: ["PREDATOR, Hao et al., CCS 2016"]
-    safety_notes: "novel domains use reserved TLDs. Replicant performs no registration and no WHOIS lookup, and resolves nothing"
+      The organisation-wide first-contact novelty (a domain never queried before) transfers, but the cited PREDATOR-class detector scores domain registration age from WHOIS. The emitted domains sit under IANA documentation parents or the reserved .invalid TLD and carry no registration metadata, and Replicant performs no WHOIS, so the registration-age scoring the shipped rule depends on is not exercised.
+    references: ["PREDATOR, Hao et al., CCS 2016", "T1583.001 is the adversary-side anchor (the domain is registered before contact) and is not observable in victim telemetry; the observable is the first-contact behaviour"]
+    safety_notes: "every name sits under an IANA documentation parent or the reserved .invalid TLD. Replicant performs no registration and no WHOIS lookup, and resolves nothing"
 
   - id: REP-021
     name: "Inbound perimeter scan reception"
@@ -736,8 +737,8 @@ techniques:
     objective: >-
       Prove a correlation rule keys on the kill-chain order of alerts rather than on how many arrived in a window.
     attack:
-      tactics: ["TA0043 Reconnaissance", "TA0001 Initial Access", "TA0011 Command and Control"]
-      techniques: ["T1595", "T1190", "T1071"]
+      tactics: ["TA0043 Reconnaissance", "TA0001 Initial Access", "TA0011 Command and Control", "TA0010 Exfiltration"]
+      techniques: ["T1595", "T1190", "T1071", "T1041"]   # T1041: the high preset's fifth stage is an outbound-transfer alert
     fortigate:
       log_type: "utm"
       subtype: "ips"
@@ -784,7 +785,7 @@ techniques:
       byte_profile: "the distinguishing feature is LOW variance, not high volume. Browsing to 443 has wildly variable transfer sizes; this does not"
       duration: "short and consistent per session, unlike a browsing session that holds open"
       handshake: "no handshake-derived field is emitted at all. A detection that needs JA3 or a cipher suite gets nothing, which is the point of the technique"
-    benign_baseline: "concurrent browsing to 443 to other destinations with high byte variance and varied durations, so neither port nor destination count can separate them"
+    benign_baseline: "concurrent browsing to 443 from the same host, with the same session count over the same window, high byte variance, varied durations and irregular timing. Port, source and session count are held equal; a beacon talks to one destination on a fixed interval, so destination count, per-pair session count and timing regularity are legitimate discriminators alongside byte variance, and the foil does not pretend otherwise"
     emits_foil: true
     references: ["Extending C2 Traffic Detection Methodologies: From TLS 1.2 to TLS 1.3-enabled Malware, RAID 2024"]
     safety_notes: "one synthetic external destination. Replicant negotiates no TLS for this technique; the --transport tls option is a separate concern (it encrypts the syslog channel to the collector)"

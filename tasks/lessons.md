@@ -330,3 +330,33 @@ they were merged, because they were — existence was the thing never checked.
 is what reconciles the local view. Any claim about what exists on a remote must come from one
 of those, never from `git branch -r`. The failure mode is a confident, specific, wrong
 statement — the same shape as the measurement lesson above.
+
+## A guard that checks the answer and not the cost has not bounded the cost
+
+**2026-10-07, duration parser.** `parse_duration` had a table of accepted and rejected
+inputs and every verdict was right. Its whole-string check, `(?:\d+\s*[smhd]?\s*)+`, has
+every optional part able to match empty, so a non-matching tail backtracks through 2^N
+splits of an N-digit run: 1.2 s at 24 digits, 5 s at 26, about a day at 40. One 40 byte
+authenticated request, from the web form, the confined web terminal's prompt or
+`--duration`, pinned a worker. Three closed security reviews, a 64 KiB body cap and
+pre-body authentication all sat in front of it, and none of them bounded what the server
+would do with eight bytes it had already accepted.
+
+**Rule:** any input check reachable from the network needs a guard on its cost, not only on
+its verdict: a hostile input under a time budget, run against the unfixed code and observed
+to blow the budget. Nested quantifiers over optional parts are the specific shape to refuse
+in review; a token scanner that advances by `match` from the previous token's end is linear
+and says the same thing.
+
+## A foil that passes the project's own threshold has not been tested against a rule
+
+**2026-10-07, catalog foils.** Eleven of twenty benign foils were separable on a constant, a
+copied value, a hard-coded port or parent, or a count ceiling that did not scale with the
+preset, and two in 100% of seeds on one feature. Every one passed Tier 0, because Tier 0's
+separability threshold equals the preset value: a REP-002 foil of 250 ports per pair in
+30 s is "separable" from an attack of 4000, and is also a port scan to any production rule.
+
+**Rule:** a foil guard asserts parity with the attack on every feature the catalog does not
+name as the discriminator (bytes, duration, port, parent, per-source load, count scaling),
+across seeds, and the catalog states the benign ceiling the foil stays under. "A negative
+stream exists" is not a property of the foil.

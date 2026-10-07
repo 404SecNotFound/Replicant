@@ -49,6 +49,7 @@ import asyncio
 import contextlib
 import dataclasses
 import functools
+import hashlib
 import ipaddress
 import json
 import os
@@ -76,7 +77,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.requests import HTTPConnection
 from starlette.websockets import WebSocket
 
@@ -101,6 +102,7 @@ from replicant.core.models import (
     RunRequest,
     Technique,
     Transport,
+    validate_duration,
 )
 from replicant.core.orchestrator import Orchestrator, PacingPreview, effective_identity
 from replicant.core.pacing import MAX_SPEED, SPEED_WITHOUT_PLAN, Pace
@@ -121,7 +123,7 @@ from replicant.web.guards import (
     confined_cafile,
     prune_evidence,
 )
-from replicant.web.pty_bridge import bridge_terminal
+from replicant.web.pty_bridge import MAX_FRAME_BYTES, bridge_terminal
 from replicant.web.runner import (
     RunAdmissionError,
     RunHandle,
@@ -517,6 +519,9 @@ class CollectorBody(BaseModel):
 class RunBody(BaseModel):
     technique_id: str
     intensity: Intensity = "medium"
+    # Validated here, at the request boundary, so a malformed value is a 422
+    # with the field named rather than a 500 from the RunRequest built inside
+    # the handler (2026-10-07 review, N-02).
     duration: str | None = None
     seed: int | None = Field(default=None, ge=0)
     to_file: str | None = None
@@ -550,6 +555,8 @@ class RunBody(BaseModel):
     # that repeats one signature. Other techniques reject the option rather
     # than accepting an inert control.
     signature_mode: Literal["mixed", "single"] | None = None
+
+    _check_duration = field_validator("duration")(validate_duration)
 
     @model_validator(mode="after")
     def _signature_mode_is_rep009_only(self) -> RunBody:
@@ -1739,7 +1746,12 @@ def create_app(
         """
 
         if source == "cookie":
-            return f"session:{websocket.cookies.get(SESSION_COOKIE) or ''}"
+            # A digest, not the id. The key only has to be stable per session,
+            # and the bridge logs it when it refuses one; the raw cookie value
+            # is a 12 hour bearer credential and reached the log ring, the SSE
+            # log stream and the journal that way (2026-10-07 review, N-04).
+            sid = websocket.cookies.get(SESSION_COOKIE) or ""
+            return f"session:{hashlib.sha256(sid.encode()).hexdigest()[:16]}"
         if source in {"header", "query"}:
             return "launch-token"
         return f"peer:{websocket.client.host if websocket.client else 'unknown'}"
@@ -2056,4 +2068,9 @@ def uvicorn_config(app: Any, trusted_proxies: Iterable[str] = ()) -> uvicorn.Con
         loop="asyncio",
         proxy_headers=bool(proxies),
         forwarded_allow_ips=proxies,
+        # The terminal's frame bound, applied where the frame is read. The bridge
+        # checks MAX_FRAME_BYTES after receipt, by which point uvicorn had already
+        # buffered up to its 16 MiB default per frame (2026-10-07 review, N-05).
+        ws_max_size=MAX_FRAME_BYTES,
+        ws_max_queue=4,
     )
