@@ -85,11 +85,11 @@ function Card({
 // between cells, not drawn borders in the outline gray.
 function Tile({ k, v, context }: { k: string; v: string; context?: string }) {
   return (
-    <div className="min-w-0 border-b border-background p-4 odd:border-r [&:nth-last-child(-n+2)]:border-b-0">
+    <div className="min-w-0 border-b border-background p-4 odd:border-r nth-last-[-n+2]:border-b-0">
       <span className="mb-2 block font-mono text-label uppercase tracking-[-0.24px] text-text-4">
         {k}
       </span>
-      <span className="block break-words text-stat tracking-[-0.025em] text-foreground">{v}</span>
+      <span className="block wrap-break-word text-stat tracking-tight text-foreground">{v}</span>
       {context && (
         <span className="mt-1 block font-mono text-micro uppercase tracking-[-0.24px] text-text-4">
           {context}
@@ -290,7 +290,7 @@ export function TechniqueDetail({ technique, vendor }: Props) {
       {technique.objective && (
         <p
           data-testid="technique-objective"
-          className="mt-4 max-w-[640px] text-lede tracking-[-0.025em] text-foreground"
+          className="mt-4 max-w-[640px] text-lede tracking-tight text-foreground"
         >
           {technique.objective}
         </p>

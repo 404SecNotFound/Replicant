@@ -22,7 +22,7 @@ import { extendTailwindMerge } from "tailwind-merge";
 // cn() call: cn("text-label", "text-signal") returned just "text-signal", and
 // the element quietly inherited its parent's size. Measured live on the vendor
 // segmented control, which rendered 16px while its class list said 12px.
-// The rung names here must match the fontSize keys in tailwind.config.js.
+// The rung names here must match the `--text-<rung>` tokens in src/index.css.
 const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {

@@ -1271,7 +1271,7 @@ export function RunPanel({
             onClick={handleStopLocked}
             disabled={lockedRunControlDisabled}
             aria-busy={lockedRunControlDisabled || undefined}
-            className="inline-flex items-center rounded-btn border border-destructive/50 px-2.5 py-1.5 font-mono text-label uppercase tracking-[-0.24px] transition-colors enabled:hover:border-destructive disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex items-center rounded-btn border border-destructive/50 px-2.5 py-1.5 font-mono text-label uppercase tracking-[-0.24px] transition-colors enabled:hover:border-destructive disabled:cursor-wait disabled:opacity-60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
             {lockedRunIsTerminal
               ? `Checking ${lockedBy.technique_id ?? "run"}…`
@@ -1353,7 +1353,7 @@ export function RunPanel({
               <summary className="text-label text-muted-foreground">{intensity.charAt(0).toUpperCase() + intensity.slice(1)} preset parameters</summary>
               <dl className="mt-3 grid grid-cols-2 gap-3 text-label">
                 {Object.entries(technique.params[intensity] ?? {}).map(([key, value]) => <div key={key} className="min-w-0">
-                  <dt className="text-muted-foreground">{key.replace(/_/g, " ")}</dt><dd className="break-words font-mono text-foreground">{typeof value === "object" ? JSON.stringify(value) : String(value)}</dd>
+                  <dt className="text-muted-foreground">{key.replace(/_/g, " ")}</dt><dd className="wrap-break-word font-mono text-foreground">{typeof value === "object" ? JSON.stringify(value) : String(value)}</dd>
                 </div>)}
               </dl>
               <p className="mt-2 text-label text-muted-foreground">Catalog defaults. An entered duration overrides the preset span.</p>
@@ -1462,7 +1462,7 @@ export function RunPanel({
           {hasResult && <section aria-label="Run result" className="min-w-0">
             <div className="panel">
               <h2 className="text-sm font-medium">{running ? "Active run" : "Latest run evidence"}</h2>
-              <p className="mt-2 break-words font-mono text-label">{resultTechnique} · {vendorShortLabel(resultVendor)}</p>
+              <p className="mt-2 wrap-break-word font-mono text-label">{resultTechnique} · {vendorShortLabel(resultVendor)}</p>
               {!remoteManifest && runDraft && <p data-testid="run-destination" className="mt-2 break-all text-label text-muted-foreground">
                 {runDraft.body.no_send ? "No send" : `${runDraft.body.collector?.host}:${runDraft.body.collector?.port} · ${runDraft.body.collector?.transport.toUpperCase()}`}
                 {runDraft.body.to_file ? ` · File: ${runDraft.outputPath ?? (manifest?.transport === "file" ? manifest.target : "awaiting resolved path")}` : ""}
