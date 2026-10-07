@@ -1,14 +1,156 @@
+/* Tailwind 4. The theme that used to live in tailwind.config.js is the @theme
+   block below; the design contract is docs/webui-silver-red-design.md and the
+   type-scale rule is docs/webui-factory-design.md section 5. Under v3 nothing
+   was in a cascade layer, so the project's own rules (fonts, .u-label, the
+   focus outline, .doc-prose) stay unlayered here: unlayered CSS outranks every
+   layer in v4, which is exactly the v3 ordering. */
 @import "@xterm/xterm/css/xterm.css";
+@import "tailwindcss";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@theme {
+  /* The type scale.
+
+     Before this there were ELEVEN hardcoded sizes across 84 call sites
+     (9, 9.5, 10.5, 11, 11.5, 12, 12.5, 13, 14, 23, 25) and no scale in the
+     design doc at all. That is not a scale, it is eleven separate decisions
+     made one component at a time, each locally reasonable and never compared.
+     Measured on the rendered page: 58 of 104 text elements sat below 12px and
+     only 3 reached the 16px browser default.
+
+     The distinction that matters is READ versus SCAN. Prose is read in
+     sentences and needs size; tabular and monospace data is scanned, and
+     density genuinely helps there. So `data` and `mono` stay tight while
+     `body` and `lede` grow, and nothing is below 11px any more.
+
+     cn() in src/lib/utils.ts must know every rung here (utils.test.ts reads
+     them from this file), or tailwind-merge deletes the size when a colour
+     follows it in the same call. Add a rung, register it. */
+  --text-micro: 11px;
+  --text-micro--line-height: 1.45;
+  --text-label: 12px;
+  --text-label--line-height: 1.5;
+  --text-data: 12.5px;
+  --text-data--line-height: 1.55;
+  --text-body: 14px;
+  --text-body--line-height: 1.6;
+  --text-lede: 16px;
+  --text-lede--line-height: 1.5;
+  --text-stat: 22px;
+  --text-stat--line-height: 1.3;
+  --text-title: 36px;
+  --text-title--line-height: 1.15;
+
+  --color-selection: hsl(var(--selection));
+  --color-selected: hsl(var(--selected));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-signal: hsl(var(--signal));
+  --color-signal-foreground: hsl(var(--signal-foreground));
+
+  --color-metric: hsl(var(--metric));
+  --color-elev: hsl(var(--elev));
+  --color-frame: hsl(var(--frame));
+  --color-well: hsl(var(--well));
+  --color-text-3: hsl(var(--text-3));
+  --color-text-4: hsl(var(--text-4));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-btn: 6px;
+
+  --font-sans: Geist, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  --animate-rise: rise 0.34s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(7px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@utility panel {
+  @apply min-w-0 rounded-lg border bg-card p-4 sm:p-5;
+}
+
+@utility section-title {
+  @apply mb-4 flex items-center gap-3 text-sm font-medium;
+}
+
+@utility step-number {
+  @apply flex h-6 w-6 shrink-0 items-center justify-center rounded border border-selection bg-selected font-mono text-micro text-foreground;
+}
+
+@utility action-button {
+  @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-btn bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors enabled:hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@utility quiet-button {
+  @apply inline-flex min-h-9 items-center justify-center gap-2 rounded-btn border px-3 py-2 text-sm text-foreground transition-colors enabled:hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@utility selection-button {
+  @apply flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-btn border bg-well px-3 py-2 text-sm text-muted-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  &[aria-checked='true'] {
+    @apply border-selection bg-selected text-foreground;
+  }
+  &[aria-checked='false']:hover {
+    @apply border-muted-foreground text-foreground;
+  }
+}
 
 /* Geist (sans) and JetBrains Mono, self-hosted, both OFL 1.1; the license texts
    ship beside the .woff2 files in /fonts. Design system: docs/webui-silver-red-design.md */
-@font-face{font-family:"Geist";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/geist-400.woff2") format("woff2")}
-@font-face{font-family:"Geist";font-weight:500;font-style:normal;font-display:swap;src:url("/fonts/geist-500.woff2") format("woff2")}
-@font-face{font-family:"JetBrains Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/jetbrains-mono-400.woff2") format("woff2")}
+@font-face {
+  font-family: 'Geist';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/geist-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/geist-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-400.woff2') format('woff2');
+}
 
 @layer base {
   /* Silver reading text, true red actions and selections, charcoal surfaces.
@@ -58,6 +200,13 @@
     font-family: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
     font-feature-settings: "calt" 1;
   }
+
+  /* Tailwind 4's preflight leaves buttons on the default cursor; v3's gave
+     them a pointer and every control here was designed under that. Kept. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
 /* Human-readable interface labels. Technical values opt into font-mono. */
@@ -68,20 +217,18 @@
   color: hsl(var(--text-3));
 }
 
-@layer components {
-  .panel { @apply min-w-0 rounded-lg border bg-card p-4 sm:p-5; }
-  .section-title { @apply mb-4 flex items-center gap-3 text-sm font-medium; }
-  .step-number { @apply flex h-6 w-6 shrink-0 items-center justify-center rounded border border-selection bg-selected font-mono text-micro text-foreground; }
-  .action-button { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-btn bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors enabled:hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50; }
-  .quiet-button { @apply inline-flex min-h-9 items-center justify-center gap-2 rounded-btn border px-3 py-2 text-sm text-foreground transition-colors enabled:hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50; }
-  .selection-button { @apply flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-btn border bg-well px-3 py-2 text-sm text-muted-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
-  .selection-button[aria-checked="true"] { @apply border-selection bg-selected text-foreground; }
-  .selection-button[aria-checked="false"]:hover { @apply border-muted-foreground text-foreground; }
-}
-
-button:focus-visible, summary:focus-visible, input:focus-visible, a:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 3px;
+/* The default focus outline for anything that does not set its own. Inside
+   @layer base on purpose: a control that carries focus-visible:outline-hidden
+   and a ring utility must win, as it did under v3 by specificity. Left
+   unlayered, this rule outranks the utilities layer in v4 and every focused
+   input rendered the outline AND the ring (measured as a doubled ring on the
+   Host field, the one pixel difference the migration's before/after
+   screenshot pass found). */
+@layer base {
+  button:focus-visible, summary:focus-visible, input:focus-visible, a:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
+  }
 }
 summary { cursor: pointer; }
 .compact-signal svg text { font-size: 13px; }

@@ -142,7 +142,7 @@ export function DocsView() {
             disabled={!page.available}
             aria-current={page.id === current ? "true" : undefined}
             className={cn(
-              "whitespace-nowrap rounded-md border border-transparent px-2.5 py-2 text-left text-body transition-colors hover:bg-secondary disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "whitespace-nowrap rounded-md border border-transparent px-2.5 py-2 text-left text-body transition-colors hover:bg-secondary disabled:opacity-40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               page.id === current && "border-selection bg-selected",
             )}
           >

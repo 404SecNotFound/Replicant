@@ -240,7 +240,7 @@ export default function App() {
             <p className="mt-2 px-3 text-label text-muted-foreground">{collector ? "Receipt remains unconfirmed." : "Runs default to no send."}</p>
           </div>
         </aside>
-        <main ref={mainRef} id="workspace" tabIndex={-1} className="min-w-0 flex-1 p-4 outline-none sm:p-6 lg:overflow-y-auto lg:scroll-thin xl:p-8">
+        <main ref={mainRef} id="workspace" tabIndex={-1} className="min-w-0 flex-1 p-4 outline-hidden sm:p-6 lg:overflow-y-auto lg:scroll-thin xl:p-8">
           {/* Keep drafts, evidence, and admission ownership mounted across navigation
               and profile loading. Lazy auxiliary views still poll only when open. */}
           <section hidden={tab !== "emitter"} aria-label="Run workspace">

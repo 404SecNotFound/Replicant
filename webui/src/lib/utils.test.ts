@@ -22,9 +22,10 @@ describe("cn keeps the type scale", () => {
   // Found live: the vendor segmented control rendered 16px against a class
   // list that said text-label. cn() is configured to know the rungs; this
   // pins that configuration, for every rung the config declares.
-  it("every fontSize rung in tailwind.config.js survives a color in the same call", async () => {
-    const source = (await import("../../tailwind.config.js?raw")).default;
-    const rungs = [...source.matchAll(/(\w+):\s*\["[0-9.]+px"/g)].map((m) => m[1]);
+  it("every type-scale rung in index.css's @theme survives a color in the same call", async () => {
+    // Tailwind 4: the scale is the `--text-<rung>: <px>` tokens in @theme.
+    const source = (await import("../index.css?raw")).default;
+    const rungs = [...source.matchAll(/--text-([a-z]+):\s*[0-9.]+px;/g)].map((m) => m[1]);
     expect(rungs.length).toBeGreaterThanOrEqual(6);
 
     for (const rung of rungs) {

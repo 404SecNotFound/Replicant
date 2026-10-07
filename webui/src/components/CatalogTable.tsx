@@ -73,7 +73,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
           placeholder="Search names, IDs, objectives, or aliases"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full rounded-btn border bg-well px-3 py-2 text-body placeholder:text-text-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="w-full rounded-btn border bg-well px-3 py-2 text-body placeholder:text-text-4 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         />
       </div>
 
@@ -112,7 +112,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
               <button
                 onClick={() => toggleGroup(group.tactic)}
                 aria-expanded={open}
-                className="flex w-full items-center gap-1 rounded px-2.5 py-1.5 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex w-full items-center gap-1 rounded px-2.5 py-1.5 text-left transition-colors hover:bg-secondary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <ChevronRight
                   className={cn("h-3 w-3 text-text-4 transition-transform", open && "rotate-90")}
@@ -132,7 +132,7 @@ export function CatalogTable({ techniques, selectedId, onSelect }: Props) {
                       aria-current={sel ? "true" : undefined}
                       onClick={() => onSelect(t)}
                       className={cn(
-                        "relative grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1 rounded-btn border border-transparent py-3 pl-6 pr-2.5 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "relative grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1 rounded-btn border border-transparent py-3 pl-6 pr-2.5 text-left transition-colors hover:bg-secondary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                         sel && "border-selection bg-selected",
                       )}
                     >

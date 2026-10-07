@@ -86,7 +86,9 @@ no red; errors and warnings are status and speak in the signal orange
 
 ## 5. Type scale
 
-`webui/tailwind.config.js` `fontSize` is the scale; nothing renders below 11px in
+The `--text-<rung>` tokens in the `@theme` block of `webui/src/index.css` are the scale
+(Tailwind 4 since 2026-10-07; they were `webui/tailwind.config.js` `fontSize` before);
+nothing renders below 11px in
 CSS. `micro 11 / label 12 / data 12.5 / body 14 / lede 16 / stat 22 / title 36`.
 `title` is the screen's one hero line (the technique name, the war-room tile
 values); `stat` is the smaller metric-tile value on the detail screen. Labels and

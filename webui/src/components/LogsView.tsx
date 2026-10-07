@@ -207,7 +207,7 @@ export function LogsView() {
           </p>
         ) : (
           entries.map((entry) => (
-            <div key={entry.seq} className="flex gap-2 whitespace-pre-wrap break-words">
+            <div key={entry.seq} className="flex gap-2 whitespace-pre-wrap wrap-break-word">
               <span className="flex-none text-text-4">{formatTime(entry.ts)}</span>
               {/* Wide enough for WARNING in JetBrains Mono at text-data; 52px
                   fit the old face and wrapped this one mid-word. */}

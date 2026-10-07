@@ -117,7 +117,8 @@ Output convention: command results go to stdout, operator-facing errors go to st
      not ship because no byte counter exists; labels say emitted, never sent or delivered.
   4. **`cn()` must know every type-scale rung.** Stock tailwind-merge classifies unknown
      `text-*` classes as colors and silently deletes the size when a color follows in the same
-     call; `utils.test.ts` pins every rung `tailwind.config.js` declares. Add a rung, register it.
+     call; `utils.test.ts` pins every rung the `@theme` block in `webui/src/index.css` declares
+     (Tailwind 4 since 2026-10-07; `tailwind.config.js` is gone). Add a rung, register it.
 
 - Plan-timed pacing (complete): the emit loop honours the plan's own per-event times.
   `--pace {burst,plan}` and `--speed N`, defaulting to plan when sending to a collector
@@ -315,6 +316,15 @@ Output convention: command results go to stdout, operator-facing errors go to st
   `tests/test_foil_parity.py` pins parity per technique over 20 seeds at 3 presets.
   Scenarios gained `--controls {positive,both,negative}`, default unchanged, because an
   attack-only chain is the condition the catalog header warns about.
+
+  Implementation note (2026-10-07, same day, separate PR): N-07 closed. The web UI is on
+  Tailwind 4 (`@tailwindcss/vite`, theme in the `@theme` block of `webui/src/index.css`, no
+  `tailwind.config.js`, no PostCSS, `tailwind-merge` 3). The migration was proven a rendering
+  no-op by screenshotting sixteen UI states on both builds and comparing pixel for pixel; the
+  one difference, a doubled focus ring, came from v4's real cascade layers letting the
+  project's unlayered global `:focus-visible` outline beat the per-control `outline-hidden`
+  utility. **Rule for custom CSS under v4: a global rule that a utility is meant to override
+  goes in `@layer base`; unlayered CSS outranks every utility, whatever its specificity.**
 
   Implementation note (2026-10-07, follow-ups): REP-022's exfil stage is the entity pair
   reversed with `direction=outgoing` (its `cef_fields_held` is empty because the held thing

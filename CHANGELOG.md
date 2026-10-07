@@ -37,11 +37,39 @@ Review of 2026-10-07: a fourth adversarial pass over the whole repository at `ef
   `REPLICANT_CONFIG_DIR`, so the unit (which sets its own) and an operator
   shell hold different slots. Both now say per configuration directory and how
   to make one cap cover both. The code was already honest; the labels were not.
-- **Open, disclosed (N-07).** `npm audit` reports 8 advisories in the
-  frontend's development tree, all reached through tailwindcss 3.4.x, and the
-  only fix npm offers is tailwindcss 4, a toolchain migration that is a UI
-  change of its own. `npm audit --omit=dev` is zero; nothing in the wheel is
-  affected. The 2026-08 "zero advisories" claim no longer holds and is retired.
+- **N-07 closed by the Tailwind 4 migration below.** `npm audit` had reported
+  8 advisories in the frontend's development tree, all reached through
+  tailwindcss 3.4.x, with tailwindcss 4 the only fix npm offered. It is now
+  zero again.
+
+### Changed (web UI toolchain: Tailwind 4)
+
+- **Tailwind CSS 3.4 to 4.3.** The theme that lived in `tailwind.config.js`
+  (type scale, palette tokens, radii, fonts, the `rise` animation) is the
+  `@theme` block at the top of `webui/src/index.css`; the config file is gone.
+  Tailwind runs as the `@tailwindcss/vite` plugin, so `postcss.config.js`,
+  `postcss` and `autoprefixer` are gone too (Lightning CSS inside Tailwind
+  handles prefixes). `tailwind-merge` 2 to 3 for the v4 class names. The
+  official upgrade tool did the mechanical rewrites (`outline-none` to
+  `outline-hidden`, `break-words` to `wrap-break-word`, `tracking-[-0.025em]`
+  to `tracking-tight`, `data-[disabled]:` to `data-disabled:`); none changes
+  a rendered pixel.
+- **Verified as a no-op on the rendered page, not assumed.** Sixteen states
+  (six views plus two keyboard-focus states, at 1440 and 375 wide) were
+  screenshotted on the Tailwind 3 build and again on the Tailwind 4 build and
+  compared pixel for pixel. Fifteen were identical; the one difference was a
+  doubled focus ring on text inputs, because v4's real cascade layers let the
+  project's unlayered global `:focus-visible` outline outrank the per-control
+  `outline-hidden` utility that had beaten it under v3 by specificity. That
+  rule now sits in `@layer base`, and the sixteenth state is identical too.
+  The log view differs only in its timestamp digits.
+- Two v4 preflight changes are deliberately reversed to keep the v3 look:
+  buttons keep the pointer cursor, and the upgrade tool's gray-200 border
+  compatibility block was dropped in favour of the palette's own `--border`
+  rule, which already covered every element.
+- The frontend tests that read the type scale (`utils.test.ts`,
+  `catalogView.test.ts`) read the `--text-<rung>` tokens from `index.css` now.
+  Node 20 remains the floor; Tailwind 4 requires it and nothing older.
 
 ### Added (scenarios, 2026-10-07 review)
 

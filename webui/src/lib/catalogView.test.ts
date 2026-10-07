@@ -278,14 +278,13 @@ describe("filterTechniques", () => {
 // being quietly widened back out into eleven ad hoc values.
 describe("type scale", () => {
   it("is ordered, and nothing reads below 11px", async () => {
-    // Imported as raw text, not as a module. The config is plain JS with no
-    // type declaration, so a normal import fails `tsc` under noImplicitAny, and
-    // the frontend build, the installer job and the wheel job all run that
-    // build. `?raw` is typed as string by vite/client, so this stays type-clean.
-    const source = (await import("../../tailwind.config.js?raw")).default;
+    // Tailwind 4: the scale is the `--text-<rung>: <px>` tokens in the @theme
+    // block of index.css, read as raw text so the assertion sees the shipped
+    // bytes rather than anything a build step derived from them.
+    const source = (await import("../index.css?raw")).default;
     const px: Record<string, number> = {};
     for (const [, name, value] of source.matchAll(
-      /(\w+):\s*\["([0-9.]+)px"/g,
+      /--text-([a-z]+):\s*([0-9.]+)px;/g,
     )) {
       px[name] = parseFloat(value);
     }
