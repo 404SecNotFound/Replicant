@@ -6,6 +6,70 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+Review of 2026-10-07: a fourth adversarial pass over the whole repository at `ef97905`, scoped to what the three closed reviews had not found. Security decision record: `docs/security-review-2026-10-07.md`. Catalog measurement record: `docs/catalog-review-2026-10-07.md`. Every new guard was run against the unfixed code and observed to fail.
+
+### Security (2026-10-07 review)
+
+- **Linear duration parsing (N-01, Medium).** The whole-string check in
+  `parse_duration` was `(?:\d+\s*[smhd]?\s*)+`, whose every optional part can
+  match empty, so a non-matching tail backtracked through 2^N splits of an
+  N-digit run: 1.2 s at 24 digits, 5 s at 26, about a day at 40, from one
+  40 byte authenticated `POST /api/plan`, the web terminal's duration prompt or
+  `--duration`. The parser now scans tokens from the end of the previous one
+  and is linear. Accepted and rejected inputs are unchanged.
+- **A malformed web duration is a 422 (N-02).** `RunBody.duration` carries the
+  same validator as the CLI and menu models, so `/api/plan` and `/api/runs`
+  name the field instead of answering 500.
+- **An over-long output name is a refusal (N-03).** `confined_output_path`
+  bounds the name at 255 bytes and turns any `OSError` from the lookup into a
+  `ConfinementError`, instead of a 500 from the API and a traceback in the
+  menu's output prompt.
+- **The session id never reaches a log (N-04).** The terminal's per-client cap
+  was keyed on the raw cookie value and the bridge logged the key when it
+  refused a session, so the 12 hour bearer credential reached the log ring,
+  `/api/logs`, the SSE log stream and the journal. The key is a digest now, and
+  the redactor also masks `replicant_session=` and `session:` values.
+- **The terminal frame bound is applied before the frame is buffered (N-05).**
+  `uvicorn_config` passes `ws_max_size=MAX_FRAME_BYTES`; the bridge's own check
+  ran after uvicorn had already buffered up to 16 MiB.
+- **Send-lock scope stated correctly (N-06, label).** README and the systemd
+  unit said one sending run per host; the lock lives under
+  `REPLICANT_CONFIG_DIR`, so the unit (which sets its own) and an operator
+  shell hold different slots. Both now say per configuration directory and how
+  to make one cap cover both. The code was already honest; the labels were not.
+- **Open, disclosed (N-07).** `npm audit` reports 8 advisories in the
+  frontend's development tree, all reached through tailwindcss 3.4.x, and the
+  only fix npm offers is tailwindcss 4, a toolchain migration that is a UI
+  change of its own. `npm audit --omit=dev` is zero; nothing in the wheel is
+  affected. The 2026-08 "zero advisories" claim no longer holds and is retired.
+
+### Added (scenarios, 2026-10-07 review)
+
+- **`replicant scenario run --controls {positive,both,negative}`.** `compose()`
+  dropped every negative-control event, so a scenario run was attack-only, the
+  one condition the catalog header says lets any detection score perfectly.
+  The default is `positive`, so every existing run, manifest and advisory means
+  what it meant. `both` composes each foil-emitting stage's benign foil onto the
+  same timeline; `negative` is the foils alone. Stage statistics and the
+  advisory describe the attack stream only; the advisory says when foils are on
+  the wire; the scenario manifest records `controls` and `negative_event_count`.
+
+### Changed (labels, 2026-10-07 review)
+
+- README's FortiGate badge read "verified". The golden lines it refers to are
+  `[Constructed]` from Fortinet's published field rules and confirmed CEF
+  examples, not captured from an appliance, and the reference still carries
+  `[Unverified]` on some extension keys. The badge now says "golden-line
+  checked" and the prose says what the oracle is. The maturity note two lines
+  above it was already honest.
+- README's safety model now states the reputation blind class in one place:
+  synthetic entities are on no threat list, so reputation, Tor, newly
+  registered domain feed and certificate reputation detections are out of
+  scope by design, and no catalog entry claims them. Round 4 of the catalog
+  research asked for this note; it had not been written.
+- The systemd unit's comments said the catalog and frontend load by
+  repository-relative path. They ship inside the package since v0.3.1.
+
 ### Added (catalog discovery and authoring)
 
 - Local web catalog filtering now includes reviewed search aliases and each

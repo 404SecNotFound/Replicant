@@ -87,6 +87,10 @@ class ComposedPlan:
     adversary: str
     total_count: int = 0
     warmup_notes: list[str] = field(default_factory=list)
+    #: Which streams the events hold; see ScenarioRunRequest.controls.
+    controls: str = "positive"
+    #: Benign foil events on the composed timeline. Stage statistics never count them.
+    negative_count: int = 0
 
 
 def _pin_entities(base: EntityModel, seed: int) -> tuple[EntityModel, str, str]:
@@ -110,6 +114,7 @@ def _compose_pass(
     intensity_override: str | None = None,
     offset_scale: float = 1.0,
     stage_durations: list[int] | None = None,
+    controls: str = "positive",
 ) -> ComposedPlan:
     """One composition. ``offset_scale`` and ``stage_durations`` are both identity
     by default, so the untimed path is exactly what it was."""
@@ -119,6 +124,7 @@ def _compose_pass(
     tagged: list[tuple[int, int, EventRecord]] = []  # (eventtime, stage_index, event)
     stages: list[StageResult] = []
     warmups: list[str] = []
+    negative_count = 0
     for i, stage in enumerate(scenario.stages):
         technique = technique_by_id(stage.technique_id)
         stage_seed = int(children[i].generate_state(1)[0])
@@ -157,13 +163,22 @@ def _compose_pass(
                     anchor_epoch=stage_anchor + aligned_days * _DAY_SECONDS,
                     param_overrides=stage.param_overrides or None,
                 )
-        # A scenario is a curated attack chain; the single-technique benign foil
-        # (--controls) has no scenario-level filter and no place on the composed
-        # wire, so compose the positive stream only. Without this a foil-emitting
-        # stage (REP-007 in SCEN-003, the first such) would leak benign
-        # negative-control events onto the collector and into the advisory counts.
-        stage_events = [event for event in plan.events if event.control == "positive"]
-        for event in stage_events:
+        # A scenario is a curated attack chain, so by default only the positive
+        # stream reaches the composed wire, which is what every scenario run did
+        # before 2026-10-07. `--controls both` composes each stage's benign foil
+        # onto the same timeline, because a chain emitted without its look-alikes
+        # lets any correlation rule score perfectly (the catalog header's own
+        # argument). Stage statistics and the advisory describe the positive
+        # stream that is emitted, whichever streams are, so a foil never inflates
+        # a stage's count or its dominant entities, and a foils-only run reports
+        # zero attack events per stage rather than a count that is not on the wire.
+        wanted = {"both": ("positive", "negative"), "negative": ("negative",)}.get(
+            controls, ("positive",)
+        )
+        emitted = [event for event in plan.events if event.control in wanted]
+        stage_events = [event for event in emitted if event.control == "positive"]
+        negative_count += len(emitted) - len(stage_events)
+        for event in emitted:
             tagged.append((event.eventtime, i, event))
         if plan.warmup_note:
             warmups.append(f"stage {i} ({stage.technique_id}): {plan.warmup_note}")
@@ -208,6 +223,8 @@ def _compose_pass(
         adversary=adversary,
         total_count=len(events),
         warmup_notes=warmups,
+        controls=controls,
+        negative_count=negative_count,
     )
 
 
@@ -225,8 +242,12 @@ def compose(
     base_entities: EntityModel,
     intensity_override: str | None = None,
     duration_s: int | None = None,
+    controls: str = "positive",
 ) -> ComposedPlan:
     """Compose a scenario, optionally scaled to run for ``duration_s``.
+
+    ``controls`` selects the streams each stage contributes (positive, the attack
+    alone and the default; both; or negative, the foils alone).
 
     Without a duration this is one pass and behaves exactly as it always did.
 
@@ -258,6 +279,7 @@ def compose(
         anchor_epoch,
         base_entities,
         intensity_override,
+        controls=controls,
     )
     if duration_s is None:
         return natural
@@ -288,6 +310,7 @@ def compose(
         intensity_override,
         offset_scale=scale,
         stage_durations=stage_durations,
+        controls=controls,
     )
 
     actual = _composed_span(scaled)

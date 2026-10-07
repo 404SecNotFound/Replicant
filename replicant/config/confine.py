@@ -45,10 +45,18 @@ def web_confined() -> bool:
     return os.environ.get(CONFINED_ENV) == "1"
 
 
+#: Longest file name any mainstream filesystem accepts (NAME_MAX on Linux). A
+#: longer one made ``Path.resolve`` raise ENAMETOOLONG out of the helper, which
+#: was a 500 from the API and a traceback in the menu's output prompt.
+MAX_NAME_LENGTH = 255
+
+
 def _basename(value: str) -> str:
     name = Path(value.strip()).name
     if name in {"", ".", ".."}:
         raise ConfinementError(f"{value!r} does not name a file")
+    if len(name.encode("utf-8", "surrogateescape")) > MAX_NAME_LENGTH:
+        raise ConfinementError(f"file name is longer than {MAX_NAME_LENGTH} bytes")
     return name
 
 
@@ -70,11 +78,16 @@ def confined_output_path(to_file: str, manifest_dir: str) -> str:
     root.mkdir(parents=True, exist_ok=True)
     real_root = root.resolve()
     target = real_root / _basename(to_file)
-    if target.is_symlink():
-        raise ConfinementError("output path is not permitted: it is a symbolic link")
-    resolved = target.resolve()
-    if not resolved.is_relative_to(real_root) or resolved.is_dir():
-        raise ConfinementError("output path is not permitted")
+    try:
+        if target.is_symlink():
+            raise ConfinementError("output path is not permitted: it is a symbolic link")
+        resolved = target.resolve()
+        if not resolved.is_relative_to(real_root) or resolved.is_dir():
+            raise ConfinementError("output path is not permitted")
+    except OSError as exc:
+        # Anything the filesystem refuses to even look up (ENAMETOOLONG, ELOOP,
+        # EACCES on a parent) is a refusal here, never a traceback upstream.
+        raise ConfinementError("output path is not permitted") from exc
     return str(resolved)
 
 

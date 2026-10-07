@@ -400,6 +400,15 @@ def build_parser() -> argparse.ArgumentParser:
     scen_run.add_argument("--to-file", dest="to_file")
     scen_run.add_argument("--no-send", dest="no_send", action="store_true")
     scen_run.add_argument(
+        "--controls",
+        choices=["both", "positive", "negative"],
+        default="positive",
+        help="which streams each stage contributes: positive (the attack chain alone, "
+        "the default), both (each foil-emitting stage's benign foil composed onto the "
+        "same timeline), or negative (the foils alone). The advisory counts the attack "
+        "stream only.",
+    )
+    scen_run.add_argument(
         "--rate",
         type=int,
         help="per-run events-per-second slowdown; cannot exceed the configured eps_cap",
@@ -682,6 +691,14 @@ def cmd_scenario(
         except ValueError as exc:
             _fail(f"[red]bad --anchor[/red]: {exc}")
             return 1
+    if args.controls == "negative" and not any(
+        catalog.by_id(stage.technique_id).emits_foil for stage in scenario.stages
+    ):
+        console.print(
+            f"[yellow]note[/yellow]: no stage of {scenario.id} has a benign foil "
+            "(emits_foil is false on every technique), so --controls negative will "
+            "emit nothing."
+        )
     # Warn before emitting, not after: once the events are on the wire the
     # operator is already debugging a rule that did not fire.
     warning = stale_anchor_warning(anchor, sending=not args.no_send and collector is not None)
@@ -696,6 +713,7 @@ def cmd_scenario(
             duration=args.duration,
             to_file=args.to_file,
             no_send=args.no_send,
+            controls=args.controls,
             rate_override=args.rate,
             collector=collector,
             anchor_epoch=anchor,

@@ -267,7 +267,7 @@ class Entity(BaseModel):
     country: str | None = None
 
 
-def _validate_duration(value: str | None) -> str | None:
+def validate_duration(value: str | None) -> str | None:
     """Reject a malformed ``--duration`` at the model boundary.
 
     ``parse_duration`` lives in ``config.settings``, which imports this module,
@@ -320,7 +320,7 @@ class RunRequest(BaseModel):
     # Compresses the plan's timeline, event times included. 1.0 is untouched.
     speed: float = Field(default=1.0, gt=0, le=MAX_SPEED)
 
-    _check_duration = field_validator("duration")(_validate_duration)
+    _check_duration = field_validator("duration")(validate_duration)
 
     @model_validator(mode="after")
     def _speed_needs_a_timeline(self) -> RunRequest:
@@ -528,8 +528,16 @@ class ScenarioRunRequest(BaseModel):
     # more there, not less.
     pace: Pace | None = None
     speed: float = Field(default=1.0, gt=0, le=MAX_SPEED)
+    #: Which streams each stage contributes. The default is the attack alone,
+    #: which is what every scenario run emitted before 2026-10-07 and what the
+    #: advisory's counts describe. ``both`` composes each foil-emitting stage's
+    #: benign foil onto the same timeline, so a correlation rule is scored
+    #: against look-alike traffic as well as the chain; ``negative`` is the
+    #: foils alone. Stage statistics and the advisory always count the positive
+    #: stream only.
+    controls: Literal["both", "positive", "negative"] = "positive"
 
-    _check_duration = field_validator("duration")(_validate_duration)
+    _check_duration = field_validator("duration")(validate_duration)
 
     @model_validator(mode="after")
     def _speed_needs_a_timeline(self) -> ScenarioRunRequest:
@@ -590,6 +598,13 @@ class ScenarioManifest(BaseModel):
     # The window the chain was asked to cover. Two runs of the same scenario and
     # seed can now span very different amounts of time (safety rule 5).
     duration: str | None = None
+    #: See ScenarioRunRequest.controls. Defaulted so older manifests, which were
+    #: always attack-only, still load and say so.
+    controls: str = "positive"
+    #: Benign foil events composed onto the timeline (zero unless controls is
+    #: ``both`` or ``negative``). They are in planned_event_count and not in any
+    #: stage's event_count.
+    negative_event_count: int = 0
     #: Collector events-per-second ceiling actually in force. None for file-only
     #: and dry runs, where the emitter rate limiter is not applied.
     rate: int | None = None

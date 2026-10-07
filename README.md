@@ -10,7 +10,7 @@ Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](pyproject.toml)
-[![FortiGate](https://img.shields.io/badge/FortiGate-verified-2ea44f.svg)](#what-the-output-looks-like)
+[![FortiGate](https://img.shields.io/badge/FortiGate-golden--line%20checked-2ea44f.svg)](#what-the-output-looks-like)
 [![PAN-OS / Check Point](https://img.shields.io/badge/PAN--OS%20%7C%20Check%20Point-beta-e67700.svg)](#what-the-output-looks-like)
 [![Safety](https://img.shields.io/badge/entities-synthetic%20only-2ea44f.svg)](#safety-model)
 [![Status](https://img.shields.io/badge/release-v0.10.0-2ea44f.svg)](CHANGELOG.md)
@@ -48,7 +48,7 @@ Replicant fabricates realistic firewall CEF logs for FortiGate, Palo Alto PAN-OS
 
 A detection is only as trustworthy as the last time you saw it fire. Detection engineers who want to validate a firewall rule usually face a choice: replay production captures (slow, sensitive, hard to shape), hand-craft a few log lines (brittle, not statistically realistic), or reach for a generic log generator (rarely accurate to a specific next-generation firewall on the wire).
 
-Replicant takes a narrower, more useful position. It reproduces a specific firewall's CEF format field-for-field, streams it with realistic timing, and ties every generated behavior to a named detection use case, so the telemetry and the detection ship and get tested together. FortiGate is the verified profile and the trust anchor: its CEF is byte-checked field-for-field against a golden oracle. Palo Alto PAN-OS and Check Point ship as beta profiles, modeled from each vendor's public documentation but not yet confirmed against a live appliance (`[Unverified]`); clearing those markers is an open community-contribution ask for anyone with the hardware.
+Replicant takes a narrower, more useful position. It reproduces a specific firewall's CEF format field-for-field, streams it with realistic timing, and ties every generated behavior to a named detection use case, so the telemetry and the detection ship and get tested together. FortiGate is the trust anchor: its CEF is byte-checked field-for-field against eight golden lines. Those lines are `[Constructed]` from Fortinet's published field rules and confirmed CEF examples ([`docs/fortigate-cef-reference.md`](docs/fortigate-cef-reference.md)), not captured from a live appliance, and a handful of extension key names in that reference still carry `[Unverified]`. Palo Alto PAN-OS and Check Point ship as beta profiles, modeled from each vendor's public documentation but not yet confirmed against a live appliance (`[Unverified]`); clearing the markers on all three is an open community-contribution ask for anyone with the hardware.
 
 ## What Replicant is, and is not
 
@@ -208,6 +208,9 @@ replicant scenario run SCEN-001 --seed 1337 --to-file ./out/s1.log --no-send
 
 # ask the whole chain to fit a window, then deliver it over that window
 replicant scenario run SCEN-003 --duration 2h --anchor now --pace plan --host 10.20.0.50
+
+# compose each stage's benign foil onto the same timeline (default is the attack alone)
+replicant scenario run SCEN-003 --controls both --to-file ./out/s3.log --no-send
 ```
 
 On normal completion or a handled stop, every scenario run writes an advisory
@@ -215,6 +218,14 @@ coverage document beside its manifest: it maps the chain to ATT&CK tactics, name
 the cross-stage correlation key, and flags uncovered tactics. An emission error
 retains its finalized error manifest without an advisory. The advisory is context
 only; you author the detection design.
+
+A scenario run is the attack chain alone by default, which is what every scenario
+run emitted before 2026-10-07. `--controls both` composes the benign foil of each
+foil-emitting stage onto the same timeline, so a correlation rule is scored against
+look-alike traffic as well as the chain, and `--controls negative` emits the foils
+alone. The advisory and each stage's count describe the attack stream only; the
+manifest records `controls` and `negative_event_count` so the stream on the wire is
+auditable.
 
 ## What the output looks like
 
@@ -478,7 +489,8 @@ Safety is a design constraint, not a disclaimer. The guarantees below are enforc
 | Single destination | A run sends only to the collector the operator configures. There is no other socket target, and sends fail closed when no collector is set. |
 | Synthetic entities only | Address pools are RFC1918 and IANA documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). A configuration that reaches outside these ranges is rejected at build time. DNS parents are drawn from the IANA documentation domains and the reserved `.invalid` TLD (RFC 6761). Replicant never resolves them and never emits an operator-owned or production domain. |
 | No real behavior | The engine performs no I/O and issues no attack. It produces log strings; byte counts and attack names are field values. |
-| Rate limits | A configurable events-per-second cap protects the operator's own collector. A per-run `--rate` may lower that ceiling but cannot raise it. No two sends are ever closer than `1/cap`, and that floor is measured against the previous **actual** send rather than against a schedule, so it holds even when the host runs late. It composes with `--pace` rather than competing: pacing sets the shape of the run, the cap sets the floor on spacing. **The cap is applied by one process's emit loop, so the supported scope is one sending run per host**, and that is enforced rather than assumed: a second sending run is refused while the first holds the slot, naming the pid that has it. `--no-send` and file-only runs do not acquire the slot. A live collector send mirrored with `--to-file` does acquire it. Two *hosts* pointed at one collector are still two caps; nothing on this machine can see that. |
+| Reputation content is out of scope by design | Because every address and domain is synthetic, nothing Replicant emits is on any threat list. Detections keyed on IP or domain reputation, Tor exit lists, newly registered domain feeds or certificate reputation cannot be exercised by this tool, and no catalog entry claims to. The catalog covers behavioural signals a rule can compute from the firewall record itself. |
+| Rate limits | A configurable events-per-second cap protects the operator's own collector. A per-run `--rate` may lower that ceiling but cannot raise it. No two sends are ever closer than `1/cap`, and that floor is measured against the previous **actual** send rather than against a schedule, so it holds even when the host runs late. It composes with `--pace` rather than competing: pacing sets the shape of the run, the cap sets the floor on spacing. **The cap is applied by one process's emit loop, so the supported scope is one sending run per configuration directory**, and that is enforced rather than assumed: a second sending run is refused while the first holds the slot, naming the pid that has it. The slot is a lock file under `REPLICANT_CONFIG_DIR` (default `~/.config/replicant`), so it covers one user on one host; a service running with its own `REPLICANT_CONFIG_DIR` (the shipped systemd unit does) and an operator shell on the same host hold different slots and can both send. Point CLI runs on a service host at the service's directory if one cap must cover both. `--no-send` and file-only runs do not acquire the slot. A live collector send mirrored with `--to-file` does acquire it. Two *hosts* pointed at one collector are still two caps; nothing on this machine can see that. |
 | Audit trail | Before any output opens, every run durably writes a `running` manifest recording its intent and planned count. It checkpoints the rendered-event count about once per second and atomically finalizes that same file with the terminal status and start/end times in UTC+04:00. An interruption before terminal finalization leaves the last durable non-terminal record; `partial` is true exactly when its durable rendered count is below `planned_event_count`. If the initial write fails, no telemetry is sent or written. A platform or filesystem without directory-entry `fsync` support is refused at preflight rather than silently weakening this power-loss guarantee. See [the run-manifest contract](docs/run-manifest.md). |
 | Synthetic marker | On a non-loopback send, every line is stamped `flexString1Label=ReplicantSynthetic` (carrying the run id) by default, so lab data stays separable from production on a shared collector. It is off for a loopback or file-only (`--to-file --no-send`) run, where the golden line is the format oracle; `--no-marker` removes it and logs the override on a live send. `flexString1` is a flex slot none of the three vendor profiles use, so marking corrupts no field a detection reads. The manifest's `marker_attestation` records the decision. |
 
@@ -619,7 +631,7 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
   replay are available from CLI and web. These tiers do not replace the live
   LogRhythm gate.
 - **Next (hard launch gate):** the first observed rule fire in LogRhythm. Delivery to a real SIEM was observed on 2026-08-03 (Replicant CEF landed in the lab LogRhythm from the sensor VM, arriving as an unidentified log source until a parsing rule exists); every timing claim above is still loopback-only, and the headline "exercises the matching detection" has never been observed end to end. Until the first observed rule fire, the honest posture is "generates vendor-accurate CEF, detection-unverified." Nothing that adds surface ships before the pipe is proven. Decision record: [`docs/roadmap-2026-09.md`](docs/roadmap-2026-09.md).
-- **Community ask:** the Palo Alto and Check Point profiles stay beta until their `[Unverified]` references are confirmed against a live appliance. FortiGate is already the verified oracle; clearing the other two needs real hardware, so it is an open contribution path for anyone who runs those platforms.
+- **Community ask:** the Palo Alto and Check Point profiles stay beta until their `[Unverified]` references are confirmed against a live appliance. FortiGate's golden lines are `[Constructed]` from vendor documentation rather than captured, so a live FortiOS capture is welcome there too; clearing any of the three needs real hardware, so it is an open contribution path for anyone who runs those platforms.
 - **Direction (not shipped):** detection-as-code teams live in CI, and a check that fails a build when a firewall detection stops firing is a category none of Atomic Red Team, CALDERA, Attack Range, or flightsim occupy. The intended framing is "unit tests for your firewall detections": Replicant emits the telemetry, an offline detection-regression check asserts the rule still fires, and a GitHub Action gates the build. The check and the Action are planned, not built, and their claim is scoped to **offline** regression against a local pipeline; neither implies production SIEM assurance, which stays behind the lab-test gate above.
 
 ## Prior art and positioning
