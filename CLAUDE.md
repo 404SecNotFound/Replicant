@@ -300,6 +300,45 @@ Output convention: command results go to stdout, operator-facing errors go to st
      `/proc/net/route`, which silently removed the route from the connect test's path line, the
      fix for the transposed-address lab defect. The verify script asserts the route is visible.
 
+- 2026-10-07 review (complete): a fourth adversarial pass at `ef97905`, scoped to what the
+  three closed reviews had not found. Records: `docs/security-review-2026-10-07.md` and
+  `docs/catalog-review-2026-10-07.md`. Security: the duration parser's whole-string regex
+  backtracked exponentially (5 s at 26 digits, about a day at 40) from one authenticated
+  40 byte request, and is now a linear token scan; a malformed web duration is a 422; an
+  over-long output name is a refusal; the terminal cap key is a digest of the session id so
+  the credential never reaches a log; `ws_max_size` matches the frame bound; the send-lock
+  scope is stated as per configuration directory; the frontend's tailwindcss 3 advisories
+  are disclosed as open (dev tree only, the fix is a tailwind 4 migration). Catalog: eleven
+  of twenty benign foils were separable on a constant, a copied value, a hard-coded port or
+  parent, or a count ceiling that did not scale with the preset, and two (REP-024,
+  REP-020) in every seed on one feature. Every positive signal held. All are fixed and
+  `tests/test_foil_parity.py` pins parity per technique over 20 seeds at 3 presets.
+  Scenarios gained `--controls {positive,both,negative}`, default unchanged, because an
+  attack-only chain is the condition the catalog header warns about.
+
+  Three conventions this established:
+  1. **A guard that checks the answer and not the cost has not bounded the cost.** The
+     parser had a table of accepted and rejected inputs and every verdict was right. Any
+     input check reachable from the network needs a hostile input under a time budget, run
+     against the unfixed code. Nested quantifiers over optional parts are the shape to refuse.
+  2. **A foil that passes Tier 0 has not been tested against a rule.** Tier 0's separability
+     threshold equals the preset value, so a REP-002 foil of 250 ports per pair in 30 s was
+     "separable" from an attack of 4000 and was also a port scan to any production rule.
+     The foil draws from the attack's own distributions and scales with its parameters,
+     preserving only the discriminator the catalog names, the catalog states the benign
+     ceiling, and the guard asserts parity on every unnamed feature across seeds.
+  3. **"Verified" names the oracle or it is a label defect.** The README badge said FortiGate
+     verified; the golden lines are `[Constructed]` from vendor documentation. The code was
+     honest in every one of this review's label findings (send-lock scope, the unit file's
+     repository-relative note, the badge); the summaries were not. Same class as v0.3.0's
+     third lesson.
+
+  Ranked backlog from the coverage tally, all behind the launch gate: firewall admin-plane
+  login plus config-change burst (Defense Evasion), ransomware-like SMB write fan-out
+  (Impact), internal reflector participation (Impact, bytes not rate), staging fan-in then
+  egress (Collection, SCEN-004 first), VPN login from an unfamiliar source network. The
+  reasoning and the set-aside list are in the catalog record.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 **The LogRhythm lab test has still never observed a rule fire.** Implementation note

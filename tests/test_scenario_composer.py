@@ -197,4 +197,9 @@ def test_single_stage_matches_direct_run() -> None:
     pinned = replace(entities, internal_hosts=[victim], adversary_external=[adversary])
     stage_seed = int(np.random.SeedSequence(1337).spawn(1)[0].generate_state(1)[0])
     direct = engine.plan(TECH.by_id("REP-003"), "medium", pinned, stage_seed, anchor_epoch=ANCHOR)
-    assert [e.eventtime for e in composed.events] == [e.eventtime for e in direct.events]
+    # A scenario composes the attack only (test_structural_foils), so the
+    # comparison is against the direct run's positive stream. This used to
+    # compare against every direct event and passed only because the pinned
+    # one-host pool left REP-003 with no control sources and so no foil.
+    direct_positive = [e for e in direct.events if e.control == "positive"]
+    assert [e.eventtime for e in composed.events] == [e.eventtime for e in direct_positive]

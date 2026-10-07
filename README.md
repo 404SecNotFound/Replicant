@@ -266,7 +266,7 @@ status.
 | REP-010 | Denied outbound connection burst | traffic:forward | UC-009 | T1071, T1090 | Implemented |
 | REP-011 | VPN geovelocity anomaly | event:vpn | UC-010 | T1078, T1133 | Implemented |
 | REP-012 | Jittered and fleet-aggregate C2 callback | traffic:forward accept | UC-011 | T1071 | Implemented |
-| REP-013 | Self-propagating malware spread | traffic:forward | UC-012 | T1210, T1021.002, T1046 | Implemented |
+| REP-013 | Self-propagating malware spread | traffic:forward | UC-012 | T1210, T1021.002, T1021.001, T1046 | Implemented |
 | REP-014 | Cryptomining pool session | traffic:forward accept | UC-013 | T1496 | Implemented |
 | REP-015 | Low-throughput DNS exfiltration | dns:dns-query | UC-014 | T1048.003, T1071.004 | Implemented |
 | REP-016 | DGA NXDOMAIN cluster | dns:dns-response | UC-015 | T1568.002, T1071.004 | Implemented |
@@ -275,7 +275,7 @@ status.
 | REP-019 | Stealth scan below rate threshold | traffic:forward deny | UC-018 | T1046 | Implemented |
 | REP-020 | First contact with a newly registered domain | dns:dns-query | UC-019 | T1583.001, T1071 | Implemented |
 | REP-021 | Inbound perimeter scan reception | traffic:forward deny (inbound) | UC-020 | T1595.001, T1595.002 | Implemented |
-| REP-022 | Multi-stage IDS alert chain | utm:ips | UC-021 | T1595, T1190, T1071 | Implemented |
+| REP-022 | Multi-stage IDS alert chain | utm:ips | UC-021 | T1595, T1190, T1071, T1041 | Implemented |
 | REP-023 | TLS 1.3 C2 with flow-only signal | traffic:forward accept | UC-022 | T1071.001, T1573.002 | Implemented |
 | REP-024 | Internal host as proxy relay node | traffic:forward | UC-023 | T1090, T1090.001 | Implemented |
 | REP-030 | Distributed low-and-slow password spray | event:vpn | UC-024 | T1110.003 | Implemented |
