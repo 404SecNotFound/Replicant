@@ -54,7 +54,7 @@ export function TechniquePreview({ technique, vendor, preview, pending = false }
             ["Estimated run time", preview ? fmtSpan(preview.projected_s) : missing],
             ["Event-time span", preview ? fmtSpan(preview.compressed_span_s) : missing],
             ["Detection rule", technique.ndr_rule]].map(([label, value]) => <div key={label} className="min-w-0">
-              <dt className="u-label">{label}</dt><dd className="mt-1 break-words font-mono text-data">{value}</dd>
+              <dt className="u-label">{label}</dt><dd className="mt-1 wrap-break-word font-mono text-data">{value}</dd>
             </div>)}
         </dl>
       </section>

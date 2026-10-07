@@ -15,13 +15,16 @@
 /// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 import { tokenBootstrapProxy } from "./src/lib/bootstrapProxy.ts";
 
 // Dev proxy target: run the backend and point VITE_PROXY at its printed URL.
 const proxyTarget = process.env.VITE_PROXY || "http://127.0.0.1:8000";
 export default defineConfig({
-  plugins: [react()],
+  // Tailwind 4 runs as a Vite plugin; there is no PostCSS pipeline and no
+  // autoprefixer any more (Lightning CSS inside Tailwind handles prefixes).
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "src") },
   },
