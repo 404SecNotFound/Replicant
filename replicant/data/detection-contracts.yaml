@@ -176,3 +176,10 @@ contracts:
     measurable_axes:
       - {id: family_progression, description: "IPS activity precedes traffic continuation for the joined victim.", metric: ordered_families, ordered_families: [utm:ips, traffic:forward]}
     negative: {mode: standalone, reason: "Controls omit continuation, break the victim join, or reverse event order.", separable_by: [victim_role_join, event_order]}
+
+  - technique_id: REP-028
+    observation_window: {parameters: [window_min], description: "Configuration changes are counted per administrator and source inside the window that follows the login."}
+    measurable_axes:
+      - {id: change_burst, description: "The login and the change burst span multiple event times.", metric: temporal_span}
+      - {id: change_paths, description: "The burst touches more than one configuration path.", metric: distinct, field: FTNTFGTcfgpath, group_by: [duser]}
+    negative: {mode: standalone, reason: "The same burst from the management jump host under the on-duty administrator; only the source's asset role separates it.", separable_by: [source_asset_role]}

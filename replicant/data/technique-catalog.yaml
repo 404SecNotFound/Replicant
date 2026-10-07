@@ -2,10 +2,12 @@
 # Project: Replicant (github.com/404SecNotFound/Replicant)
 # Author: RZA
 # Timezone for all timestamps produced at runtime: UTC+04:00 (Dubai)
-# Status: 26 techniques. REP-001..011 are the original catalog; REP-012..024
+# Status: 27 techniques. REP-001..011 are the original catalog; REP-012..024
 # were added in v0.2.0 and are each anchored to a peer-reviewed detection paper
 # with measured results. REP-030 and REP-043 follow the 2026-09-08 all-round
-# research review (see docs/catalog-research-review-2026-09-08.md).
+# research review (see docs/catalog-research-review-2026-09-08.md). REP-028 is
+# the first entry added under the tactic-gap rule below (2026-10-07; Defense
+# Evasion was the thinnest tactic the firewall can see).
 #
 # PURPOSE
 # This file is the single source of truth for the interactive TTP menu and the
@@ -60,8 +62,8 @@
 # EXPANSION (roadmap 2026-09 item 16)
 # The next technique is gated on the tactic-gap tally, not on which paper had
 # measured results. This catalog is heavily weighted to Command and Control (13 of
-# 26 techniques carry TA0011, several of them beacon/callback variants) while
-# network-visible Impact (1), Credential Access (2) and Defense Evasion (1) sit
+# 27 techniques carry TA0011, several of them beacon/callback variants) while
+# network-visible Impact (1), Credential Access (2) and Defense Evasion (2) sit
 # near zero. A ninth beacon variant has near-zero marginal coverage value; weight
 # a new entry by the tactic it fills, and record its prevalence basis. A recorded
 # rule, downstream of the coverage scorecard deferred until F2 produces real
@@ -890,6 +892,52 @@ techniques:
       - "BotHunter: Detecting Malware Infection Through IDS-Driven Dialog Correlation, USENIX Security 2007"
       - "fortigate-cef-reference: utm:ips and traffic:forward"
     safety_notes: "attack names and identifiers are labels only; all addresses are synthetic and no exploit, callback or connection is executed"
+
+  # ---------------------------------------------------------------------------
+  # 2026-10-07: the first entry added under the EXPANSION rule above. Defense
+  # Evasion carried one technique (REP-018, as a secondary tactic) and nothing
+  # used event:system as a primary family. Prevalence basis is the 2024/2025
+  # campaign against internet-exposed FortiGate management interfaces, in which
+  # the observable was an administrator login from an unusual address followed
+  # by configuration changes (new admin accounts, policy and SSL-VPN edits).
+  # Built behind the launch gate (docs/roadmap-2026-09.md) by the owner's
+  # decision; the gate itself is unchanged.
+  # ---------------------------------------------------------------------------
+
+  - id: REP-028
+    name: "Firewall admin login from an unexpected source and config-change burst"
+    search_aliases: ["rogue admin", "config change burst", "unexpected admin login", "management plane abuse", "firewall tampering"]
+    ndr_rule: "NDR-ADM-026"
+    ndr_uc: "UC-026"
+    objective: >-
+      Prove a rule keys on an administrator login from outside the management pool followed by a burst of configuration changes, and stays quiet for the same burst from the management jump host.
+    attack:
+      tactics: ["TA0005 Defense Evasion"]
+      techniques: ["T1562.004", "T1078"]
+    fortigate:
+      log_type: "event"
+      subtype: "system"
+      signature_id: "44547"   # object attribute configured  [Unverified] exact last-5 within the 445xx config-change family
+      action: "Edit"
+    cef_fields_held: ["duser", "src"]       # one account, one source, for the whole burst
+    cef_fields_varied: ["act", "rt", "FTNTFGTcfgpath"]
+    params:
+      low:    { changes: [4, 8],   window_min: 15, login_lead_s: [10, 90] }
+      medium: { changes: [10, 20], window_min: 10, login_lead_s: [10, 60] }
+      high:   { changes: [25, 50], window_min: 10, login_lead_s: [5, 30] }
+    distributions:
+      sequence: "one successful admin login (event:system login success) from a host outside the management pool, then changes configuration edits spread over window_min at uniform random offsets, all by the same account from the same source"
+      change_paths: "weighted: firewall.policy 0.35, system.admin 0.15, log.syslogd.setting 0.15, system.interface 0.15, firewall.address 0.10, vpn.ssl.settings 0.10; actions Edit 0.7, Add 0.2, Delete 0.1"
+      duration: "--duration sets the window and the change count is preserved, because the count inside the window is the signal, not the spacing"
+    benign_baseline: "the on-duty administrator makes the same number and kind of changes, with the same action mix and the same irregular timing, in the same window, logged in from a management jump host (the mgmt_hosts pool, 10.20.1.0/28). Only the source's asset role differs, and that is the intended discriminator: a rule that fires on the burst alone fires on every change window"
+    emits_foil: true
+    transferability_note: >-
+      Disclosed limit: the management pool is a synthetic subnet and a production rule's notion of an expected source comes from the operator's asset inventory. The emitted records exercise the login-then-burst logic and the source join; they do not exercise a production allow-list of management addresses. Every configuration path, object and attribute is a label.
+    references:
+      - "Arctic Wolf Labs, Console Chaos: A Campaign Targeting Publicly Exposed Management Interfaces on Fortinet FortiGate Firewalls, January 2025 (prevalence basis: unauthorised administrator logins from unusual addresses followed by configuration changes and new admin accounts; associated with CVE-2024-55591). [Unverified: title and date quoted from memory; confirm before customer use]"
+      - "MITRE ATT&CK T1562.004 Impair Defenses: Disable or Modify System Firewall; T1078 Valid Accounts"
+      - "fortigate-cef-reference: event:system configuration change"
+    safety_notes: "configuration paths, object names and attribute strings are labels only. Nothing is configured, no device is contacted, and the administrator accounts are synthetic"
 
 # NOTES
 # 1. Signature IDs marked [Unverified] must be confirmed against a live FortiOS

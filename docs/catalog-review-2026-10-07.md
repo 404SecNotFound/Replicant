@@ -171,6 +171,12 @@ the parked ones are cited.
 
 1. **Firewall admin login from an unexpected source, then a config-change
    burst** (Defense Evasion, T1562.004 and T1078; parked as round 3 REP-028).
+   Implementation note (2026-10-07): built as REP-028 the same day, by the
+   owner's decision and behind the launch gate, which is unchanged. The foil is
+   the same burst from a new `mgmt_hosts` entity pool (10.20.1.0/28) so the
+   source's asset role is the only separating feature, and the guard measures
+   that over 20 seeds at 3 presets. The config-change record is new on all three
+   vendors and `[Unverified]` on each.
    Honest because `event:system` already renders admin login with `src`,
    `duser`, `ui` and `method` on all three vendors and nothing uses it as a
    primary family; the config-change half needs one new logid constant per
