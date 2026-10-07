@@ -76,6 +76,7 @@ _DETECTION_FIELDS: dict[str, str | None] = {
     "FTNTFGTreason": "reason",
     "FTNTFGTseverity": "cp_severity",
     "FTNTFGTsrccountry": "cs4",
+    "FTNTFGTtunnelip": "office_mode_ip",
     "FTNTFGTxid": None,
     "act": "act",
     "cnt": None,
@@ -135,6 +136,7 @@ _DETECTION_FIELDS_BY_FAMILY: dict[tuple[str, str], frozenset[str]] = {
             "FTNTFGTreason",
             "FTNTFGTseverity",
             "FTNTFGTsrccountry",
+            "FTNTFGTtunnelip",
             "act",
             "duser",
             "rt",
@@ -465,6 +467,12 @@ class CheckPointProfile(VendorProfile):
         if not is_fail:
             ext["cn1Label"] = "Tunnel ID"
             ext["cn1"] = e["tunnelid"]
+            # Mobile Access's Office Mode address, when the engine assigns one
+            # (REP-011). Emitted under its native name the way auth_status and
+            # product are. Optional so the golden lines keep their order.
+            # [Unverified] key name against a live Log Exporter.
+            if "tunnelip" in e:
+                ext["office_mode_ip"] = e["tunnelip"]
         ext["reason"] = e["reason"]
         ext["msg"] = e["msg"]
         ext["product"] = self.device.product_vpn

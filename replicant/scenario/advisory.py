@@ -110,6 +110,10 @@ def build_advisory(
         for s in composed.stages
     )
     user_stages = [s for s in composed.stages if s.top_user]
+    # A credential-keyed stage whose VPN assignment IS the victim joins to every
+    # host-keyed stage the victim dominates. Measured, not assumed: the stage
+    # has to carry the assignment and it has to equal the pinned victim.
+    pivot_stages = [s.index for s in user_stages if s.top_tunnelip == composed.victim]
     has_c2 = any(t.startswith(_C2_TACTIC) for t in covered)
     has_exfil = any(t.startswith(_EXFIL_TACTIC) for t in covered)
 
@@ -121,6 +125,7 @@ def build_advisory(
         "last_event_epoch": last,
         "victim_stage_indices": victim_stages,
         "adversary_stage_indices": adversary_stages,
+        "vpn_pivot_stage_indices": pivot_stages,
         "truncated_stage_indices": [s.index for s in composed.stages if s.truncated],
     }
 
@@ -219,10 +224,21 @@ def build_advisory(
         )
     if user_stages:
         names = ", ".join(f"stage {s.index}" for s in user_stages)
-        claims.append(
-            f"- the credential-keyed stages ({names}) correlate on `duser`, not on `src`; "
-            "joining them to the host-keyed stages needs the VPN assignment as the pivot."
-        )
+        if pivot_stages and victim_stages:
+            pivot = next(s for s in user_stages if s.index == pivot_stages[0])
+            claims.append(
+                f"- the credential-keyed stages ({names}) correlate on `duser`, not on `src`; "
+                f"the VPN assignment is the pivot: stage {pivot.index} assigned "
+                f"`tunnelip={composed.victim}` to `duser={pivot.top_user}`, and "
+                f"`src={composed.victim}` is the host-keyed source in "
+                f"{_stage_list(victim_stages)}."
+            )
+        else:
+            claims.append(
+                f"- the credential-keyed stages ({names}) correlate on `duser`, not on `src`; "
+                "joining them to the host-keyed stages needs the VPN assignment as the pivot, "
+                "and no stage here carries one that matches the victim."
+            )
     if has_c2 and has_exfil and len(adversary_stages) > 1:
         claims.append(
             f"- this chain covers both {_C2_TACTIC} and {_EXFIL_TACTIC} and they share "

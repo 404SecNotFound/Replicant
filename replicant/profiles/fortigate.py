@@ -80,6 +80,7 @@ _DETECTION_FIELDS: dict[str, str | None] = {
     "FTNTFGTreason": "FTNTFGTreason",
     "FTNTFGTseverity": "FTNTFGTseverity",
     "FTNTFGTsrccountry": "FTNTFGTsrccountry",
+    "FTNTFGTtunnelip": "FTNTFGTtunnelip",
     "FTNTFGTxid": "FTNTFGTxid",
     "act": "act",
     "cnt": "cnt",
@@ -157,7 +158,7 @@ _DETECTION_FIELDS_BY_FAMILY: dict[tuple[str, str], frozenset[str]] = {
         }
     ),
     ("event", "vpn"): frozenset(
-        {"FTNTFGTreason", "FTNTFGTsrccountry", "act", "duser", "rt", "src"}
+        {"FTNTFGTreason", "FTNTFGTsrccountry", "FTNTFGTtunnelip", "act", "duser", "rt", "src"}
     ),
     ("event", "system"): frozenset({"FTNTFGTreason", "act", "duser", "rt", "src"}),
 }
@@ -463,6 +464,11 @@ class FortiGateProfile(VendorProfile):
         ext["FTNTFGTtunneltype"] = e["tunneltype"]
         if not is_fail:
             ext["FTNTFGTtunnelid"] = e["tunnelid"]
+            # The address assigned to the tunnel (FortiOS `tunnelip`), present
+            # when the engine assigns one (REP-011). Optional so the golden
+            # lines keep their order. [Unverified] CEF key name on a live build.
+            if "tunnelip" in e:
+                ext["FTNTFGTtunnelip"] = e["tunnelip"]
             ext["FTNTFGTgroup"] = e["group"]
         ext["FTNTFGTreason"] = e["reason"]
         ext["FTNTFGTmsg"] = e["msg"]

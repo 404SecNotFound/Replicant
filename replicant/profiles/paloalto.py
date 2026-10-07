@@ -63,6 +63,7 @@ _DETECTION_FIELDS: dict[str, str | None] = {
     "FTNTFGTreason": "reason",
     "FTNTFGTseverity": "cs2",
     "FTNTFGTsrccountry": "cs4",
+    "FTNTFGTtunnelip": "PanOSPrivateIPv4",
     "FTNTFGTxid": None,
     "act": "act",
     "cnt": "cnt",
@@ -139,6 +140,7 @@ _DETECTION_FIELDS_BY_FAMILY: dict[tuple[str, str], frozenset[str]] = {
         {
             "FTNTFGTreason",
             "FTNTFGTsrccountry",
+            "FTNTFGTtunnelip",
             "act",
             "duser",
             "externalId",
@@ -419,11 +421,14 @@ class PaloAltoProfile(VendorProfile):
         ext["cs1"] = f"policy-{e['policyid']}"
         ext["cs3Label"] = "Virtual System"
         ext["cs3"] = self.device.vsys
-        # An incoming attack: the source is the untrusted zone, the victim the trust zone.
+        # Zones follow the flow. An incoming attack has the untrusted zone as its
+        # source and the trust zone as its destination; an outgoing alert (the
+        # REP-022 exfil stage since 2026-10-07) is the reverse.
+        outgoing = e.get("direction", "incoming") == "outgoing"
         ext["cs4Label"] = "Source Zone"
-        ext["cs4"] = self.device.dst_zone
+        ext["cs4"] = self.device.src_zone if outgoing else self.device.dst_zone
         ext["cs5Label"] = "Destination Zone"
-        ext["cs5"] = self.device.src_zone
+        ext["cs5"] = self.device.dst_zone if outgoing else self.device.src_zone
         ext["cn1Label"] = "SessionID"
         ext["cn1"] = require(event.session_id, "session_id")
         ext["request"] = e["request"]
@@ -460,6 +465,11 @@ class PaloAltoProfile(VendorProfile):
         if not is_fail:
             ext["cn1Label"] = "TunnelID"
             ext["cn1"] = e["tunnelid"]
+            # GlobalProtect's private (tunnel) address, when the engine assigns
+            # one (REP-011). Optional so the golden lines keep their order.
+            # [Unverified] key name against a live PAN-OS CEF export.
+            if "tunnelip" in e:
+                ext["PanOSPrivateIPv4"] = e["tunnelip"]
             ext["cs2Label"] = "Group"
             ext["cs2"] = e["group"]
         ext["reason"] = e["reason"]

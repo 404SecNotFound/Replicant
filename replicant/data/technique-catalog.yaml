@@ -386,7 +386,7 @@ techniques:
       signature_id: "39947"   # ssl-login success  [Unverified] confirm on live build
       action: "tunnel-up"
     cef_fields_held: ["duser"]
-    cef_fields_varied: ["src", "FTNTFGTsrccountry", "rt"]
+    cef_fields_varied: ["src", "FTNTFGTsrccountry", "rt", "FTNTFGTtunnelip"]
     params:
       low:    { logins: 2, countries: 2, window_min: 60 }
       medium: { logins: 3, countries: 3, window_min: 30 }
@@ -394,6 +394,7 @@ techniques:
     distributions:
       geo: "successful logins from geographically distant source blocks implying > 900 km/h"
       country_source: "synthetic GeoIP tags on the external source pool"
+      tunnel_ip: "every tunnel-up names the address the VPN assigned to the session, drawn from the internal host pool. In a scenario the pool is pinned to the victim, so the assignment is the pivot from duser to the host-keyed stages that follow (SCEN-003: duser, then tunnelip, then the beacon's src)"
     benign_baseline: "a user logs in from a consistent country or approved travel set"
     transferability: "parser-only"
     transferability_note: >-
@@ -744,8 +745,13 @@ techniques:
       subtype: "ips"
       signature_id: "16384"
       action: "reset"
-    cef_fields_held: ["src", "dst"]       # the entity pair the chain is about
-    cef_fields_varied: ["FTNTFGTattack", "FTNTFGTattackid", "rt", "act", "FTNTFGTseverity"]
+    # The chain is one UNORDERED entity pair, which the schema cannot say: src and
+    # dst swap on the exfil stage (the IPS raises an outbound-transfer alert on
+    # the flow leaving the victim), so neither field is constant per run at high.
+    # Held is therefore empty rather than a claim the high preset breaks; the pair
+    # is described under distributions.direction.
+    cef_fields_held: []
+    cef_fields_varied: ["FTNTFGTattack", "FTNTFGTattackid", "rt", "act", "FTNTFGTseverity", "src", "dst"]
     params:
       low:    { stages: 3, hits_per_stage: [2, 5],  stage_gap_s: [120, 600], noise_alerts: 20 }
       medium: { stages: 4, hits_per_stage: [3, 12], stage_gap_s: [60, 300],  noise_alerts: 120 }
@@ -754,6 +760,7 @@ techniques:
       stage_order: "recon, then exploit attempt, then post-exploitation or C2. Strictly ordered in time and never interleaved out of order, which is what a correlation rule keys on"
       severity: "ascending across stages on every vendor, so a severity-weighted rule sees escalation. ips_severity low, medium, high, critical, critical; CEF header 3,4,5,7,7 on FortiGate, 3,5,6,8,8 on PAN-OS, Low to Very-High on Check Point"
       noise_alerts: "unrelated single alerts on other entity pairs, interleaved through the whole window"
+      direction: "recon through c2 are alerts on the flow into the victim (direction incoming, src the adversary). The exfil stage is a large outbound transfer, raised on the flow leaving the victim: the same pair reversed, direction outgoing, src the victim. The held pair is the unordered pair"
     benign_baseline: "noise_alerts IS the baseline. A rule that fires on any N alerts in a window fires on the noise too. AACT reported 61% of real SOC alerts were closable, so a clean chain would badly overstate a rule's quality"
     emits_foil: true
     references: ["Wilkens et al., Multi-Stage Attack Detection via Kill Chain State Machines", "ALERTPRO Computers & Security 2023", "AACT Turcotte et al. 2025"]

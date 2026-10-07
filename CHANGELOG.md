@@ -70,6 +70,26 @@ Review of 2026-10-07: a fourth adversarial pass over the whole repository at `ef
 - The systemd unit's comments said the catalog and frontend load by
   repository-relative path. They ship inside the package since v0.3.1.
 
+### Fixed (catalog follow-ups, 2026-10-07)
+
+- **REP-022's exfil stage leaves the victim.** The high preset's fifth stage,
+  an `HTTP.Large.Outbound.Transfer` alert mapped to T1041, rendered with
+  `direction=incoming` on the adversary-to-victim pair, the shape of one more
+  inbound hit. It is now the same pair reversed: src the victim, dst the
+  adversary, direction outgoing, on all three vendors (PAN-OS zones follow the
+  flow, Check Point derives it from dst). The catalog's `cef_fields_held` for
+  REP-022 is empty now, because the held thing is the unordered pair and the
+  schema cannot say so; src and dst are varied with the reversal explained.
+  Guard red on 20 of 20 seeds before the fix.
+- **SCEN-003 has its join key.** Every REP-011 tunnel-up carries the address
+  the VPN assigned to the session (`tunnelip`, from the internal host pool).
+  Under scenario pinning that is the victim, so a rule can pivot `duser`, then
+  `tunnelip`, then the beacon's `src`; the advisory names the pivot when it
+  matches, and the coverage data carries `vpn_pivot_stage_indices`. Rendered
+  as `FTNTFGTtunnelip`, `PanOSPrivateIPv4` and `office_mode_ip`, each
+  `[Unverified]` as a key name and each optional, so the golden lines are
+  unchanged. REP-011's `cef_fields_varied` lists the new field.
+
 ### Fixed (catalog foils, 2026-10-07 review)
 
 Record: `docs/catalog-review-2026-10-07.md`. A measurement pass over seeds 1 to

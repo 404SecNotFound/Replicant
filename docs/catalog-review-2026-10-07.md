@@ -100,7 +100,8 @@ names the feature that leaked.
 | REP-013 | Foil was 12 constant records, all accept, against 56 to 5520 mixed probes. | `foil out_bytes constant`, `foil actions ['accept'] against the worm's accept/deny mix`, `1.3 probes per generation against fanout 8` (all presets, 20/20). | Worm legs and the three baseline servers share one draw; servers probe `fanout` targets per generation with the worm's landed/denied split. | Foil 72, 180, 360 events, about 25% accept; the source-growth property is still asserted and green. |
 | REP-007 | NAT foil was 4 to 8 events at high (`max(4, len(usernames))`). | `NAT foil is 4 events against 401 attack events (ratio 0.01)` (high, 20/20). | NAT user count is half the attack's pairs, floor 4. | 66/100, 710/1000, 288/401. |
 | REP-023 | Catalog said destination count cannot separate the streams; attack was 1 destination with 120 sessions per pair, foil 89 to 184 with at most 3. Beacon had zero jitter and the foil copied its period. | `browsing foil is as periodic as the beacon (gap CV 0.000)` plus the catalog-text check (all presets, 20/20). | Catalog rewrite, chosen over forcing parity: destination count, per-pair session count and timing regularity are named as legitimate discriminators; the foil keeps count and port and is irregularly timed over the beacon's span. | Foil gap CV about 0.43; the guard checks the catalog text names the discriminators. |
-| REP-022 | High preset's fifth stage emits an outbound-transfer alert labelled exfil with no TA0010 or exfil technique mapped. | Label. | `TA0010 Exfiltration` and `T1041` added. The alert's `direction` is still `incoming`; left as a follow-up and recorded here. | |
+| REP-022 | High preset's fifth stage emits an outbound-transfer alert labelled exfil with no TA0010 or exfil technique mapped. | Label. | `TA0010 Exfiltration` and `T1041` added. The alert's `direction` was still `incoming`; fixed the same day, below. | |
+| REP-022 (follow-up, 2026-10-07) | The exfil stage rendered with `direction=incoming` on the adversary-to-victim pair, the shape of one more inbound hit. | `tests/test_followups_2026_10_07.py`: 20/20 seeds at high, `'incoming' == 'outgoing'`. | The exfil stage is the same pair reversed: src the victim, dst the adversary, direction outgoing, on all three vendors (PAN-OS zones follow the flow; Check Point derives it from dst). `cef_fields_held` is now empty, because the held thing is the unordered pair and the schema cannot say so; src and dst moved to varied with the reversal explained under `distributions.direction`. | Guard green at 20 seeds; the contract test that objected to a non-constant held `src` passes. |
 | REP-013 | High preset spreads over 3389 but listed only T1021.002. | Label. | `T1021.001` added. | |
 | REP-008, REP-020 | T1583 is adversary-side Resource Development and not observable in victim telemetry. | Label. | Technique ids kept; each entry's references state that T1583 is the adversary-side anchor and the observable is the first-contact behaviour. | |
 | Header | Credential Access count said 1. | Label. | Now 2 (REP-007, REP-030). | |
@@ -130,10 +131,20 @@ beacon destination. Two gaps:
    attack-only. Fixed: `replicant scenario run --controls both` composes each
    stage's foil onto the same timeline (`security-review-2026-10-07.md`,
    "Related change"). The default is unchanged.
-2. SCEN-003's REP-011 to REP-001 hop has no join key: the VPN login carries no
-   assigned tunnel address and its sources are not the adversary. Open. A
-   tunnel-address field would need an `event:vpn` extension all three vendors
-   can render, which is the kind of surface the launch gate holds back.
+2. SCEN-003's REP-011 to REP-001 hop had no join key: the VPN login carried no
+   assigned tunnel address and its sources are not the adversary. Fixed the same
+   day: every REP-011 tunnel-up now carries `tunnelip`, drawn from the internal
+   host pool, which under scenario pinning is the victim, so a rule can pivot
+   `duser`, then `tunnelip`, then the beacon's `src`. The composer records the
+   assignment per stage and the advisory names the pivot when it matches the
+   victim (`vpn_pivot_stage_indices`). Rendered as `FTNTFGTtunnelip`,
+   `PanOSPrivateIPv4` and `office_mode_ip`, each `[Unverified]` as a key name
+   and each optional so the golden lines are unchanged. Guard:
+   `tests/test_followups_2026_10_07.py`, failed on the unfixed engine at every
+   seed and preset. This is the one item from the gate's "adds surface" class
+   that was taken anyway, because without it the scenario's own description
+   ("an anomalous VPN login, then an internal beacon") claimed a join the
+   telemetry did not carry.
 
 ## Coverage tally and what to add next
 
