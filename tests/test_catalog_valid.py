@@ -33,7 +33,7 @@ def test_catalog_loads() -> None:
 
 def test_catalog_technique_count() -> None:
     # 11 original + 13 from v0.2.0 + two from the 2026-09-08 research review.
-    assert len(CATALOG.techniques) == 26
+    assert len(CATALOG.techniques) == 27
 
 
 def test_ids_and_uc_unique() -> None:
@@ -129,6 +129,7 @@ def test_every_shipped_technique_has_search_aliases() -> None:
         ("first seen domain", "REP-020"),
         ("portal wide login failures", "REP-030"),
         ("IPS and traffic join", "REP-043"),
+        ("rogue admin", "REP-028"),
     ],
 )
 def test_operator_phrases_are_attached_to_the_intended_technique(

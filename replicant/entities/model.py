@@ -88,6 +88,10 @@ class EntityConfig:
     # addresses keeps a scan source from ever being the reporting firewall's own
     # address, which would be nonsense in a log.
     scanner_reserve: int = 8
+    # Management jump hosts (REP-028's benign foil logs in from here). A small
+    # RFC1918 block that no other pool draws from, so "outside the management
+    # pool" is decidable for every address the engine emits.
+    mgmt_subnet: str = "10.20.1.0/28"
     resolver: str = "10.20.0.53"
     c2_ports: tuple[int, ...] = (443, 8443, 8080, 53)
     scan_ports: tuple[int, ...] = (445, 3389, 22, 23, 80)
@@ -116,6 +120,8 @@ class EntityModel:
     # Inbound scanner sources. Defaulted rather than required so existing direct
     # constructions of EntityModel keep working.
     scanner_external: list[str] = field(default_factory=list)
+    # Management jump hosts. Defaulted for the same reason as scanner_external.
+    mgmt_hosts: list[str] = field(default_factory=list)
 
     @classmethod
     def build(cls, config: EntityConfig | None = None) -> EntityModel:
@@ -146,6 +152,7 @@ class EntityModel:
             scanner_external=_hosts(cfg.scanner_subnet, cfg.external_limit + cfg.scanner_reserve)[
                 cfg.scanner_reserve :
             ],
+            mgmt_hosts=_hosts(cfg.mgmt_subnet, 14),
         )
 
     def summary(self) -> dict[str, object]:
@@ -158,6 +165,7 @@ class EntityModel:
             "adversary_external": len(self.adversary_external),
             "benign_external": len(self.benign_external),
             "scanner_external": len(self.scanner_external),
+            "mgmt_hosts": len(self.mgmt_hosts),
             "resolver": self.resolver,
             "parents": self.parents,
             "user_pool": len(self.users),

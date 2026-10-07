@@ -40,6 +40,7 @@ INGEST_LIMIT = "Tier 1 does not prove that any SIEM rule fired."
 _EXTRA_FIELDS = {
     "FTNTFGTattack": "attack",
     "FTNTFGTattackid": "attackid",
+    "FTNTFGTcfgpath": "cfgpath",
     "FTNTFGTduration": "duration",
     "FTNTFGTqname": "qname",
     "FTNTFGTqtype": "qtype",

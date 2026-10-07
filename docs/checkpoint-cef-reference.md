@@ -173,6 +173,13 @@ Office Mode address is a documented Mobile Access log field; its Log Exporter
 key is unconfirmed against a live gateway. The golden line above carries no
 assignment and is unchanged.
 
+`[Unverified]` configuration change (REP-028, 2026-10-07): a change record renders
+as a management audit log under the same keys the admin login uses
+(`administrator`, `operation=<Add|Edit|Delete> Object`) plus `object_name=<path>`
+and `object_type=<object>` under their native names, `act=Accept`, header
+severity Unknown. Unconfirmed against a live Log Exporter; no golden line covers
+it.
+
 Mobile Access / VPN login failure:
 ```
 <187>Jul 16 10:35:40 CP-LAB-GW-01 CEF:0|Check Point|Mobile Access|Check Point|Log|Log|High|act=Reject rt=1752662140000 src=198.51.100.200 duser=jsmith suser=jsmith auth_status=Failed Login cp_severity=High cs5Label=Auth Method cs5=ssl-web reason=sslvpn_login_permission_denied msg=SSL user failed to logged in product=Mobile Access origin=192.0.2.1

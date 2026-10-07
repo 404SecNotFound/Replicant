@@ -69,6 +69,7 @@ _SEV_UNKNOWN = "Unknown"
 _DETECTION_FIELDS: dict[str, str | None] = {
     "FTNTFGTattack": "cs4",
     "FTNTFGTattackid": "cs2",
+    "FTNTFGTcfgpath": "object_name",
     "FTNTFGTduration": "cn1",
     "FTNTFGTqname": "destinationDnsDomain",
     "FTNTFGTqtype": None,
@@ -144,7 +145,7 @@ _DETECTION_FIELDS_BY_FAMILY: dict[tuple[str, str], frozenset[str]] = {
         }
     ),
     ("event", "system"): frozenset(
-        {"FTNTFGTreason", "FTNTFGTseverity", "act", "duser", "rt", "src"}
+        {"FTNTFGTcfgpath", "FTNTFGTreason", "FTNTFGTseverity", "act", "duser", "rt", "src"}
     ),
 }
 
@@ -481,6 +482,8 @@ class CheckPointProfile(VendorProfile):
 
     def _system(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
         e = event.extra
+        if "cfgpath" in e:
+            return self._audit(event)
         # The login verdict follows the event, as it already does in _vpn above.
         # These two were hardcoded to failure while the engine only ever sends
         # status="success" down this path (REP-018's lateral movement chain), so
@@ -511,3 +514,27 @@ class CheckPointProfile(VendorProfile):
         ext["product"] = self.device.product_sys
         ext["origin"] = self.device.origin
         return self._header(self.device.product_sys, "Log", "Log", sev), ext
+
+    def _audit(self, event: EventRecord) -> tuple[CefHeader, dict[str, str]]:
+        """A configuration change (REP-028) as a management audit record, under
+        the same audit keys the admin login uses (administrator, operation) plus
+        the object under its native name. [Unverified] against a live Log
+        Exporter (reference s2.3)."""
+
+        e = event.extra
+        ext: dict[str, str] = {}
+        ext["act"] = "Accept"
+        ext["rt"] = self._rt(event.eventtime)
+        ext["src"] = require(event.src, "src")
+        ext["duser"] = require(event.duser, "duser")
+        ext["suser"] = require(event.duser, "duser")
+        ext["administrator"] = require(event.duser, "duser")
+        ext["operation"] = f"{event.action} Object"
+        ext["object_name"] = e["cfgpath"]
+        ext["object_type"] = e["cfgobj"]
+        ext["cs1Label"] = "Client"
+        ext["cs1"] = e.get("method", "https")
+        ext["msg"] = e["msg"]
+        ext["product"] = self.device.product_sys
+        ext["origin"] = self.device.origin
+        return self._header(self.device.product_sys, "Log", "Log", _SEV_UNKNOWN), ext

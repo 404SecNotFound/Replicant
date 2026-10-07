@@ -55,6 +55,7 @@ epoch. Bytes: `in` = bytes received, `out` = bytes sent.
 | `event:vpn` success | GLOBALPROTECT | `globalprotect` | `allow` (`PanOSEventID=gateway-auth-succ`) |
 | `event:vpn` fail | GLOBALPROTECT | `globalprotect` | `deny` (`PanOSEventID=gateway-auth-fail`) |
 | `event:system` | SYSTEM | `general` | `login` (`PanOSEventID=auth-fail`) |
+| `event:system` (configuration change, REP-028) | CONFIG | `config` | `edit`, `add`, `delete` (`PanOSCommand`, `cs2Label=Path cs2=<path>`, `PanOSResult=Succeeded`, `cn1Label=Sequence`) `[Unverified]` against a live PAN-OS CEF export (2026-10-07) |
 
 ### 2.3 Severity mapping (PAN-OS log level -> CEF severity, not reversed)
 

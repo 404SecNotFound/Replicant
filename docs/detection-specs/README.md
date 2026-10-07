@@ -44,12 +44,12 @@ additive `logical_*` and `native_*` fields instead.
 
 ## Machine-readable contracts and phasing
 
-All 26 techniques now have a machine-readable validation contract in
+All 27 techniques now have a machine-readable validation contract in
 `replicant/data/detection-contracts.yaml`. Those contracts define what the
 offline evaluator can measure; they are not detection rules and do not replace
 these human-authored references.
 
-Authoring 26 full rule specs up front, against a live SIEM path that has never
+Authoring 27 full rule specs up front, against a live SIEM path that has never
 been observed end to end, would be effort ahead of proof. They land in the order
 the roadmap sets:
 
