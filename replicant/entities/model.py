@@ -92,6 +92,11 @@ class EntityConfig:
     # RFC1918 block that no other pool draws from, so "outside the management
     # pool" is decidable for every address the engine emits.
     mgmt_subnet: str = "10.20.1.0/28"
+    # Infrastructure servers (REP-052's benign foil pushes from here: a software
+    # distribution or backup server). Its own small block, disjoint from the
+    # workstation, target and management pools, so "server role" is decidable
+    # for every address the engine emits.
+    server_subnet: str = "10.20.2.0/28"
     resolver: str = "10.20.0.53"
     c2_ports: tuple[int, ...] = (443, 8443, 8080, 53)
     scan_ports: tuple[int, ...] = (445, 3389, 22, 23, 80)
@@ -122,6 +127,8 @@ class EntityModel:
     scanner_external: list[str] = field(default_factory=list)
     # Management jump hosts. Defaulted for the same reason as scanner_external.
     mgmt_hosts: list[str] = field(default_factory=list)
+    # Infrastructure servers. Defaulted for the same reason as scanner_external.
+    server_hosts: list[str] = field(default_factory=list)
 
     @classmethod
     def build(cls, config: EntityConfig | None = None) -> EntityModel:
@@ -153,6 +160,7 @@ class EntityModel:
                 cfg.scanner_reserve :
             ],
             mgmt_hosts=_hosts(cfg.mgmt_subnet, 14),
+            server_hosts=_hosts(cfg.server_subnet, 14),
         )
 
     def summary(self) -> dict[str, object]:
@@ -166,6 +174,7 @@ class EntityModel:
             "benign_external": len(self.benign_external),
             "scanner_external": len(self.scanner_external),
             "mgmt_hosts": len(self.mgmt_hosts),
+            "server_hosts": len(self.server_hosts),
             "resolver": self.resolver,
             "parents": self.parents,
             "user_pool": len(self.users),

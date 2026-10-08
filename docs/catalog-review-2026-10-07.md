@@ -199,6 +199,18 @@ the parked ones are cited.
    source, distinct internal destination count and out bytes over minutes on
    port 445, interzone only. Foil: a backup or patch server doing an in-heavy
    fan-out from a server-role asset in its scheduled window.
+   Implementation note (2026-10-08): built as REP-052, by the owner's decision
+   and behind the launch gate, which is unchanged. The foil sketched above was
+   changed before it was built: a backup pull differs from the attack on two
+   features (server role and read direction), and the parity rule allows one,
+   so the foil is a software-distribution server pushing the same out-heavy
+   fan-out from a new `server_hosts` pool (10.20.2.0/28), and role is the only
+   separating feature. Positive controls, each on 20 seeds: a foil drawn from
+   the workstation pool failed the role guard; the in-heavy foil as sketched
+   failed the ratio parity guard; a foil pinned at twelve shares failed the
+   count parity guard. The id is REP-052 because REP-029 is the parked MFA
+   push-fatigue proposal of round 3 and every id up to REP-051 is named by a
+   triage record.
 3. **Internal reflector or outbound DDoS participation** (Impact, T1498.002;
    parked as round 3 REP-034 and round 4 REP-047). Honest only with the cap
    statement in the entry: out-to-in asymmetry per udp/123 or udp/161 session

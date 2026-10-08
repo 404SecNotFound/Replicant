@@ -362,6 +362,15 @@ Output convention: command results go to stdout, operator-facing errors go to st
   guard measures parity on everything else over seeds; and a configuration-change record now
   exists on all three vendors, `[Unverified]` on each until a live capture.
 
+  Implementation note (2026-10-08): the second, REP-052 (ransomware-like SMB write fan-out,
+  Impact), is built, by the owner's decision and with the gate unchanged. Same foil
+  discipline: a software-distribution server from a new `server_hosts` pool does the same
+  fan-out, and role is the only separating feature. The backlog's sketch of a backup-pull foil
+  was set aside because it differed on two features. The id is REP-052, not REP-029, because
+  ids named by a triage record stay reserved for the proposal they name. No vendor profile
+  changed; the entry discloses that a traffic record cannot carry the file operations the
+  cited detectors key on.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 **The LogRhythm lab test has still never observed a rule fire.** Implementation note

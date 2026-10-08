@@ -2,12 +2,14 @@
 # Project: Replicant (github.com/404SecNotFound/Replicant)
 # Author: RZA
 # Timezone for all timestamps produced at runtime: UTC+04:00 (Dubai)
-# Status: 27 techniques. REP-001..011 are the original catalog; REP-012..024
+# Status: 28 techniques. REP-001..011 are the original catalog; REP-012..024
 # were added in v0.2.0 and are each anchored to a peer-reviewed detection paper
 # with measured results. REP-030 and REP-043 follow the 2026-09-08 all-round
 # research review (see docs/catalog-research-review-2026-09-08.md). REP-028 is
 # the first entry added under the tactic-gap rule below (2026-10-07; Defense
-# Evasion was the thinnest tactic the firewall can see).
+# Evasion was the thinnest tactic the firewall can see). REP-052 is the second
+# (2026-10-08; Impact). Ids named by a triage record stay reserved for the
+# proposal they name, so a new entry takes the next id no record has used.
 #
 # PURPOSE
 # This file is the single source of truth for the interactive TTP menu and the
@@ -62,8 +64,8 @@
 # EXPANSION (roadmap 2026-09 item 16)
 # The next technique is gated on the tactic-gap tally, not on which paper had
 # measured results. This catalog is heavily weighted to Command and Control (13 of
-# 27 techniques carry TA0011, several of them beacon/callback variants) while
-# network-visible Impact (1), Credential Access (2) and Defense Evasion (2) sit
+# 28 techniques carry TA0011, several of them beacon/callback variants) while
+# network-visible Impact (2), Credential Access (2) and Defense Evasion (2) sit
 # near zero. A ninth beacon variant has near-zero marginal coverage value; weight
 # a new entry by the tactic it fills, and record its prevalence basis. A recorded
 # rule, downstream of the coverage scorecard deferred until F2 produces real
@@ -945,6 +947,43 @@ techniques:
       - "MITRE ATT&CK T1562.004 Impair Defenses: Disable or Modify System Firewall; T1078 Valid Accounts"
       - "fortigate-cef-reference: event:system configuration change"
     safety_notes: "configuration paths, object names and attribute strings are labels only. Nothing is configured, no device is contacted, and the administrator accounts are synthetic"
+
+  - id: REP-052
+    name: "Ransomware-like SMB write fan-out"
+    search_aliases: ["ransomware", "share encryption", "SMB write fan-out", "mass file write", "encrypt network shares"]
+    ndr_rule: "NDR-IMPACT-027"
+    ndr_uc: "UC-027"
+    objective: >-
+      Prove a rule keys on one workstation writing to many distinct internal file servers on SMB inside a short window, and stays quiet for the same fan-out from a software-distribution server.
+    attack:
+      tactics: ["TA0040 Impact"]
+      techniques: ["T1486"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["src", "dpt", "proto"]      # one workstation, tcp/445, for the whole fan-out
+    cef_fields_varied: ["dst", "rt", "out", "in", "FTNTFGTduration", "externalId"]
+    params:
+      low:    { shares: [8, 15],   window_min: 30, sessions_per_share: [1, 2] }
+      medium: { shares: [20, 40],  window_min: 15, sessions_per_share: [1, 3] }
+      high:   { shares: [60, 120], window_min: 10, sessions_per_share: [2, 4] }
+    distributions:
+      fanout: "one source from the workstation pool opens shares distinct internal destinations (the internal_targets pool) on tcp/445, sessions_per_share accepted sessions each, with session close times at uniform random offsets inside window_min; every session is accepted, nothing is probed"
+      bytes: "each session reads a share's files and writes them back, so both directions are large (in log-normal over 300 KB to 5 MB, sigma 0.5) and out is at least in (out = in times uniform 1.02 to 1.25). [Inference] the write-to-read ratio is a design choice standing in for an encrypted rewrite plus renames; no capture was measured"
+      duration_s: "per session uniform 20 to 300 s, clamped to the window"
+      duration: "--duration sets the window and the share count is preserved, because the number of distinct destinations written to inside the window is the signal, not the spacing"
+    benign_baseline: "a software-distribution server (the server_hosts pool, 10.20.2.0/28) pushes to the same number of file servers in the same window, with the same sessions per share, the same byte and duration draws and the same write-to-read ratio. Only the source's asset role differs, and that is the intended discriminator: a rule that fires on SMB write fan-out alone fires on every patch window"
+    emits_foil: true
+    transferability_note: >-
+      Disclosed limit: a firewall traffic record carries sessions and bytes, not file operations. Published SMB-traffic ransomware detectors key on file-level reads followed by overwrites and deletes, which this family cannot express, so the emitted records exercise the session-level aggregation only (distinct destinations per source on tcp/445 and write volume inside the window). The server pool is a synthetic subnet; a production rule's notion of a distribution server comes from the operator's asset inventory, which these records do not exercise.
+    references:
+      - "Morato, Berrueta, Magana and Izal, Ransomware early detection by the analysis of file sharing traffic, Journal of Network and Computer Applications, 2018 (detector keys on SMB file-operation sequences per host; the firewall view aggregates those to sessions and bytes). [Unverified: title, venue and year quoted from memory; confirm before customer use]"
+      - "Berrueta, Morato, Magana and Izal, Open Repository for the Evaluation of Ransomware Detection Tools, IEEE Access, 2020 (network-share encryption traffic corpus). [Unverified: quoted from memory]"
+      - "Prevalence basis: ransomware or extortion is reported in roughly a third of breaches in the Verizon 2024 Data Breach Investigations Report. [Unverified: figure quoted from memory]"
+      - "MITRE ATT&CK T1486 Data Encrypted for Impact (the technique text names network shares as a target)"
+    safety_notes: "nothing is encrypted, read or written. Byte counts, durations and destinations are fields in a log string; every address is synthetic internal space"
 
 # NOTES
 # 1. Signature IDs marked [Unverified] must be confirmed against a live FortiOS
