@@ -1834,6 +1834,13 @@ class ScenarioEngine:
             country = chosen[index % len(chosen)]
             pool = by_country[country]
             src = str(pool[int(rng.integers(0, len(pool)))])
+            # The address the VPN assigned to this session. It is what ties the
+            # login to everything the session then does from inside the network:
+            # in a scenario the internal pool is pinned to the victim, so the
+            # beacon that follows (SCEN-003's REP-001) has this as its source,
+            # and a rule can pivot duser -> tunnelip -> src. Before 2026-10-07
+            # the login carried only the remote address, so no such join existed.
+            tunnelip = str(rng.choice(entities.internal_hosts))
             events.append(
                 EventRecord(
                     log_type=technique.fortigate.log_type,
@@ -1851,6 +1858,7 @@ class ScenarioEngine:
                         "srccountry": country,
                         "tunneltype": "ssl-tunnel",
                         "tunnelid": str(int(rng.integers(1_000_000, 9_999_999))),
+                        "tunnelip": tunnelip,
                         "group": "vpn-users",
                         "reason": "login-success",
                         "msg": "SSL tunnel established",
@@ -3226,6 +3234,13 @@ class ScenarioEngine:
             stage_name, ips_severity, signatures = _IPS_STAGES[stage_index]
             level = _IPS_LEVEL_BY_SEVERITY[ips_severity]
             hits = int(rng.integers(hits_lo, hits_hi + 1))
+            # Recon through C2 are alerts on the flow INTO the victim. The exfil
+            # stage is a large outbound transfer, which the IPS raises on the
+            # flow leaving the victim: the same entity pair reversed, direction
+            # outgoing. Until 2026-10-07 it carried the inbound shape, so the
+            # one stage mapped to T1041 looked like one more inbound hit.
+            outbound = stage_name == "exfil"
+            flow_src, flow_dst = (chain_dst, chain_src) if outbound else (chain_src, chain_dst)
             for hit in range(hits):
                 attack, attackid = signatures[hit % len(signatures)]
                 events.append(
@@ -3235,9 +3250,9 @@ class ScenarioEngine:
                         action="reset" if stage_index < stages - 1 else "block",
                         level=level,
                         eventtime=anchor + elapsed,
-                        src=chain_src,
+                        src=flow_src,
                         spt=int(rng.integers(1024, 65535)),
-                        dst=chain_dst,
+                        dst=flow_dst,
                         dpt=443,
                         proto=6,
                         session_id=session,
@@ -3248,9 +3263,9 @@ class ScenarioEngine:
                             "policyid": "7",
                             "attack": attack,
                             "attackid": attackid,
-                            "hostname": chain_dst,
+                            "hostname": flow_dst,
                             "request": _IPS_REQUESTS[hit % len(_IPS_REQUESTS)],
-                            "direction": "incoming",
+                            "direction": "outgoing" if outbound else "incoming",
                             "profile": "default",
                             "cnt": "1",
                             # Engine-internal marker, NOT rendered: the vendor

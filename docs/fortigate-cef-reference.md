@@ -229,7 +229,7 @@ DNS (type `dns`, subtypes `dns-query` and `dns-response`; older builds log DNS u
 - Signature ID `54802` for dns-response (logid `1501054802`). dns-query uses an adjacent logid in the same family `[Unverified: exact last-5 for query]`. Header Name example `dns:dns-response pass`. In CEF, qname appears as `FTNTFGTqname` and qtype as `FTNTFGTqtype`.
 
 Event VPN (type `event`, subtype `vpn`) SSL-VPN and IPsec:
-- Native fields: action (ssl-login-fail, ssl-new-con, tunnel-up, tunnel-down, tunnel-stats), logdesc, user, remip (remote source IP), tunneltype (ssl-web, ssl-tunnel, ipsec), tunnelid, group, dst_host, reason, msg, level, eventtime. For IPsec phase logs: action (negotiate, install_sa), cookies, xauthuser, peer_notif.
+- Native fields: action (ssl-login-fail, ssl-new-con, tunnel-up, tunnel-down, tunnel-stats), logdesc, user, remip (remote source IP), tunneltype (ssl-web, ssl-tunnel, ipsec), tunnelid, tunnelip (the address assigned to the tunnel; tunnel-up, tunnel-down and tunnel-stats records), group, dst_host, reason, msg, level, eventtime. For IPsec phase logs: action (negotiate, install_sa), cookies, xauthuser, peer_notif.
 - SSL-VPN login failure Signature ID `39426` (LOG_ID_EVENT_SSL_VPN_USER_SSL_LOGIN_FAIL, logdesc "SSL VPN login fail"). SSL-VPN login success / tunnel-up logids are in the same `event:vpn` family `[Unverified: exact last-5 for the success/tunnel-up records]`. `remip` maps to `src` in CEF `[Unverified]`; `user` maps to `duser`.
 
 Event user / admin auth (type `event`, subtype `user` for user auth, subtype `system` for admin logins):
@@ -313,6 +313,8 @@ SSL-VPN login success:
 <189>Jul 16 10:35:22 FGT-LAB-01 CEF:0|Fortinet|Fortigate|v7.4.3|39947|event:vpn ssl-login|3|deviceExternalId=FGVMSYNTH0000001 FTNTFGTlogid=0101039947 cat=event:vpn FTNTFGTsubtype=vpn FTNTFGTlevel=notice FTNTFGTvd=root FTNTFGTeventtime=1752662122 FTNTFGTlogdesc=SSL VPN tunnel up FTNTFGTaction=tunnel-up duser=jsmith src=203.0.113.60 FTNTFGTremip=203.0.113.60 FTNTFGTtunneltype=ssl-tunnel FTNTFGTtunnelid=1846277 FTNTFGTgroup=vpn-users FTNTFGTreason=login-success FTNTFGTmsg=SSL tunnel established
 ```
 `[Unverified]` Signature ID `39947` for the SSL-VPN success/tunnel-up record; the failure logid 39426 is confirmed, the adjacent success logid was not confirmed during research. Treat the last-5 value as configurable.
+
+Implementation note (2026-10-07): a tunnel-up that carries an assigned address (REP-011 does, drawn from the internal host pool) renders it as `FTNTFGTtunnelip=<address>` after `FTNTFGTtunnelid`. `[Unverified]` the CEF key name against a live build; the native `tunnelip` field is documented for tunnel-up records. The golden line above carries no assignment and is unchanged. In a scenario the assignment is the pinned victim, which is what joins the VPN login to the beacon that follows it (SCEN-003).
 
 SSL-VPN login failure:
 ```

@@ -48,6 +48,7 @@ _EXTRA_FIELDS = {
     "FTNTFGTreason": "reason",
     "FTNTFGTseverity": "ips_severity",
     "FTNTFGTsrccountry": "srccountry",
+    "FTNTFGTtunnelip": "tunnelip",
     "FTNTFGTxid": "xid",
     "cnt": "cnt",
 }

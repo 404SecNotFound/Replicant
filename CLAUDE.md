@@ -326,6 +326,12 @@ Output convention: command results go to stdout, operator-facing errors go to st
   utility. **Rule for custom CSS under v4: a global rule that a utility is meant to override
   goes in `@layer base`; unlayered CSS outranks every utility, whatever its specificity.**
 
+  Implementation note (2026-10-07, follow-ups): REP-022's exfil stage is the entity pair
+  reversed with `direction=outgoing` (its `cef_fields_held` is empty because the held thing
+  is the unordered pair), and REP-011's tunnel-up carries `tunnelip` from the pinned internal
+  pool, which gives SCEN-003 its `duser` to `tunnelip` to beacon `src` pivot. The three vendor
+  keys for the assignment are `[Unverified]` and optional, so no golden line moved.
+
   Three conventions this established:
   1. **A guard that checks the answer and not the cost has not bounded the cost.** The
      parser had a table of accepted and rejected inputs and every verdict was right. Any

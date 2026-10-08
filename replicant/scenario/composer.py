@@ -63,6 +63,11 @@ class StageResult:
     top_dst_count: int = 0
     top_user: str | None = None
     top_user_count: int = 0
+    # The address a VPN stage assigned to its sessions (REP-011's `tunnelip`).
+    # Under pinning it is the victim, which is what joins a credential-keyed
+    # stage to the host-keyed stages that follow it.
+    top_tunnelip: str | None = None
+    top_tunnelip_count: int = 0
 
 
 def _dominant(values: list[str]) -> tuple[str | None, int]:
@@ -186,6 +191,9 @@ def _compose_pass(
         top_src, top_src_count = _dominant([e.src for e in stage_events if e.src])
         top_dst, top_dst_count = _dominant([e.dst for e in stage_events if e.dst])
         top_user, top_user_count = _dominant([e.duser for e in stage_events if e.duser])
+        top_tunnelip, top_tunnelip_count = _dominant(
+            [e.extra["tunnelip"] for e in stage_events if "tunnelip" in e.extra]
+        )
         stages.append(
             StageResult(
                 index=i,
@@ -208,6 +216,8 @@ def _compose_pass(
                 top_dst_count=top_dst_count,
                 top_user=top_user,
                 top_user_count=top_user_count,
+                top_tunnelip=top_tunnelip,
+                top_tunnelip_count=top_tunnelip_count,
             )
         )
     tagged.sort(key=lambda item: (item[0], item[1]))

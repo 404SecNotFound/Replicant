@@ -116,6 +116,12 @@ GlobalProtect login success:
 <189>Jul 16 10:35:22 PA-LAB-01 CEF:0|Palo Alto Networks|PAN-OS|11.1.2|globalprotect|GLOBALPROTECT|3|rt=1752662122 deviceExternalId=007051000054321 duser=jsmith suser=jsmith src=203.0.113.60 act=allow PanOSEventID=gateway-auth-succ PanOSStage=login PanOSAuthMethod=ssl-tunnel cs3Label=Virtual System cs3=vsys1 cn1Label=TunnelID cn1=1846277 cs2Label=Group cs2=vpn-users reason=login-success msg=SSL tunnel established
 ```
 
+`[Unverified]` `PanOSPrivateIPv4`: a GlobalProtect login that carries an assigned
+tunnel address (REP-011 does) renders it as `PanOSPrivateIPv4=<address>` after
+`cn1` (implementation note, 2026-10-07). The key name follows the file's
+`PanOS*` convention and is unconfirmed against a live PAN-OS CEF export. The
+golden line above carries no assignment and is unchanged.
+
 GlobalProtect login failure:
 ```
 <185>Jul 16 10:35:40 PA-LAB-01 CEF:0|Palo Alto Networks|PAN-OS|11.1.2|globalprotect|GLOBALPROTECT|8|rt=1752662140 deviceExternalId=007051000054321 duser=jsmith suser=jsmith src=198.51.100.200 act=deny PanOSEventID=gateway-auth-fail PanOSStage=login PanOSAuthMethod=ssl-web cs3Label=Virtual System cs3=vsys1 reason=sslvpn_login_permission_denied msg=SSL user failed to logged in

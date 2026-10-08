@@ -166,6 +166,13 @@ Mobile Access / VPN login success:
 <189>Jul 16 10:35:22 CP-LAB-GW-01 CEF:0|Check Point|Mobile Access|Check Point|Log|Log|Unknown|act=Accept rt=1752662122000 src=203.0.113.60 duser=jsmith suser=jsmith auth_status=Successful Login cs3Label=User Group cs3=vpn-users cs5Label=Auth Method cs5=ssl-tunnel cn1Label=Tunnel ID cn1=1846277 reason=login-success msg=SSL tunnel established product=Mobile Access origin=192.0.2.1
 ```
 
+`[Unverified]` `office_mode_ip`: a login that carries an assigned tunnel address
+(REP-011 does) renders it under that native name after `cn1`, the way
+`auth_status` and `product` are emitted (implementation note, 2026-10-07). The
+Office Mode address is a documented Mobile Access log field; its Log Exporter
+key is unconfirmed against a live gateway. The golden line above carries no
+assignment and is unchanged.
+
 `[Unverified]` configuration change (REP-028, 2026-10-07): a change record renders
 as a management audit log under the same keys the admin login uses
 (`administrator`, `operation=<Add|Edit|Delete> Object`) plus `object_name=<path>`
