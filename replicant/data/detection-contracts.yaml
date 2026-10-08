@@ -183,3 +183,10 @@ contracts:
       - {id: change_burst, description: "The login and the change burst span multiple event times.", metric: temporal_span}
       - {id: change_paths, description: "The burst touches more than one configuration path.", metric: distinct, field: FTNTFGTcfgpath, group_by: [duser]}
     negative: {mode: standalone, reason: "The same burst from the management jump host under the on-duty administrator; only the source's asset role separates it.", separable_by: [source_asset_role]}
+
+  - technique_id: REP-052
+    observation_window: {parameters: [window_min], description: "Distinct SMB destinations and write bytes are counted per source inside the window."}
+    measurable_axes:
+      - {id: share_fanout, description: "One source writes to many distinct internal destinations on one port.", metric: distinct, field: dst, group_by: [src, dpt]}
+      - {id: write_span, description: "The fan-out spans multiple event times inside the window.", metric: temporal_span}
+    negative: {mode: standalone, reason: "The same fan-out, byte shape and timing from a software-distribution server in the server pool; only the source's asset role separates it.", separable_by: [source_asset_role]}

@@ -169,6 +169,40 @@ seeds at 3 presets; every check was run against the unfixed engine and failed.
   REP-020 state that T1583 is the adversary-side anchor; the header's
   Credential Access count is 2.
 
+### Added (catalog, 2026-10-08): REP-052, ransomware-like SMB write fan-out
+
+- **REP-052, ransomware-like SMB write fan-out** (Impact, T1486; UC-027). The
+  second entry added under the catalog's tactic-gap rule and the second
+  network-visible Impact technique. One workstation opens accepted sessions on
+  tcp/445 to many distinct internal file servers inside the window (8 to 15 at
+  low, 60 to 120 at high), every session large in both directions with out at
+  least in, because each file is read and written back. The write-to-read ratio
+  is a design choice, marked `[Inference]` in the entry; no capture was
+  measured. The foil is the same fan-out from a software-distribution server,
+  so the source's asset role is the only separating feature;
+  `tests/test_rep052_smb_fanout.py` measures share count, sessions per share,
+  bytes, ratio, duration and timing parity over 20 seeds at 3 presets. A backup
+  pull was considered as the foil and set aside because it differs on two
+  features, role and direction, and a foil may differ on only the one the
+  catalog names. `--duration` sets the window and keeps the share count; the
+  engine's ceiling binds the count, never the window.
+- **Disclosed limit, stated in the entry.** A firewall traffic record carries
+  sessions and bytes, not file operations. The published SMB-traffic ransomware
+  detectors the entry cites key on file-level overwrites and deletes, which this
+  family cannot express, so the records exercise the session-level aggregation
+  only. The research citations are `[Unverified]` as quoted from memory.
+- **`server_hosts` entity pool** (`EntityConfig.server_subnet`, 10.20.2.0/28):
+  infrastructure servers, disjoint from every other pool, so "server role" is
+  decidable for every emitted address. The manifest's entity summary carries
+  its size.
+- **No vendor profile changed.** The fan-out renders as the existing
+  `traffic:forward` accept on all three vendors, so no golden line moved and no
+  `[Unverified]` key was added.
+- The id is REP-052 because REP-029 through REP-051 are named by the triage
+  records for the proposals they describe; the catalog header states the rule.
+- Built behind the launch gate in `CLAUDE.md` by the owner's decision; the gate
+  is unchanged.
+
 ### Added (catalog, 2026-10-07): REP-028, firewall admin-plane abuse
 
 - **REP-028, firewall admin login from an unexpected source and config-change

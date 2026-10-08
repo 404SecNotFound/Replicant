@@ -384,6 +384,25 @@ _WORM_LEG: _LegShape = ((600, 2_400), (1_500, 7_000), (2, 40))
 _ADMIN_LEG: _LegShape = ((2_500, 6_500), (8_000, 18_000), (20, 120))
 
 
+# REP-052: one SMB session that reads a share's files and writes them back.
+# Both directions are large; out is at least in. The ranges and the write-to-read
+# ratio are a design choice standing in for an encrypted rewrite, not a
+# measurement, and the catalog says so.
+SMB_WRITE_IN_BYTES = (300_000, 5_000_000)
+SMB_WRITE_RATIO = (1.02, 1.25)
+SMB_WRITE_DURATION_S = (20, 300)
+SMB_PORT = 445
+
+
+def _smb_write_leg(rng: Any) -> tuple[int, int, int]:
+    """One (out_bytes, in_bytes, duration) draw for an accepted share rewrite."""
+
+    in_b = lognormal_bytes(rng, SMB_WRITE_IN_BYTES[0], SMB_WRITE_IN_BYTES[1], sigma=0.5)
+    out_b = int(in_b * float(rng.uniform(SMB_WRITE_RATIO[0], SMB_WRITE_RATIO[1])))
+    duration = int(rng.integers(SMB_WRITE_DURATION_S[0], SMB_WRITE_DURATION_S[1] + 1))
+    return out_b, in_b, duration
+
+
 def _lateral_leg_shape(rng: Any, shape: _LegShape) -> tuple[int, int, int]:
     """One (out_bytes, in_bytes, duration) draw for an accepted lateral leg."""
 
@@ -596,6 +615,7 @@ _BUILDER_METHOD_NAMES: dict[str, str] = {
     "REP-030": "_plan_distributed_spray",
     "REP-043": "_plan_exploit_egress_dialog",
     "REP-028": "_plan_admin_config_burst",
+    "REP-052": "_plan_smb_write_fanout",
 }
 
 
@@ -4051,5 +4071,101 @@ class ScenarioEngine:
             f"admin login from {attack_src} (outside the management pool) followed by a "
             f"configuration-change burst; the benign foil is the same burst from "
             f"{benign_src}, a management jump host. Role is the intended discriminator."
+        )
+        return events, note, truncated
+
+    # -- REP-052 ransomware-like SMB write fan-out ------------------------------
+
+    def _plan_smb_write_fanout(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        """One workstation opens accepted SMB sessions to many distinct internal
+        file servers inside the window, every session large in both directions
+        with out at least in (each file is read, then written back). The foil is
+        the same fan-out from a software-distribution server in the server pool:
+        same share count range, same sessions per share, same byte and duration
+        draws, same timing process, so the source's asset role is the only thing
+        a detection can separate them on, and the catalog says so.
+
+        A backup pull (in-heavy, from a server) was considered as the foil and set
+        aside: it differs on two features, role and direction, and a foil may
+        differ from the attack on only the one the catalog names.
+
+        ``--duration`` sets the window and keeps the count: the number of distinct
+        destinations written to inside the window is the signal, not the spacing.
+        """
+
+        shares_lo, shares_hi = (int(v) for v in preset["shares"])
+        sps_lo, sps_hi = (int(v) for v in preset["sessions_per_share"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+        window_s = max(int(window_s), 2)
+
+        targets = entities.internal_targets
+        shares_hi = min(shares_hi, len(targets))
+        shares_lo = min(shares_lo, shares_hi)
+        # Two streams under the engine's ceiling. The ceiling binds the share
+        # count, never the window: a smaller fan-out is still a fan-out.
+        truncated = False
+        per_stream_cap = max(1, self.max_events // 2)
+        if shares_hi * sps_hi > per_stream_cap:
+            shares_hi = max(1, per_stream_cap // max(sps_hi, 1))
+            shares_lo = min(shares_lo, shares_hi)
+            truncated = True
+        # Direct constructions of EntityModel may predate the pool; every
+        # fallback is disjoint from internal_hosts, which is what the foil needs.
+        server_pool = entities.server_hosts or entities.mgmt_hosts or entities.internal_targets[-4:]
+        attack_src = str(rng.choice(entities.internal_hosts))
+        benign_src = str(rng.choice(server_pool))
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+
+        def fanout(source: str) -> int:
+            nonlocal session
+            start = len(events)
+            count = int(rng.integers(shares_lo, shares_hi + 1))
+            picks = unique_ints(rng, 0, len(targets) - 1, count)
+            for target_index in picks:
+                dst = targets[target_index]
+                for _ in range(int(rng.integers(sps_lo, sps_hi + 1))):
+                    out_b, in_b, duration = _smb_write_leg(rng)
+                    duration = min(duration, window_s)
+                    # The record is written when the session closes, so the close
+                    # time is what lands inside the window.
+                    opened = anchor + int(rng.integers(0, window_s - duration + 1))
+                    events.append(
+                        self._steady_accept(
+                            rng,
+                            source,
+                            dst,
+                            SMB_PORT,
+                            opened + duration,
+                            session,
+                            out_b,
+                            in_b,
+                            duration,
+                        )
+                    )
+                    session += 1
+            return start
+
+        fanout(attack_src)
+        foil_start = fanout(benign_src)
+        self._mark_negative(events, foil_start)
+        events.sort(key=lambda e: (e.eventtime, e.control != "positive"))
+        note = (
+            f"SMB write fan-out from {attack_src} (workstation pool) to distinct internal "
+            f"file servers on tcp/{SMB_PORT}; the benign foil is the same fan-out from "
+            f"{benign_src}, a software-distribution server. Role is the intended discriminator."
         )
         return events, note, truncated
