@@ -190,3 +190,11 @@ contracts:
       - {id: share_fanout, description: "One source writes to many distinct internal destinations on one port.", metric: distinct, field: dst, group_by: [src, dpt]}
       - {id: write_span, description: "The fan-out spans multiple event times inside the window.", metric: temporal_span}
     negative: {mode: standalone, reason: "The same fan-out, byte shape and timing from a software-distribution server in the server pool; only the source's asset role separates it.", separable_by: [source_asset_role]}
+
+  - technique_id: REP-053
+    observation_window: {parameters: [window_min], description: "Inbound udp sessions and their reply bytes are counted per source, server and port inside the window; event rate is bounded by the safety cap and is never the signal."}
+    measurable_axes:
+      - {id: concentrated_sessions, description: "One external source holds many accepted udp sessions to one internal service.", metric: event_count, group_by: [src, dst, dpt]}
+      - {id: reply_bytes, description: "The concentrated session group carries reply (in) bytes.", metric: sum, field: in, group_by: [src, dst, dpt]}
+      - {id: reflection_span, description: "The sessions span multiple event times inside the window.", metric: temporal_span}
+    negative: {mode: standalone, reason: "The same session count, request sizes, durations and timing from one chatty client to the same server; only the per-session reply-to-request ratio separates it.", separable_by: [reply_to_request_ratio]}
