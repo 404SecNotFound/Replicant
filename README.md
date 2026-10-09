@@ -287,6 +287,7 @@ status.
 | REP-052 | Ransomware-like SMB write fan-out | traffic:forward accept | UC-027 | T1486 | Implemented |
 | REP-053 | Internal reflector abused for amplification | traffic:forward accept (inbound) | UC-028 | T1498.002 | Implemented |
 | REP-054 | Internal data staging fan-in | traffic:forward accept | UC-029 | T1074.002 | Implemented |
+| REP-046 | VPN login from an unfamiliar source network | event:vpn | UC-030 | T1078, T1133 | Implemented |
 
 REP-012 through REP-024 are each anchored to a peer-reviewed detection paper with
 measured results, so the generated pattern reflects what a published detector
@@ -395,7 +396,7 @@ Restrict where web callers may connect-test and send with `--collector-allow 10.
 
 The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser. Because it is a real PTY, it is **off by default** whenever anything but this machine can reach the UI: a non-loopback bind, a non-loopback `--allowed-host` (a reverse proxy), or `--collector-allow`. `--enable-terminal` turns it back on. The terminal child runs with a minimal environment and `REPLICANT_WEB_CONFINED=1`, under which the menu writes output files only to the run-output directory (`<manifest dir parent>/out`, by file name, symlinks refused), accepts a TLS CA bundle only as a file in `<config dir>/ca/` named by file name, and does not save collector profiles. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
 
-At 30 techniques the Techniques library is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, ATT&CK technique id, objective, and reviewed search aliases. For example, `one server many services` finds the vertical scan, and `first seen by this workstation` finds host-specific novelty. Matching is a local, case-insensitive phrase search; it does not call an AI service. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
+At 31 techniques the Techniques library is grouped by ATT&CK tactic, collapsible, with a count per group; a technique mapped to several tactics appears under each. Above it, one filter box matches technique id, name, use case id, ATT&CK technique id, objective, and reviewed search aliases. For example, `one server many services` finds the vertical scan, and `first seen by this workstation` finds host-specific novelty. Matching is a local, case-insensitive phrase search; it does not call an AI service. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
 
 <img src="docs/images/webui-techniques.jpg" alt="The technique library with its search box, log-type filters, and expandable ATT&CK tactic groups" width="900" />
 
@@ -583,7 +584,7 @@ replicant run REP-001 --anchor now --syslog-format rfc5424 --host 10.20.0.50  # 
 
 ### Duration: how much of the behaviour to emulate
 
-`--duration` says how long the simulated activity should last. It works on every one of the 30 techniques and on scenarios:
+`--duration` says how long the simulated activity should last. It works on every one of the 31 techniques and on scenarios:
 
 ```bash
 replicant run REP-001 --duration 2h --anchor now --pace plan --host 10.20.0.50        # 2h of C2 beacon
@@ -632,7 +633,7 @@ The loopback transport test stands up an in-process UDP, TCP, and TLS receiver, 
 - **Silver-and-red workspace (complete):** persistent navigation, a three-step run form, separate technique library and collector view, plan and CEF previews, readable silver text, saturated red selections, and retained drafts and run evidence. Design contract: `docs/webui-silver-red-design.md`.
 - **Factory redesign (complete, superseded):** the previous web UI visual system was the archived dark-era Factory design, "terminal war room at midnight": Geist and JetBrains Mono (both OFL, self-hosted with their licenses), the #101010/#ee6018 palette on a single dark theme, weight 400 everywhere, no gradients or shadows, chromatic color reserved for live data, and the run panel rebuilt as a dashboard frame with an instrumented sparkline. Design contract: `docs/webui-factory-design.md`.
 - **Roadmap 2026-09 executed (v0.10.0):** the five-persona roadmap in [`docs/roadmap-2026-09.md`](docs/roadmap-2026-09.md) shipped its 13 buildable items, including the per-technique validation-transferability property, the per-run analyst validation card, the statistical fidelity suite, two structural false-positive foils, a CLI-first container image, the first reference detection spec, and the destination-conditional synthetic marker. The three remaining items are gated on the lab test below.
-- **Offline detection-validation track (complete):** all 30 techniques have
+- **Offline detection-validation track (complete):** all 31 techniques have
   packaged contracts; Tier 0 evaluates deterministic plans; Tier 1 observes the
   real UDP/TCP emitter on loopback; bounded evidence packs and deterministic
   replay are available from CLI and web. These tiers do not replace the live

@@ -169,6 +169,40 @@ seeds at 3 presets; every check was run against the unfixed engine and failed.
   REP-020 state that T1583 is the adversary-side anchor; the header's
   Credential Access count is 2.
 
+### Added (catalog, 2026-10-09): REP-046, VPN login from an unfamiliar source network
+
+- **REP-046, VPN login from an unfamiliar source network** (Initial Access,
+  T1078 and T1133; UC-030). The fifth entry under the tactic-gap rule and the
+  round-4 proposal of the same id, built as its hard case: a first login from a
+  network absent from the user's history violates no velocity constraint, so
+  REP-011 cannot fire on it. Two self-contained populations of users, disjoint
+  by name, each with a compressed history (REP-008's convention, stated in the
+  run summary) in which every user logs in from a primary and a rarely used
+  secondary network. In the window the attack user logs in from one fresh
+  address in a network another user uses and the attack user never has.
+- **The foil is the user's own rarely used network.** The foil user logs in the
+  same number of times from one fresh address in that user's own secondary
+  network, which one other user also uses. A new address, a rare network, a
+  network the organisation has seen and a network another user uses are true of
+  both logins; only per-user network novelty separates them, and
+  `tests/test_rep046_unfamiliar_vpn_source.py` asserts every one of those
+  verdicts over 20 seeds at 3 presets. The round-4 proposal's foil (other users
+  travelling) was set aside because it differs from the attack on nothing; the
+  base-rate point it made is in the transferability note instead.
+- **Honest about the granularity.** Networks are /28s of one documentation /24,
+  because all logins must come from one pool and the documentation ranges hold
+  three /24s. No country tag is emitted: the entry needs no GeoIP. The id is
+  REP-046 and the use case UC-030, because round 4's UC-028 was since taken.
+- **No vendor profile changed.** The login is the existing tunnel-up on all
+  three vendors. A `newsrc` diagram glyph is added because the `newdest` glyph
+  is labelled "new dst".
+- **Catalog id rule clarified.** An entry built from a triaged proposal keeps
+  that id (REP-028, REP-046). REP-054 was built from round 3's REP-036 and
+  should have kept it; the catalog header records that, and renumbering is the
+  owner's call.
+- Built behind the launch gate in `CLAUDE.md` by the owner's decision; the gate
+  is unchanged.
+
 ### Added (catalog, 2026-10-09): REP-054, internal data staging fan-in, and SCEN-004
 
 - **REP-054, internal data staging fan-in** (Collection, T1074.002; UC-029).
