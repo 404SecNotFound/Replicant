@@ -169,6 +169,40 @@ seeds at 3 presets; every check was run against the unfixed engine and failed.
   REP-020 state that T1583 is the adversary-side anchor; the header's
   Credential Access count is 2.
 
+### Added (catalog, 2026-10-09): REP-054, internal data staging fan-in, and SCEN-004
+
+- **REP-054, internal data staging fan-in** (Collection, T1074.002; UC-029).
+  The fourth entry under the tactic-gap rule and the first under Collection,
+  which carried nothing. Many distinct internal sources (the target pool) push
+  accepted tcp/445 sessions onto one staging host from the workstation pool
+  inside the window (6 to 12 sources at low, 40 to 80 at high), each session
+  out-heavy with acknowledgements at 1 to 5 percent of the payload. The mirror
+  of REP-052's topology. The byte ranges are a design choice, marked
+  `[Inference]` in the entry, and the entry says no peer-reviewed flow detector
+  is cited: its anchor is the ATT&CK technique and the round-3 topology
+  argument.
+- **The foil is a nightly backup fan-in onto a backup server** in the server
+  pool: same source count range from the same pool, same sessions per source,
+  same byte and duration draws, same irregular timing. The destination's asset
+  role is the only separating feature, and the catalog says plainly that
+  standalone, nothing distinguishes staging from backup except where the data
+  lands. `tests/test_rep054_staging_fanin.py` measures parity over 20 seeds at
+  3 presets.
+- **SCEN-004, staging fan-in to bulk exfil.** REP-054 at medium, then REP-005
+  at high in the next off-hours window. Under scenario pinning the staging
+  host is the victim and the exfil leaves from the same host, so the chain's
+  analytic is the phase transition rather than either stage's volume. The
+  advisory now measures that join: `staging_pivot_stage_indices` lists a stage
+  the victim dominates as destination when a later stage carries the victim as
+  source, the through-line names it, and the correlation section states that
+  the host that collected the data becomes the host that sends it. A chain
+  with the fan-in alone carries no pivot, which a guard asserts.
+- **No vendor profile changed.** The push is the existing `traffic:forward`
+  accept on all three vendors. A `fanin` diagram glyph is added because the
+  fan-out and inbound glyphs both draw the wrong picture.
+- Built behind the launch gate in `CLAUDE.md` by the owner's decision; the gate
+  is unchanged.
+
 ### Added (catalog, 2026-10-08): REP-053, internal reflector abused for amplification
 
 - **REP-053, internal reflector abused for amplification** (Impact, T1498.002;

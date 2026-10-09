@@ -239,6 +239,20 @@ the parked ones are cited.
    one internal destination, then that destination becomes an egress source.
    Foil: a nightly backup fan-in with no egress follow. Could ship as SCEN-004
    first.
+   Implementation note (2026-10-09): built as REP-054 plus SCEN-004 together,
+   by the owner's decision and behind the launch gate, which is unchanged. It
+   could not ship as a scenario first: no existing technique produces many
+   sources converging on one host, so the fan-in technique is the prerequisite
+   and the scenario is what adds the egress follow. Standalone, the entry's
+   foil (a backup fan-in onto the server pool) differs on the destination's
+   role only, and the catalog says plainly that nothing else distinguishes
+   staging from backup. The advisory gained a measured staging pivot: a stage
+   the victim dominates as destination, followed by a stage the victim
+   dominates as source. Positive controls, each on 20 seeds: a foil destination
+   drawn from the workstation pool failed the role guard; a foil pinned at
+   eight sources failed the count parity guard; the advisory with its pivot
+   removed failed the SCEN-004 guard. No peer-reviewed flow detector is cited
+   for this entry; the catalog's transferability note says so.
 5. **VPN login from an unfamiliar source network** (Initial Access outside IPS,
    T1133 and T1078; parked as round 4 REP-046). Needs no GeoIP: a per-user
    source-prefix history over a REP-008-style warm-up. Foil: a user's second

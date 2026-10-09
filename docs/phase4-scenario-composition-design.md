@@ -236,3 +236,10 @@ Changed: `replicant/core/models.py` (scenario models + loader), `replicant/core/
 - **Ad-hoc chains from CLI args**: the composer supports it trivially (an ordered list of technique ids), but v1 ships the curated catalog only.
 - **Engine-level off-hours anchoring**: `_off_hours_start` snaps backward to midnight of the anchor's day. Making it snap forward from the anchor would let `start_offset` work directly and retire `align: next-off-hours`, but it changes shipped Phase 2 behaviour for a single-technique REP-005 run (its events would move from the previous night to the coming one), so it is deferred rather than folded into this phase. The composer-level alignment above is the Phase 4 answer.
   - Implementation note (2026-09-26): implemented. `_off_hours_window` in `scenario/engine.py` returns the next window at or after the anchor. `align: next-off-hours` is retained as a guard and as the pinned-stage marker; SCEN-001's exfil stage now reports `aligned_days=0` with the same emitted window.
+
+Implementation note (2026-10-09): SCEN-004 (staging fan-in to bulk exfil) is the fourth
+curated chain. It is the first whose join is a phase transition on the victim address
+(dominant destination in the REP-054 stage, dominant source in the REP-005 stage) rather
+than a recurring source. The advisory measures it as `staging_pivot_stage_indices` and
+only claims it when a later stage carries the victim as source; the fan-in alone claims
+nothing. `tests/test_rep054_staging_fanin.py` guards both halves.

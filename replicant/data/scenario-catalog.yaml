@@ -34,3 +34,15 @@ scenarios:
       - { technique_id: REP-011, label: "geo anomaly",      intensity: medium, start_offset: "2h" }
       - { technique_id: REP-001, label: "internal beacon",  intensity: low,    start_offset: "3h" }
     references: ["ATT&CK chain: TA0043 Recon -> TA0006 Credential Access -> TA0001 Initial Access -> TA0011 C2"]
+
+  - id: SCEN-004
+    name: "Staging fan-in to bulk exfil"
+    description: "Many internal hosts push data onto one workstation, then that workstation bulk-exfiltrates overnight."
+    # The staging host is the pinned victim (REP-054 draws it from the workstation pool, which
+    # pinning narrows to the victim) and REP-005's source is the same pinned victim, so the
+    # chain's analytic is the phase transition: the host that was the dominant destination
+    # becomes the dominant source. The advisory measures that join rather than assuming it.
+    stages:
+      - { technique_id: REP-054, label: "staging fan-in",  intensity: medium, start_offset: "0s" }
+      - { technique_id: REP-005, label: "bulk exfil",      intensity: high,   start_offset: "2h", align: "next-off-hours" }
+    references: ["ATT&CK chain: TA0009 Collection -> TA0010 Exfiltration"]

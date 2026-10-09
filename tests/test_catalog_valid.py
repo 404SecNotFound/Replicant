@@ -33,7 +33,7 @@ def test_catalog_loads() -> None:
 
 def test_catalog_technique_count() -> None:
     # 11 original + 13 from v0.2.0 + two from the 2026-09-08 research review.
-    assert len(CATALOG.techniques) == 29
+    assert len(CATALOG.techniques) == 30
 
 
 def test_ids_and_uc_unique() -> None:
@@ -132,6 +132,7 @@ def test_every_shipped_technique_has_search_aliases() -> None:
         ("rogue admin", "REP-028"),
         ("share encryption", "REP-052"),
         ("reflection amplification", "REP-053"),
+        ("data staging", "REP-054"),
     ],
 )
 def test_operator_phrases_are_attached_to_the_intended_technique(

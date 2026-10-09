@@ -114,6 +114,18 @@ def build_advisory(
     # host-keyed stage the victim dominates. Measured, not assumed: the stage
     # has to carry the assignment and it has to equal the pinned victim.
     pivot_stages = [s.index for s in user_stages if s.top_tunnelip == composed.victim]
+    # A staging stage is one the victim dominates as DESTINATION. When a later
+    # stage has the victim as dominant source, the host that collected the data
+    # has become the host that sends it, which is the phase transition a
+    # staging-then-egress chain is built to exercise (SCEN-004). Measured, not
+    # assumed: the destination has to equal the pinned victim and a later stage
+    # has to carry the victim as its source.
+    staging_stages = [
+        s.index
+        for s in composed.stages
+        if s.top_dst == composed.victim and any(v > s.index for v in victim_stages)
+    ]
+    staging_events = sum(s.top_dst_count for s in composed.stages if s.index in staging_stages)
     has_c2 = any(t.startswith(_C2_TACTIC) for t in covered)
     has_exfil = any(t.startswith(_EXFIL_TACTIC) for t in covered)
 
@@ -126,6 +138,7 @@ def build_advisory(
         "victim_stage_indices": victim_stages,
         "adversary_stage_indices": adversary_stages,
         "vpn_pivot_stage_indices": pivot_stages,
+        "staging_pivot_stage_indices": staging_stages,
         "truncated_stage_indices": [s.index for s in composed.stages if s.truncated],
     }
 
@@ -153,6 +166,12 @@ def build_advisory(
     else:
         lines.append(
             f"- victim host `{composed.victim}`: pinned, but not the dominant src in any stage"
+        )
+    if staging_stages:
+        lines.append(
+            f"- victim host `{composed.victim}`: dominant dst in "
+            f"{'stages' if len(staging_stages) > 1 else 'stage'} "
+            f"{_stage_list(staging_stages)} ({staging_events} events) before it becomes a source"
         )
     if adversary_stages:
         lines.append(
@@ -239,6 +258,16 @@ def build_advisory(
                 "joining them to the host-keyed stages needs the VPN assignment as the pivot, "
                 "and no stage here carries one that matches the victim."
             )
+    if staging_stages:
+        later = [v for v in victim_stages if v > staging_stages[0]]
+        claims.append(
+            f"- `dst={composed.victim}` is the dominant destination in "
+            f"{'stages' if len(staging_stages) > 1 else 'stage'} {_stage_list(staging_stages)} "
+            f"and `src={composed.victim}` the dominant source in "
+            f"{'stages' if len(later) > 1 else 'stage'} {_stage_list(later)}: the host that "
+            "collected the data becomes the host that sends it. The phase transition on one "
+            "address is the join, not either stage's volume on its own."
+        )
     if has_c2 and has_exfil and len(adversary_stages) > 1:
         claims.append(
             f"- this chain covers both {_C2_TACTIC} and {_EXFIL_TACTIC} and they share "
