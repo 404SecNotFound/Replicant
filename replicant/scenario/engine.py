@@ -25,6 +25,8 @@ builder raises NotImplementedError rather than emitting an approximation of it.
 
 from __future__ import annotations
 
+import ipaddress
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -423,6 +425,21 @@ def _staging_push_leg(rng: Any) -> tuple[int, int, int]:
     return out_b, in_b, duration
 
 
+# REP-046: a user's source networks are /28s of the benign documentation /24,
+# because all logins must come from one pool (a second pool would be a free
+# reputation feature) and the documentation ranges hold only three /24s. The
+# history is compressed into the hour before the window, REP-008's convention.
+VPN_SOURCE_PREFIX = 28
+VPN_HISTORY_SPAN_S = 3600
+VPN_SECONDARY_SHARE = (0.1, 0.3)
+
+
+def _source_network(address: str) -> str:
+    """The /28 network a source address belongs to."""
+
+    return str(ipaddress.ip_network(f"{address}/{VPN_SOURCE_PREFIX}", strict=False))
+
+
 def _smb_write_leg(rng: Any) -> tuple[int, int, int]:
     """One (out_bytes, in_bytes, duration) draw for an accepted share rewrite."""
 
@@ -647,6 +664,7 @@ _BUILDER_METHOD_NAMES: dict[str, str] = {
     "REP-052": "_plan_smb_write_fanout",
     "REP-053": "_plan_reflection_amplification",
     "REP-054": "_plan_staging_fanin",
+    "REP-046": "_plan_unfamiliar_vpn_source",
 }
 
 
@@ -4403,5 +4421,203 @@ class ScenarioEngine:
             f"sources on tcp/{SMB_PORT}, out-heavy; the benign foil is the same fan-in onto "
             f"{backup_server}, a backup server. The destination's role is the intended "
             "discriminator."
+        )
+        return events, note, truncated
+
+    # -- REP-046 VPN login from an unfamiliar source network --------------------
+
+    def _plan_unfamiliar_vpn_source(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        """Two self-contained populations of VPN users, disjoint by name, each
+        with a compressed history in which every user logs in from a primary and
+        a rarely used secondary /28 network. In the window that follows, one
+        designated user per population logs in from one fresh address:
+
+        - positive: in a network another user in the population uses (that
+          user's secondary) and the designated user never has;
+        - negative: in the designated user's own secondary network, which the
+          same other user also uses.
+
+        So a new address, a rare network, a network the organisation has seen and
+        a network another user uses are true of both logins. Only per-user
+        network novelty separates them, and the catalog says so. Each population
+        carries its own history so ``--controls negative`` is meaningful alone.
+
+        ``--duration`` sets the total span: the history takes the first hour or
+        half the span, whichever is shorter, and the window the rest. Counts are
+        preserved, because novelty against the history is the signal.
+        """
+
+        users_n = int(preset["users"])
+        hist_lo, hist_hi = (int(v) for v in preset["history_logins_each"])
+        novel_logins = int(preset["novel_logins"])
+        if duration_override_s is not None:
+            total_s = max(int(duration_override_s), 4)
+            history_span = min(VPN_HISTORY_SPAN_S, total_s // 2)
+            window_s = total_s - history_span
+        else:
+            history_span = VPN_HISTORY_SPAN_S
+            window_s = int(preset["window_min"]) * 60
+        window_start = anchor + history_span
+
+        networks: dict[str, list[str]] = {}
+        for address in entities.benign_external:
+            networks.setdefault(_source_network(address), []).append(address)
+        names = sorted(networks)
+
+        # Within a population every user holds two networks of its own, so the
+        # population is capped at half the networks. Two streams share the
+        # engine's ceiling; the ceiling binds counts, never the window.
+        truncated = False
+        users_n = max(2, min(users_n, len(names) // 2))
+        per_stream_cap = max(1, self.max_events // 2)
+        if users_n * 2 + novel_logins > per_stream_cap:
+            users_n = max(2, (per_stream_cap - novel_logins) // 2)
+            novel_logins = max(1, min(novel_logins, per_stream_cap - users_n * 2))
+            truncated = True
+        history_cap = max(2, (per_stream_cap - novel_logins) // users_n)
+        if hist_hi > history_cap:
+            hist_hi = history_cap
+            hist_lo = min(hist_lo, hist_hi)
+            truncated = True
+        hist_lo = max(hist_lo, 2)
+        hist_hi = max(hist_hi, hist_lo)
+
+        # Disjoint usernames, shuffled so neither stream takes the base pool.
+        everyone = synthetic_usernames(users_n * 2, entities.users)
+        order = rng.permutation(len(everyone))
+        shuffled = [everyone[int(i)] for i in order]
+        populations = {"positive": shuffled[:users_n], "negative": shuffled[users_n:]}
+
+        used_addresses: set[str] = set()
+        plans: dict[str, dict[str, Any]] = {}
+        for stream_name, users in populations.items():
+            perm = rng.permutation(len(names))
+            held = {
+                user: [names[int(perm[2 * i])], names[int(perm[2 * i + 1])]]
+                for i, user in enumerate(users)
+            }
+            designated, other = (users[int(i)] for i in unique_ints(rng, 0, len(users) - 1, 2))
+            target = held[other][1]  # the other user's secondary network
+            if stream_name == "negative":
+                held[designated][1] = target  # the foil user uses it too, rarely
+            addresses: dict[tuple[str, str], list[str]] = {}
+            for user, owned in held.items():
+                for net in owned:
+                    hosts = networks[net]
+                    picks = unique_ints(rng, 0, len(hosts) - 1, int(rng.integers(1, 3)))
+                    chosen = [hosts[i] for i in picks]
+                    addresses[(user, net)] = chosen
+                    used_addresses.update(chosen)
+            plans[stream_name] = {
+                "users": users,
+                "held": held,
+                "designated": designated,
+                "other": other,
+                "target": target,
+                "addresses": addresses,
+            }
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(1_000_000, 9_999_999))
+
+        def login(user: str, src: str, when: int, control: Literal["positive", "negative"]) -> None:
+            nonlocal session
+            events.append(
+                EventRecord(
+                    log_type=technique.fortigate.log_type,
+                    subtype=technique.fortigate.subtype,
+                    action="tunnel-up",
+                    level="notice",
+                    eventtime=when,
+                    control=control,
+                    duser=user,
+                    src=src,
+                    session_id=session,
+                    extra={
+                        "logdesc": "SSL VPN tunnel up",
+                        "fgt_action": "tunnel-up",
+                        "remip": src,
+                        "tunneltype": "ssl-tunnel",
+                        "tunnelid": str(int(rng.integers(1_000_000, 9_999_999))),
+                        "tunnelip": str(rng.choice(entities.internal_hosts)),
+                        "group": "vpn-users",
+                        "reason": "login-success",
+                        "msg": "SSL tunnel established",
+                    },
+                )
+            )
+            session += 1
+
+        for control_name in ("positive", "negative"):
+            control: Literal["positive", "negative"] = (
+                "positive" if control_name == "positive" else "negative"
+            )
+            plan = plans[control_name]
+            stream_count = 0
+            # Addresses a user actually logged in from in the history. An address
+            # assigned but never drawn would make a later habitual login look
+            # fresh, which is the designated user's signature, not a context one.
+            seen: dict[tuple[str, str], list[str]] = defaultdict(list)
+            for user in plan["users"]:
+                primary, secondary = plan["held"][user]
+                count = int(rng.integers(hist_lo, hist_hi + 1))
+                rare = max(1, round(count * float(rng.uniform(*VPN_SECONDARY_SHARE))))
+                common = max(1, count - rare)
+                for net, n in ((primary, common), (secondary, rare)):
+                    pool = plan["addresses"][(user, net)]
+                    for _ in range(n):
+                        address = str(rng.choice(pool))
+                        if address not in seen[(user, net)]:
+                            seen[(user, net)].append(address)
+                        when = anchor + int(rng.integers(0, max(history_span, 1)))
+                        login(user, address, when, control)
+                        stream_count += 1
+            # The designated login: one fresh address, new to every history.
+            hosts = networks[plan["target"]]
+            fresh = [h for h in hosts if h not in used_addresses]
+            address = str(rng.choice(fresh)) if fresh else str(rng.choice(hosts))
+            used_addresses.add(address)
+            plan["address"] = address
+            for _ in range(novel_logins):
+                login(
+                    plan["designated"],
+                    address,
+                    window_start + int(rng.integers(0, max(window_s, 1))),
+                    control,
+                )
+                stream_count += 1
+            # Everyone else keeps logging in from habitual addresses in the window.
+            for user in plan["users"]:
+                if user == plan["designated"]:
+                    continue
+                primary = plan["held"][user][0]
+                for _ in range(int(rng.integers(0, 3))):
+                    if stream_count >= per_stream_cap:
+                        break
+                    when = window_start + int(rng.integers(0, max(window_s, 1)))
+                    login(user, str(rng.choice(seen[(user, primary)])), when, control)
+                    stream_count += 1
+
+        events.sort(key=lambda e: (e.eventtime, e.control != "positive"))
+        pos, neg = plans["positive"], plans["negative"]
+        note = (
+            f"Baseline: {users_n} users per population, {hist_lo} to {hist_hi} logins each "
+            f"from a primary and a rarely used secondary /{VPN_SOURCE_PREFIX} network, "
+            f"compressed into the {history_span}s before the window rather than spread over "
+            "days; a detection whose novelty window is measured in days sees this history "
+            f"as {max(history_span // 60, 1)} minute(s). In the window, {pos['designated']} "
+            f"logs in {novel_logins} time(s) from {pos['address']} in {pos['target']}, a "
+            f"network {pos['other']} uses and {pos['designated']} never has. The benign "
+            f"foil is {neg['designated']} logging in from {neg['address']} in "
+            f"{neg['target']}, its own rarely used network. Per-user network novelty is "
+            "the intended discriminator."
         )
         return events, note, truncated

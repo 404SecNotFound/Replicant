@@ -2,16 +2,20 @@
 # Project: Replicant (github.com/404SecNotFound/Replicant)
 # Author: RZA
 # Timezone for all timestamps produced at runtime: UTC+04:00 (Dubai)
-# Status: 30 techniques. REP-001..011 are the original catalog; REP-012..024
+# Status: 31 techniques. REP-001..011 are the original catalog; REP-012..024
 # were added in v0.2.0 and are each anchored to a peer-reviewed detection paper
 # with measured results. REP-030 and REP-043 follow the 2026-09-08 all-round
 # research review (see docs/catalog-research-review-2026-09-08.md). REP-028 is
 # the first entry added under the tactic-gap rule below (2026-10-07; Defense
 # Evasion was the thinnest tactic the firewall can see). REP-052 and REP-053 are
-# the second and third (2026-10-08; both Impact) and REP-054 the fourth
-# (2026-10-09; Collection, the first entry under that tactic). Ids named by a
-# triage record stay reserved for the proposal they name, so a new entry takes
-# the next id no record has used.
+# the second and third (2026-10-08; both Impact), REP-054 the fourth
+# (2026-10-09; Collection, the first entry under that tactic) and REP-046 the
+# fifth (2026-10-09; Initial Access outside IPS). An entry built from the
+# proposal a triage record names keeps that id (REP-028, REP-046); an entry no
+# record names takes the next id no record has used (REP-052). REP-053 merged
+# and changed two proposals, so it took a fresh id. REP-054 was built from
+# round 3's REP-036 and should have kept that id; recorded here, and
+# renumbering it is the owner's call.
 #
 # PURPOSE
 # This file is the single source of truth for the interactive TTP menu and the
@@ -66,7 +70,7 @@
 # EXPANSION (roadmap 2026-09 item 16)
 # The next technique is gated on the tactic-gap tally, not on which paper had
 # measured results. This catalog is heavily weighted to Command and Control (13 of
-# 30 techniques carry TA0011, several of them beacon/callback variants) while
+# 31 techniques carry TA0011, several of them beacon/callback variants) while
 # network-visible Impact (3), Credential Access (2), Defense Evasion (2) and
 # Collection (1) sit near zero. A ninth beacon variant has near-zero marginal coverage value; weight
 # a new entry by the tactic it fills, and record its prevalence basis. A recorded
@@ -1062,6 +1066,43 @@ techniques:
       - "Prevalence basis: double-extortion ransomware operators are reported to stage collected data on one internal host before bulk exfiltration, as described in CISA #StopRansomware advisories. [Unverified: no single advisory is cited; confirm before customer use]"
       - "Round 3 triage REP-036 (docs/round3-expansion-triage.md): many-to-one internal aggregation is a topology no entry covered, and the phase transition is the analytic rather than the egress spike"
     safety_notes: "nothing is collected, copied or staged. Byte counts and durations are fields in a log string; every address is synthetic internal space"
+
+  - id: REP-046
+    name: "VPN login from an unfamiliar source network"
+    search_aliases: ["unfamiliar source network", "unfamiliar sign-in properties", "new VPN source network", "atypical login network"]
+    ndr_rule: "NDR-ATO-030"
+    ndr_uc: "UC-030"
+    objective: >-
+      Prove a rule keys on a VPN login from a source network absent from that user's own history, and stays quiet for a login from a network the user has used before, however rarely.
+    attack:
+      tactics: ["TA0001 Initial Access"]
+      techniques: ["T1078", "T1133"]
+    fortigate:
+      log_type: "event"
+      subtype: "vpn"
+      signature_id: "39947"   # ssl-login success  [Unverified] same caveat as REP-011
+      action: "tunnel-up"
+    cef_fields_held: []                         # a population of users, not one
+    cef_fields_varied: ["duser", "src", "rt", "FTNTFGTtunnelip"]
+    params:
+      low:    { users: 3, history_logins_each: [10, 30], novel_logins: 1, window_min: 1440 }
+      medium: { users: 5, history_logins_each: [10, 30], novel_logins: 2, window_min: 720 }
+      high:   { users: 8, history_logins_each: [5, 20],  novel_logins: 4, window_min: 360 }
+    distributions:
+      history: "users accounts each log in history_logins_each times from a primary and a rarely used secondary network (10 to 30 percent of that user's logins), from one or two addresses per network, all successful tunnel-ups. Compressed into the hour before the window (REP-008's convention); the run summary states it"
+      novel: "in the window, the designated user logs in novel_logins times from one fresh address in a network that another user in the same population uses (that user's secondary) and the designated user never has"
+      prefix_granularity: "a network is a /28 of 198.51.100.0/24, because every login must come from one pool (a second pool would be a free reputation feature) and the documentation ranges hold only three /24s. A production baseline keys on /24 or ASN. [Inference] the granularity changes the arithmetic, not the logic"
+      geo: "no srccountry is emitted: the entry needs no GeoIP, and a country tag would hand a geo rule a feature the technique exists to deny"
+      duration: "--duration sets the total span: the compressed history takes the first hour or half the span, whichever is shorter, and the window takes the rest. Counts are preserved, because novelty against the history is the signal"
+    benign_baseline: "a separate population with the same history shape. Its designated user logs in the same number of times, in the same window, from one fresh address in that user's own rarely used network, which one other user also uses. So a new address, a rare network, a network the organisation has seen and a network another user uses are true of both logins; a rule keyed on any of those fires on both or neither. Only a rule keyed on a network this user has never used separates them. Every other user in each population keeps logging in from habitual addresses in the window"
+    emits_foil: true
+    transferability_note: >-
+      Disclosed limits. The history is compressed into one hour of event time, so a production baseline measured in days sees a short history. Networks are /28s of one documentation /24 rather than /24s or ASNs. The round-4 proposal's foil (other users' genuine travel producing novel-network logins) was set aside: it differs from the attack on nothing, so it cannot be a negative control. It is a true statement about the base rate, recorded here instead: in production, logins from networks new to a user are frequent, and a per-user novelty rule needs further context to be precise. Each population carries its own history so the negative stream is meaningful alone.
+    references:
+      - "Microsoft Entra ID Protection risk detections: Impossible Travel is a separate detection class from Atypical Travel, Unfamiliar Sign-in Properties and New Country, because velocity misses a first login from a new network. [Unverified: class names quoted from the round-4 record; confirm before customer use]"
+      - "Round 4 expansion research REP-046 (docs/technique-catalog-expansion-research-round4.md): the hard version of REP-011, a login that violates no velocity constraint"
+      - "MITRE ATT&CK T1078 Valid Accounts; T1133 External Remote Services"
+    safety_notes: "source addresses are documentation-range addresses and usernames come from the synthetic directory pool. Nothing logs in anywhere"
 
 # NOTES
 # 1. Signature IDs marked [Unverified] must be confirmed against a live FortiOS

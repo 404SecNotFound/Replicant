@@ -364,6 +364,16 @@ novel-source logins are a normal product of travel and ISP churn, so the
 detection must weight additional context rather than alerting on novelty
 alone.
 
+Implementation note (2026-10-09): built as REP-046 with UC-030 (UC-028 was
+taken by REP-053 in the meantime). The foil above was not used as written: other
+users' genuine travel produces logins that differ from the attack on nothing,
+so it cannot serve as a negative control under the parity rule adopted on
+2026-10-07. The foil is a login from the user's own rarely used network, and the
+base-rate point above moved into the entry's transferability note. The
+`FTNTFGTsrccountry` field and the users 15 preset were dropped: the entry needs
+no GeoIP, and two networks per user inside one documentation /24 cap a
+population at eight.
+
 ### REP-047 Outbound DDoS participation from a compromised internal host
 
 **The gap this fills.** Impact has exactly one entry (REP-014). A compromised

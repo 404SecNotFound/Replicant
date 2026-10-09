@@ -206,3 +206,10 @@ contracts:
       - {id: staged_bytes, description: "The destination's session group carries pushed (out) bytes.", metric: sum, field: out, group_by: [dst, dpt]}
       - {id: fanin_span, description: "The fan-in spans multiple event times inside the window.", metric: temporal_span}
     negative: {mode: standalone, reason: "The same fan-in, byte shape and timing onto a backup server in the server pool; only the destination's asset role separates it.", separable_by: [destination_asset_role]}
+
+  - technique_id: REP-046
+    observation_window: {parameters: [window_min], description: "Each user's source networks are learned from the compressed history before the window; logins in the window are compared with that user's own history."}
+    measurable_axes:
+      - {id: user_sources, description: "A user logs in from more than one source address over the run.", metric: distinct, field: src, group_by: [duser]}
+      - {id: history_span, description: "The history and the window span multiple event times.", metric: temporal_span}
+    negative: {mode: standalone, reason: "A separate population with the same history; its designated user logs in from its own rarely used network, which another user also uses. Only per-user network novelty separates it.", separable_by: [per_user_source_network_history]}

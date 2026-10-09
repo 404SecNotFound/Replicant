@@ -53,7 +53,8 @@ type Arch =
   | "stages"
   | "relay"
   | "reflect"
-  | "fanin";
+  | "fanin"
+  | "newsrc";
 
 const CAPTION: Record<Arch, string> = {
   periodic: "fixed interval ± jitter",
@@ -77,6 +78,7 @@ const CAPTION: Record<Arch, string> = {
   relay: "in ≈ out through one host",
   reflect: "one src · tiny requests · amplified replies",
   fanin: "many internal src · one dst · large pushes",
+  newsrc: "login from a network this user never used",
 };
 
 interface DiagramSpec {
@@ -128,6 +130,7 @@ export const DIAGRAM_SPECS: Record<string, DiagramSpec> = {
   "REP-052": { glyph: "fanout", caption: "one workstation, many file servers, large writes" },
   "REP-053": { glyph: "reflect", source: ["external", "198.51.100.x"] },
   "REP-054": { glyph: "fanin", source: ["internal", "10.20.40.x"] },
+  "REP-046": { glyph: "newsrc", source: ["user", "jsmith"] },
 };
 const YC = 112; // vertical center line of the signal path
 
@@ -583,6 +586,34 @@ function Glyph({ arch }: { arch: Arch }) {
           ))}
           <circle cx={452} cy={YC} r={4} fill={SIG} />
           {mono(452, YC + 22, "staging host", T3, 10.5)}
+        </g>
+      );
+    }
+    case "newsrc": {
+      // The mirror of newdest: a user's known source networks converging on the
+      // VPN gateway, and one network that user has never logged in from. No
+      // map and no distance, because the entry needs no GeoIP.
+      const known: [number, number][] = [
+        [210, 96],
+        [250, 150],
+        [290, 86],
+        [230, 128],
+        [310, 140],
+      ];
+      return (
+        <g>
+          {known.map(([x, y], i) => (
+            <g key={i}>
+              <line x1={x} y1={y} x2={452} y2={YC} stroke={T4} strokeWidth={1} opacity={0.5} />
+              <circle cx={x} cy={y} r={3} fill={CARD} stroke={T4} strokeWidth={1} />
+            </g>
+          ))}
+          <line x1={196} y1={64} x2={452} y2={YC} stroke={SIG} strokeWidth={1.4} />
+          <path d={pointsStar(196, 64, 6.5, 3)} fill={SIG} />
+          {mono(196, 48, "new network", SIG, 10.5)}
+          {mono(262, 176, "this user's known networks", T3, 10.5)}
+          <circle cx={452} cy={YC} r={4} fill={CARD} stroke={EDGE} strokeWidth={1.2} />
+          {mono(452, YC + 22, "vpn gateway", T3, 10.5)}
         </g>
       );
     }

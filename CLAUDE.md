@@ -391,6 +391,16 @@ Output convention: command results go to stdout, operator-facing errors go to st
   feature. The catalog is honest that no peer-reviewed flow detector is cited for this entry.
   Phase 4's "three curated chains" is now four.
 
+  Implementation note (2026-10-09): the fifth and last, REP-046 (VPN login from an unfamiliar
+  source network, Initial Access), is built from round 4's proposal of the same id, by the
+  owner's decision and with the gate unchanged; the ranked backlog is now built out. It emits
+  two self-contained user populations so the negative stream is meaningful alone, and its foil
+  (a login from the user's own rarely used network) makes a new address, a rare network, an
+  organisation-wide network and another user's network all true of both logins, so per-user
+  network novelty is the only separating feature. Two id facts: a build from a triaged proposal
+  keeps that id, and REP-054 should have kept REP-036 (recorded in the catalog header;
+  renumbering is the owner's call).
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 **The LogRhythm lab test has still never observed a rule fire.** Implementation note

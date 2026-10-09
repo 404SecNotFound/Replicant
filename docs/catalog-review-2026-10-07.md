@@ -257,6 +257,19 @@ the parked ones are cited.
    T1133 and T1078; parked as round 4 REP-046). Needs no GeoIP: a per-user
    source-prefix history over a REP-008-style warm-up. Foil: a user's second
    habitual network seen during warm-up.
+   Implementation note (2026-10-09): built as REP-046, keeping the round-4 id,
+   by the owner's decision and behind the launch gate, which is unchanged. The
+   foil is the one sketched here, tightened so that a new address, a rare
+   network, a network the organisation has seen and a network another user
+   uses are all true of both logins. Each stream is a self-contained population
+   with its own history, so `--controls negative` is meaningful alone. Networks
+   are /28s of the benign documentation /24 and no country tag is emitted.
+   While the guard was being built it caught a builder defect (a habitual login
+   from an address the history never drew looked fresh); fixed before review.
+   Positive controls, each on 20 seeds: a foil from a network the foil user
+   never used failed the foil guard; an attack network from the adversary pool
+   failed the shared-pool guard; an attack address reused from another user's
+   history failed the fresh-address guard.
 
 Considered and set aside, with the reason: SMB or RDP east-west from a
 workstation is a REP-006 preset with an internal destination pool and an
