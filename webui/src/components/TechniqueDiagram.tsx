@@ -52,7 +52,8 @@ type Arch =
   | "inbound"
   | "stages"
   | "relay"
-  | "reflect";
+  | "reflect"
+  | "fanin";
 
 const CAPTION: Record<Arch, string> = {
   periodic: "fixed interval ± jitter",
@@ -75,6 +76,7 @@ const CAPTION: Record<Arch, string> = {
   stages: "alerts in kill-chain order",
   relay: "in ≈ out through one host",
   reflect: "one src · tiny requests · amplified replies",
+  fanin: "many internal src · one dst · large pushes",
 };
 
 interface DiagramSpec {
@@ -125,6 +127,7 @@ export const DIAGRAM_SPECS: Record<string, DiagramSpec> = {
   "REP-028": { glyph: "chain", source: ["user", "admin"], caption: "unexpected admin login → config burst" },
   "REP-052": { glyph: "fanout", caption: "one workstation, many file servers, large writes" },
   "REP-053": { glyph: "reflect", source: ["external", "198.51.100.x"] },
+  "REP-054": { glyph: "fanin", source: ["internal", "10.20.40.x"] },
 };
 const YC = 112; // vertical center line of the signal path
 
@@ -562,6 +565,24 @@ function Glyph({ arch }: { arch: Arch }) {
           <rect x={376} y={YC - 20} width={80} height={40} rx={3} fill="none" stroke={EDGE} strokeWidth={1.2} />
           {mono(416, YC + 4, "udp/123", FG, 10.5)}
           {mono(416, YC + 34, "reflector", T3, 10)}
+        </g>
+      );
+    }
+    case "fanin": {
+      // The mirror of the fan-out: many internal sources converging on one
+      // internal host that is about to become an egress source. Thicker lines
+      // than the inbound scan because each line is a large push, not a probe.
+      const ys = [54, 74, 94, 114, 134, 154, 174];
+      return (
+        <g>
+          {ys.map((y) => (
+            <g key={y}>
+              <line x1={190} y1={y} x2={452} y2={YC} stroke={SIG} strokeWidth={2} opacity={0.6} />
+              <circle cx={190} cy={y} r={3} fill={CARD} stroke={EDGE} strokeWidth={1} />
+            </g>
+          ))}
+          <circle cx={452} cy={YC} r={4} fill={SIG} />
+          {mono(452, YC + 22, "staging host", T3, 10.5)}
         </g>
       );
     }

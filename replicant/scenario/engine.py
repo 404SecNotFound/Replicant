@@ -406,6 +406,23 @@ REFLECT_FOIL_RATIO = (0.8, 1.25)
 REFLECT_DURATION_S = (1, 30)
 
 
+# REP-054: one push of collected data from an internal source onto the staging
+# host. Out is the payload, in is acknowledgements. The ranges are a design
+# choice, not a measurement, and the catalog says so.
+STAGING_OUT_BYTES = (1_000_000, 40_000_000)
+STAGING_ACK_RATIO = (0.01, 0.05)
+STAGING_DURATION_S = (30, 600)
+
+
+def _staging_push_leg(rng: Any) -> tuple[int, int, int]:
+    """One (out_bytes, in_bytes, duration) draw for an accepted staging push."""
+
+    out_b = lognormal_bytes(rng, STAGING_OUT_BYTES[0], STAGING_OUT_BYTES[1], sigma=0.6)
+    in_b = max(1, int(out_b * float(rng.uniform(STAGING_ACK_RATIO[0], STAGING_ACK_RATIO[1]))))
+    duration = int(rng.integers(STAGING_DURATION_S[0], STAGING_DURATION_S[1] + 1))
+    return out_b, in_b, duration
+
+
 def _smb_write_leg(rng: Any) -> tuple[int, int, int]:
     """One (out_bytes, in_bytes, duration) draw for an accepted share rewrite."""
 
@@ -629,6 +646,7 @@ _BUILDER_METHOD_NAMES: dict[str, str] = {
     "REP-028": "_plan_admin_config_burst",
     "REP-052": "_plan_smb_write_fanout",
     "REP-053": "_plan_reflection_amplification",
+    "REP-054": "_plan_staging_fanin",
 }
 
 
@@ -4289,5 +4307,101 @@ class ScenarioEngine:
             "is bounded by the events-per-second cap by design; the signal is bytes, never "
             f"rate. The benign foil is the same session count from {client} with symmetric "
             "replies. The reply-to-request ratio is the intended discriminator."
+        )
+        return events, note, truncated
+
+    # -- REP-054 internal data staging fan-in ----------------------------------
+
+    def _plan_staging_fanin(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        """Many internal sources push data onto one staging host on tcp/445 inside
+        the window: the mirror of REP-052's topology, and the half of a staging
+        chain the firewall can see before the egress. The staging host comes from
+        the workstation pool (under scenario pinning it is the victim, which is
+        what lets SCEN-004 join this stage to the exfil that follows); the sources
+        come from the target pool, which pinning leaves whole.
+
+        The foil is a nightly backup fan-in: the same number of sources from the
+        same pool, the same sessions per source, the same byte and duration draws
+        and the same irregular timing, onto a backup server in the server pool.
+        The destination's asset role is the only thing a detection can separate
+        them on, and the catalog says so.
+
+        ``--duration`` sets the window and keeps the count: the number of distinct
+        sources converging inside the window is the signal, not the spacing.
+        """
+
+        sources_lo, sources_hi = (int(v) for v in preset["sources"])
+        sps_lo, sps_hi = (int(v) for v in preset["sessions_per_source"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+        window_s = max(int(window_s), 2)
+
+        pool = entities.internal_targets
+        sources_hi = min(sources_hi, len(pool))
+        sources_lo = min(sources_lo, sources_hi)
+        # Two streams under the engine's ceiling. The ceiling binds the source
+        # count, never the window: a smaller fan-in is still a fan-in.
+        truncated = False
+        per_stream_cap = max(1, self.max_events // 2)
+        if sources_hi * sps_hi > per_stream_cap:
+            sources_hi = max(1, per_stream_cap // max(sps_hi, 1))
+            sources_lo = min(sources_lo, sources_hi)
+            truncated = True
+        server_pool = entities.server_hosts or entities.mgmt_hosts or entities.internal_targets[-4:]
+        staging_host = str(rng.choice(entities.internal_hosts))
+        backup_server = str(rng.choice(server_pool))
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+
+        def fanin(destination: str) -> int:
+            nonlocal session
+            start = len(events)
+            count = int(rng.integers(sources_lo, sources_hi + 1))
+            picks = unique_ints(rng, 0, len(pool) - 1, count)
+            for source_index in picks:
+                source = pool[source_index]
+                for _ in range(int(rng.integers(sps_lo, sps_hi + 1))):
+                    out_b, in_b, duration = _staging_push_leg(rng)
+                    duration = min(duration, window_s)
+                    # The record is written when the session closes, so the close
+                    # time is what lands inside the window.
+                    opened = anchor + int(rng.integers(0, window_s - duration + 1))
+                    events.append(
+                        self._steady_accept(
+                            rng,
+                            source,
+                            destination,
+                            SMB_PORT,
+                            opened + duration,
+                            session,
+                            out_b,
+                            in_b,
+                            duration,
+                        )
+                    )
+                    session += 1
+            return start
+
+        fanin(staging_host)
+        foil_start = fanin(backup_server)
+        self._mark_negative(events, foil_start)
+        events.sort(key=lambda e: (e.eventtime, e.control != "positive"))
+        note = (
+            f"staging fan-in onto {staging_host} (workstation pool) from distinct internal "
+            f"sources on tcp/{SMB_PORT}, out-heavy; the benign foil is the same fan-in onto "
+            f"{backup_server}, a backup server. The destination's role is the intended "
+            "discriminator."
         )
         return events, note, truncated

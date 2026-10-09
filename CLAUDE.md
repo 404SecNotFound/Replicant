@@ -381,6 +381,16 @@ Output convention: command results go to stdout, operator-facing errors go to st
   render with the fixed egress zone and interface pair (pre-existing, also true of REP-021);
   recorded as a follow-up, not widened into this change.
 
+  Implementation note (2026-10-09): the fourth, REP-054 (internal data staging fan-in,
+  Collection), is built with SCEN-004 (staging fan-in to bulk exfil), by the owner's decision
+  and with the gate unchanged. The fan-in's staging host comes from the workstation pool and
+  its sources from the target pool, which is what lets scenario pinning make the staging host
+  the victim and REP-005 leave from the same host. The advisory measures that phase transition
+  (`staging_pivot_stage_indices`) rather than assuming it from the scenario text. The foil is a
+  backup fan-in onto the server pool, and the destination's role is the only separating
+  feature. The catalog is honest that no peer-reviewed flow detector is cited for this entry.
+  Phase 4's "three curated chains" is now four.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 **The LogRhythm lab test has still never observed a rule fire.** Implementation note

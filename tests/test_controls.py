@@ -75,6 +75,7 @@ EXPECTED_FOIL = frozenset(
         "REP-028",
         "REP-052",
         "REP-053",
+        "REP-054",
         "REP-030",
         "REP-043",
     }

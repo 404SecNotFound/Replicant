@@ -2,15 +2,16 @@
 # Project: Replicant (github.com/404SecNotFound/Replicant)
 # Author: RZA
 # Timezone for all timestamps produced at runtime: UTC+04:00 (Dubai)
-# Status: 29 techniques. REP-001..011 are the original catalog; REP-012..024
+# Status: 30 techniques. REP-001..011 are the original catalog; REP-012..024
 # were added in v0.2.0 and are each anchored to a peer-reviewed detection paper
 # with measured results. REP-030 and REP-043 follow the 2026-09-08 all-round
 # research review (see docs/catalog-research-review-2026-09-08.md). REP-028 is
 # the first entry added under the tactic-gap rule below (2026-10-07; Defense
 # Evasion was the thinnest tactic the firewall can see). REP-052 and REP-053 are
-# the second and third (2026-10-08; both Impact). Ids named by a triage record
-# stay reserved for the proposal they name, so a new entry takes the next id no
-# record has used.
+# the second and third (2026-10-08; both Impact) and REP-054 the fourth
+# (2026-10-09; Collection, the first entry under that tactic). Ids named by a
+# triage record stay reserved for the proposal they name, so a new entry takes
+# the next id no record has used.
 #
 # PURPOSE
 # This file is the single source of truth for the interactive TTP menu and the
@@ -65,9 +66,9 @@
 # EXPANSION (roadmap 2026-09 item 16)
 # The next technique is gated on the tactic-gap tally, not on which paper had
 # measured results. This catalog is heavily weighted to Command and Control (13 of
-# 29 techniques carry TA0011, several of them beacon/callback variants) while
-# network-visible Impact (3), Credential Access (2) and Defense Evasion (2) sit
-# near zero. A ninth beacon variant has near-zero marginal coverage value; weight
+# 30 techniques carry TA0011, several of them beacon/callback variants) while
+# network-visible Impact (3), Credential Access (2), Defense Evasion (2) and
+# Collection (1) sit near zero. A ninth beacon variant has near-zero marginal coverage value; weight
 # a new entry by the tactic it fills, and record its prevalence basis. A recorded
 # rule, downstream of the coverage scorecard deferred until F2 produces real
 # numbers; it commits no slot today.
@@ -1024,6 +1025,43 @@ techniques:
       - "Prevalence basis: reflection and amplification remain the dominant volumetric DDoS vector in vendor threat reports. [Unverified: no single report is cited; confirm before customer use]"
       - "MITRE ATT&CK T1498.002 Network Denial of Service: Reflection Amplification"
     safety_notes: "no packet is sent to any reflector or victim. Byte counts are fields in a log string, the reflector is a synthetic RFC1918 address and the spoofed source is a documentation-range address"
+
+  - id: REP-054
+    name: "Internal data staging fan-in"
+    search_aliases: ["data staging", "staging host", "fan-in", "many hosts to one host", "collection before exfil"]
+    ndr_rule: "NDR-COLLECT-029"
+    ndr_uc: "UC-029"
+    objective: >-
+      Prove a rule keys on many internal sources pushing data onto one workstation on SMB inside a short window, and stays quiet for the same fan-in onto a backup server in its nightly window.
+    attack:
+      tactics: ["TA0009 Collection"]
+      techniques: ["T1074.002"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["dst", "dpt", "proto"]      # one staging host, tcp/445, for the whole fan-in
+    cef_fields_varied: ["src", "rt", "out", "in", "FTNTFGTduration", "externalId"]
+    params:
+      low:    { sources: [6, 12],  window_min: 60, sessions_per_source: [1, 2] }
+      medium: { sources: [15, 30], window_min: 45, sessions_per_source: [1, 3] }
+      high:   { sources: [40, 80], window_min: 30, sessions_per_source: [2, 4] }
+    distributions:
+      fanin: "sources distinct internal hosts (the internal_targets pool) each open sessions_per_source accepted sessions to one staging host drawn from the workstation pool, on tcp/445, with session close times at uniform random offsets inside window_min. The mirror of REP-052: many sources, one destination"
+      bytes: "each session pushes collected data: out log-normal over 1 MB to 40 MB (sigma 0.6), in is acknowledgements at 1% to 5% of out. [Inference] the ranges are a design choice standing in for file copies onto a share; no capture was measured"
+      duration_s: "per session uniform 30 to 600 s, clamped to the window"
+      duration: "--duration sets the window and the source count is preserved, because the number of distinct sources converging inside the window is the signal, not the spacing"
+      scenario: "under scenario pinning the staging host is the pinned victim, so SCEN-004 can join this stage to an egress stage whose source is the same host; the phase transition is the chain's analytic"
+    benign_baseline: "a nightly backup fan-in: the same number of internal sources, from the same pool, push the same sessions per source with the same byte and duration draws and the same irregular timing onto a backup server (the server_hosts pool, 10.20.2.0/28). Only the destination's asset role differs, and that is the intended discriminator: a rule that fires on fan-in alone fires on every backup window. Standalone, nothing distinguishes staging from backup except where the data lands; the egress that follows is what SCEN-004 adds"
+    emits_foil: true
+    transferability_note: >-
+      Disclosed limits. No peer-reviewed network-flow detector for staging fan-in is cited; the entry's anchor is the ATT&CK technique and incident reporting, and the design is a topology argument rather than a measured distribution. The workstation and server pools are synthetic subnets; a production rule's notion of a backup server comes from the operator's asset inventory, which these records do not exercise. The records carry sessions and bytes, not file names or share paths.
+    references:
+      - "MITRE ATT&CK T1074.002 Data Staged: Remote Data Staging (the technique text names staging on a central host before exfiltration)"
+      - "Prevalence basis: double-extortion ransomware operators are reported to stage collected data on one internal host before bulk exfiltration, as described in CISA #StopRansomware advisories. [Unverified: no single advisory is cited; confirm before customer use]"
+      - "Round 3 triage REP-036 (docs/round3-expansion-triage.md): many-to-one internal aggregation is a topology no entry covered, and the phase transition is the analytic rather than the egress spike"
+    safety_notes: "nothing is collected, copied or staged. Byte counts and durations are fields in a log string; every address is synthetic internal space"
 
 # NOTES
 # 1. Signature IDs marked [Unverified] must be confirmed against a live FortiOS
