@@ -371,6 +371,16 @@ Output convention: command results go to stdout, operator-facing errors go to st
   changed; the entry discloses that a traffic record cannot carry the file operations the
   cited detectors key on.
 
+  Implementation note (2026-10-08): the third, REP-053 (internal reflector abused for
+  amplification, Impact), is built, by the owner's decision and with the gate unchanged. The
+  round-3 condition holds: the entry says on its face that the events-per-second cap means a
+  flood is never expressed as rate here, only as bytes per session, and a guard asserts the
+  statement is present. The foil is one chatty client against the same server, not the many
+  symmetric clients the backlog sketched, because that differed on two features; the
+  reply-to-request ratio is the only separating feature. Inbound udp records on PAN-OS
+  render with the fixed egress zone and interface pair (pre-existing, also true of REP-021);
+  recorded as a follow-up, not widened into this change.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 **The LogRhythm lab test has still never observed a rule fire.** Implementation note

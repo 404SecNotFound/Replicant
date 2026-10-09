@@ -2,14 +2,15 @@
 # Project: Replicant (github.com/404SecNotFound/Replicant)
 # Author: RZA
 # Timezone for all timestamps produced at runtime: UTC+04:00 (Dubai)
-# Status: 28 techniques. REP-001..011 are the original catalog; REP-012..024
+# Status: 29 techniques. REP-001..011 are the original catalog; REP-012..024
 # were added in v0.2.0 and are each anchored to a peer-reviewed detection paper
 # with measured results. REP-030 and REP-043 follow the 2026-09-08 all-round
 # research review (see docs/catalog-research-review-2026-09-08.md). REP-028 is
 # the first entry added under the tactic-gap rule below (2026-10-07; Defense
-# Evasion was the thinnest tactic the firewall can see). REP-052 is the second
-# (2026-10-08; Impact). Ids named by a triage record stay reserved for the
-# proposal they name, so a new entry takes the next id no record has used.
+# Evasion was the thinnest tactic the firewall can see). REP-052 and REP-053 are
+# the second and third (2026-10-08; both Impact). Ids named by a triage record
+# stay reserved for the proposal they name, so a new entry takes the next id no
+# record has used.
 #
 # PURPOSE
 # This file is the single source of truth for the interactive TTP menu and the
@@ -64,8 +65,8 @@
 # EXPANSION (roadmap 2026-09 item 16)
 # The next technique is gated on the tactic-gap tally, not on which paper had
 # measured results. This catalog is heavily weighted to Command and Control (13 of
-# 28 techniques carry TA0011, several of them beacon/callback variants) while
-# network-visible Impact (2), Credential Access (2) and Defense Evasion (2) sit
+# 29 techniques carry TA0011, several of them beacon/callback variants) while
+# network-visible Impact (3), Credential Access (2) and Defense Evasion (2) sit
 # near zero. A ninth beacon variant has near-zero marginal coverage value; weight
 # a new entry by the tactic it fills, and record its prevalence basis. A recorded
 # rule, downstream of the coverage scorecard deferred until F2 produces real
@@ -984,6 +985,45 @@ techniques:
       - "Prevalence basis: ransomware or extortion is reported in roughly a third of breaches in the Verizon 2024 Data Breach Investigations Report. [Unverified: figure quoted from memory]"
       - "MITRE ATT&CK T1486 Data Encrypted for Impact (the technique text names network shares as a target)"
     safety_notes: "nothing is encrypted, read or written. Byte counts, durations and destinations are fields in a log string; every address is synthetic internal space"
+
+  - id: REP-053
+    name: "Internal reflector abused for amplification"
+    search_aliases: ["reflection amplification", "NTP amplification", "SNMP amplification", "reflector abuse", "DDoS participation"]
+    ndr_rule: "NDR-IMPACT-028"
+    ndr_uc: "UC-028"
+    objective: >-
+      Prove a rule keys on the per-session reply-to-request byte ratio of inbound udp/123 or udp/161 sessions at an internal server, not on their count or rate, and stays quiet for a chatty client whose replies match its requests.
+    attack:
+      tactics: ["TA0040 Impact"]
+      techniques: ["T1498.002"]
+    fortigate:
+      log_type: "traffic"
+      subtype: "forward"
+      signature_id: "00013"
+      action: "accept"
+    cef_fields_held: ["src", "dst", "dpt", "proto"]   # one spoofed source, one reflector, one UDP service
+    cef_fields_varied: ["rt", "out", "in", "FTNTFGTduration", "externalId"]
+    params:
+      low:    { dpt: 161, sessions: [40, 80],   amplification: [6, 12],    window_min: 30 }
+      medium: { dpt: 123, sessions: [120, 240], amplification: [30, 120],  window_min: 20 }
+      high:   { dpt: 123, sessions: [300, 600], amplification: [100, 500], window_min: 15 }
+    distributions:
+      direction: "INBOUND, like REP-021: the interface pair is reversed, src is the spoofed external address the replies are aimed at, dst is the internal service (the server_hosts pool)"
+      sessions: "sessions accepted udp sessions from one external source to one internal server on dpt, closing at uniform random offsets inside window_min"
+      bytes: "request (out) uniform 60 to 240 bytes; reply (in) is the request times a factor drawn uniformly from amplification. The preset ranges sit under the published per-protocol maxima (SNMP GetBulk about 6x, NTP monlist about 556x). [Unverified: the maxima are quoted from memory]"
+      rate: "bounded by the events-per-second safety cap by design. A flood is never expressed as event rate here and a run will not produce a rate spike; the signal is carried in bytes per session only"
+      duration: "--duration sets the window and the session count is preserved, because the count and the ratio inside the window are the signal, not the spacing"
+    benign_baseline: "one chatty external client (a monitoring poller) makes the same number of udp sessions to the same server in the same window, with the same request sizes, the same durations and the same irregular timing, and gets replies between 0.8x and 1.25x its requests. Only the per-session reply-to-request ratio differs, and that is the intended discriminator: a rule that fires on inbound session count to the service alone fires on every poller. Both sources are drawn from the same external pool, so pool membership is not a free reputation feature either"
+    emits_foil: true
+    transferability_note: >-
+      Disclosed limits. First, safety rule 4 caps events per second, so this entry cannot express the rate of a reflection flood; a production rule keyed on packets or sessions per second will not fire on this run, and the entry says so rather than teaching the operator to expect a spike. Second, the firewall cannot see address spoofing: the spoofed source is an ordinary synthetic external address and the only evidence of abuse in the record is the byte asymmetry. Third, whether the internal server should answer the internet at all is an asset-inventory question these records do not exercise.
+    references:
+      - "Rossow, Amplification Hell: Revisiting Network Protocols for DDoS Abuse, NDSS 2014 (measured per-protocol amplification factors, NTP and SNMP among them). [Unverified: title and venue quoted from memory; confirm before customer use]"
+      - "Kuhrer, Hupperich, Rossow and Holz, Exit from Hell? Reducing the Impact of Amplification DDoS Attacks, USENIX Security 2014 (reflector population measurement). [Unverified: quoted from memory]"
+      - "US-CERT alerts TA14-013A (NTP amplification) and TA14-017A (UDP-based amplification attacks), 2014. [Unverified: alert ids quoted from memory]"
+      - "Prevalence basis: reflection and amplification remain the dominant volumetric DDoS vector in vendor threat reports. [Unverified: no single report is cited; confirm before customer use]"
+      - "MITRE ATT&CK T1498.002 Network Denial of Service: Reflection Amplification"
+    safety_notes: "no packet is sent to any reflector or victim. Byte counts are fields in a log string, the reflector is a synthetic RFC1918 address and the spoofed source is a documentation-range address"
 
 # NOTES
 # 1. Signature IDs marked [Unverified] must be confirmed against a live FortiOS

@@ -169,6 +169,39 @@ seeds at 3 presets; every check was run against the unfixed engine and failed.
   REP-020 state that T1583 is the adversary-side anchor; the header's
   Credential Access count is 2.
 
+### Added (catalog, 2026-10-08): REP-053, internal reflector abused for amplification
+
+- **REP-053, internal reflector abused for amplification** (Impact, T1498.002;
+  UC-028). The third entry under the tactic-gap rule and the third
+  network-visible Impact technique. The firewall sees the reflector's side of
+  a reflection attack: inbound udp sessions on 161 (low) or 123 (medium, high)
+  from one spoofed external source to one internal server in the server pool,
+  each a 60 to 240 byte request answered with a reply 6 to 500 times its size
+  by preset. The interface pair is reversed, as for REP-021.
+- **The cap statement is on the entry's face.** Safety rule 4 caps events per
+  second, so a flood is never expressed as rate here and a run never produces
+  a rate spike; the signal is bytes per session only. The round-3 triage made
+  this the condition for building the entry, and
+  `tests/test_rep053_reflector.py` asserts the statement is present.
+- **The foil differs from the backlog sketch.** The sketch had many clients
+  with symmetric replies, which differs from the attack on two features
+  (ratio and client concentration). The foil is one chatty client (a
+  monitoring poller) against the same server with the same session count
+  range, request sizes, durations and irregular timing, replies between 0.8x
+  and 1.25x; the per-session reply-to-request ratio is the only separating
+  feature. Both sources come from the same external pool so pool membership is
+  not a free reputation feature. The guard measures count, request-size and
+  duration parity and the ratio separation over 20 seeds at 3 presets.
+- **No vendor profile changed.** The session is the existing inbound
+  `traffic:forward` accept; `_steady_accept` gained a `proto` keyword (default
+  TCP) and the engine's port map names `NTP` and `SNMP`, so `FTNTFGTservice`
+  reads as the service rather than `tcp/123`.
+- **Web UI:** a `reflect` diagram glyph (one source, a thin request line in, a
+  thick reply line out, no rate drawn) because neither the inbound-scan nor the
+  outbound-volume glyph tells this story.
+- Built behind the launch gate in `CLAUDE.md` by the owner's decision; the gate
+  is unchanged. Research citations are `[Unverified]` as quoted from memory.
+
 ### Added (catalog, 2026-10-08): REP-052, ransomware-like SMB write fan-out
 
 - **REP-052, ransomware-like SMB write fan-out** (Impact, T1486; UC-027). The

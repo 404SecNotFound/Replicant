@@ -51,7 +51,8 @@ type Arch =
   | "spread"
   | "inbound"
   | "stages"
-  | "relay";
+  | "relay"
+  | "reflect";
 
 const CAPTION: Record<Arch, string> = {
   periodic: "fixed interval ± jitter",
@@ -73,6 +74,7 @@ const CAPTION: Record<Arch, string> = {
   inbound: "many external src · one dst",
   stages: "alerts in kill-chain order",
   relay: "in ≈ out through one host",
+  reflect: "one src · tiny requests · amplified replies",
 };
 
 interface DiagramSpec {
@@ -122,6 +124,7 @@ export const DIAGRAM_SPECS: Record<string, DiagramSpec> = {
   "REP-043": { glyph: "stages", caption: "IPS alert → inbound → victim egress" },
   "REP-028": { glyph: "chain", source: ["user", "admin"], caption: "unexpected admin login → config burst" },
   "REP-052": { glyph: "fanout", caption: "one workstation, many file servers, large writes" },
+  "REP-053": { glyph: "reflect", source: ["external", "198.51.100.x"] },
 };
 const YC = 112; // vertical center line of the signal path
 
@@ -540,6 +543,25 @@ function Glyph({ arch }: { arch: Arch }) {
           {mono(404, YC - 10, "out", T4, 10)}
           <circle cx={456} cy={YC} r={3.5} fill={CARD} stroke={EDGE} strokeWidth={1} />
           {mono(456, YC + 20, "dst", T3, 10)}
+        </g>
+      );
+    }
+    case "reflect": {
+      // The reflector's side of an amplification attack: one external source,
+      // a thin request line in, a far thicker reply line back out. Rate is
+      // never drawn, because the events-per-second cap means the run never
+      // produces one; the asymmetry is the whole signal.
+      return (
+        <g>
+          <circle cx={180} cy={YC - 14} r={3.5} fill={CARD} stroke={EDGE} strokeWidth={1} />
+          {mono(180, YC + 34, "spoofed src", T3, 10)}
+          <line x1={190} y1={YC - 14} x2={372} y2={YC - 14} stroke={SIG} strokeWidth={1} opacity={0.7} />
+          {mono(281, YC - 22, "request", T4, 10)}
+          <line x1={372} y1={YC + 12} x2={190} y2={YC + 12} stroke={SIG} strokeWidth={6} strokeLinecap="round" />
+          {mono(281, YC + 30, "reply ×N", T4, 10)}
+          <rect x={376} y={YC - 20} width={80} height={40} rx={3} fill="none" stroke={EDGE} strokeWidth={1.2} />
+          {mono(416, YC + 4, "udp/123", FG, 10.5)}
+          {mono(416, YC + 34, "reflector", T3, 10)}
         </g>
       );
     }

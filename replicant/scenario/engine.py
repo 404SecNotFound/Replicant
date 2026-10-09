@@ -70,6 +70,8 @@ _PORT_SERVICE: dict[int, tuple[str, str]] = {
     22: ("SSH", "SSH"),
     3389: ("RDP", "RDP"),
     445: ("SMB", "SMB"),
+    123: ("NTP", "NTP"),
+    161: ("SNMP", "SNMP"),
     23: ("TELNET", "TELNET"),
     21: ("FTP", "FTP"),
 }
@@ -394,6 +396,16 @@ SMB_WRITE_DURATION_S = (20, 300)
 SMB_PORT = 445
 
 
+# REP-053: one inbound reflection session at an internal UDP service. The
+# request is small; the reply is the request times the amplification factor the
+# preset states. The foil's reply is the request times a symmetric band. The
+# event rate is bounded by the events-per-second cap by design, so the signal
+# lives in these bytes and never in rate, and the catalog says so.
+REFLECT_REQUEST_BYTES = (60, 240)
+REFLECT_FOIL_RATIO = (0.8, 1.25)
+REFLECT_DURATION_S = (1, 30)
+
+
 def _smb_write_leg(rng: Any) -> tuple[int, int, int]:
     """One (out_bytes, in_bytes, duration) draw for an accepted share rewrite."""
 
@@ -616,6 +628,7 @@ _BUILDER_METHOD_NAMES: dict[str, str] = {
     "REP-043": "_plan_exploit_egress_dialog",
     "REP-028": "_plan_admin_config_burst",
     "REP-052": "_plan_smb_write_fanout",
+    "REP-053": "_plan_reflection_amplification",
 }
 
 
@@ -2075,11 +2088,13 @@ class ScenarioEngine:
         duration: int,
         *,
         inbound: bool = False,
+        proto: int = 6,
     ) -> EventRecord:
         """A traffic:forward accept with caller-controlled byte and duration shape.
 
         ``inbound=True`` reverses the interface pair, which is what makes an
         internet-to-perimeter record distinguishable from an egress record.
+        ``proto`` defaults to TCP; REP-053 passes 17 for its UDP services.
         """
 
         service, app = port_service(dpt)
@@ -2105,7 +2120,7 @@ class ScenarioEngine:
             spt=int(rng.integers(1024, 65535)),
             dst=dst,
             dpt=dpt,
-            proto=6,
+            proto=proto,
             session_id=session,
             out_bytes=out_b,
             in_bytes=in_b,
@@ -4167,5 +4182,112 @@ class ScenarioEngine:
             f"SMB write fan-out from {attack_src} (workstation pool) to distinct internal "
             f"file servers on tcp/{SMB_PORT}; the benign foil is the same fan-out from "
             f"{benign_src}, a software-distribution server. Role is the intended discriminator."
+        )
+        return events, note, truncated
+
+    # -- REP-053 internal reflector abused for amplification ------------------
+
+    def _plan_reflection_amplification(
+        self,
+        technique: Technique,
+        preset: dict[str, Any],
+        entities: EntityModel,
+        rng: Any,
+        anchor: int,
+        duration_override_s: int | None,
+    ) -> _BuilderResult:
+        """Inbound udp sessions at an internal service from one spoofed external
+        source, each a small request answered with a reply many times its size.
+        The firewall sees the reflector's side of a reflection attack: the
+        interface pair is reversed (like REP-021), src is the address the replies
+        are aimed at, dst is the internal server.
+
+        The foil is one chatty external client against the same server: same
+        session count range, same window, same request sizes, same durations,
+        same irregular timing, replies inside a symmetric band. The per-session
+        reply-to-request ratio is the only thing a detection can separate them
+        on, and the catalog says so. The backlog's sketch (many clients, symmetric
+        replies) was set aside because it differed on two features, ratio and
+        client concentration, and a foil may differ on only the one the catalog
+        names. Both sources are drawn from the same external pool so pool
+        membership is not a free reputation feature either.
+
+        Event rate is bounded by the events-per-second cap by design. A flood is
+        never expressed as rate here, only as bytes per session.
+
+        ``--duration`` sets the window and keeps the count: the count and the
+        ratio inside the window are the signal, not the spacing.
+        """
+
+        dpt = int(preset["dpt"])
+        sessions_lo, sessions_hi = (int(v) for v in preset["sessions"])
+        amp_lo, amp_hi = (float(v) for v in preset["amplification"])
+        window_s = (
+            duration_override_s
+            if duration_override_s is not None
+            else int(preset["window_min"]) * 60
+        )
+        window_s = max(int(window_s), 2)
+
+        # Two streams under the engine's ceiling. The ceiling binds the session
+        # count, never the window or the ratio.
+        truncated = False
+        per_stream_cap = max(1, self.max_events // 2)
+        if sessions_hi > per_stream_cap:
+            sessions_hi = per_stream_cap
+            sessions_lo = min(sessions_lo, sessions_hi)
+            truncated = True
+        # Direct constructions of EntityModel may predate the server pool.
+        server_pool = entities.server_hosts or entities.internal_targets[:4]
+        reflector = str(rng.choice(server_pool))
+        pool = entities.benign_external
+        victim_index, client_index = unique_ints(rng, 0, len(pool) - 1, 2)
+        victim = pool[victim_index]
+        client = pool[client_index]
+
+        events: list[EventRecord] = []
+        session = int(rng.integers(10_000, 60_000))
+
+        def stream(source: str, ratio_lo: float, ratio_hi: float) -> int:
+            nonlocal session
+            start = len(events)
+            count = int(rng.integers(sessions_lo, sessions_hi + 1))
+            for _ in range(count):
+                request = int(rng.integers(REFLECT_REQUEST_BYTES[0], REFLECT_REQUEST_BYTES[1] + 1))
+                reply = int(request * float(rng.uniform(ratio_lo, ratio_hi)))
+                duration = min(
+                    int(rng.integers(REFLECT_DURATION_S[0], REFLECT_DURATION_S[1] + 1)), window_s
+                )
+                # The record is written when the session closes, so the close
+                # time is what lands inside the window.
+                opened = anchor + int(rng.integers(0, window_s - duration + 1))
+                events.append(
+                    self._steady_accept(
+                        rng,
+                        source,
+                        reflector,
+                        dpt,
+                        opened + duration,
+                        session,
+                        request,
+                        reply,
+                        duration,
+                        inbound=True,
+                        proto=17,
+                    )
+                )
+                session += 1
+            return start
+
+        stream(victim, amp_lo, amp_hi)
+        foil_start = stream(client, REFLECT_FOIL_RATIO[0], REFLECT_FOIL_RATIO[1])
+        self._mark_negative(events, foil_start)
+        events.sort(key=lambda e: (e.eventtime, e.control != "positive"))
+        note = (
+            f"inbound udp/{dpt} reflection at {reflector}: requests from one spoofed source "
+            f"{victim} answered with replies {amp_lo:g}x to {amp_hi:g}x their size. Event rate "
+            "is bounded by the events-per-second cap by design; the signal is bytes, never "
+            f"rate. The benign foil is the same session count from {client} with symmetric "
+            "replies. The reply-to-request ratio is the intended discriminator."
         )
         return events, note, truncated

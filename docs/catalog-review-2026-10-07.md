@@ -217,6 +217,22 @@ the parked ones are cited.
    carries the signal, never event rate, because the events-per-second cap
    bounds rate by design. Foil: a sanctioned NTP server with symmetric small
    replies to many clients.
+   Implementation note (2026-10-08): built as REP-053, by the owner's decision
+   and behind the launch gate, which is unchanged. The cap statement is in the
+   entry's `distributions.rate` and `transferability_note` and a guard asserts
+   it. The foil sketched above was changed before it was built: many clients
+   with symmetric replies differs from one spoofed source on two features
+   (ratio and client concentration), so the foil is one chatty client against
+   the same server with the same session count, request sizes, durations and
+   timing, and the per-session reply-to-request ratio is the only separating
+   feature; both sources are drawn from the same external pool. Positive
+   controls, each on 20 seeds: a foil drawn from a different external pool
+   failed the pool guard; a foil pinned at fifty sessions failed the count
+   parity guard; the attack with symmetric replies failed the ratio guard.
+   Found in passing: the PAN-OS traffic renderer ignores the reversed
+   interface pair, so inbound records (REP-021, the inbound stage of REP-043,
+   and this entry) carry the egress zone and interface pair on that vendor.
+   Recorded as a follow-up rather than widened into this change.
 4. **Remote data staging fan-in then egress** (Collection, T1074.002 then
    T1041; parked as round 3 REP-036, "remains a scenario candidate" in the
    2026-09-08 review). Pure `traffic:forward` topology: many internal sources to
