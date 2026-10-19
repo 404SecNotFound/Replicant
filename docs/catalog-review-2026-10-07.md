@@ -233,6 +233,13 @@ the parked ones are cited.
    interface pair, so inbound records (REP-021, the inbound stage of REP-043,
    and this entry) carry the egress zone and interface pair on that vendor.
    Recorded as a follow-up rather than widened into this change.
+   Implementation note (2026-10-19): fixed. PAN-OS now swaps zones and
+   interfaces on an inbound record and drops the egress source NAT from it.
+   The same pass found Check Point rendering `inzone=Internal` for every
+   traffic record, inbound included, and fixed that too.
+   `tests/test_inbound_direction.py` renders real plans of REP-021, REP-043 and
+   REP-053 at every preset; with the fix reverted, all 18 PAN-OS and Check
+   Point inbound cases failed, and the egress and FortiGate cases held.
 4. **Remote data staging fan-in then egress** (Collection, T1074.002 then
    T1041; parked as round 3 REP-036, "remains a scenario candidate" in the
    2026-09-08 review). Pure `traffic:forward` topology: many internal sources to

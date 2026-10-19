@@ -379,7 +379,10 @@ Output convention: command results go to stdout, operator-facing errors go to st
   symmetric clients the backlog sketched, because that differed on two features; the
   reply-to-request ratio is the only separating feature. Inbound udp records on PAN-OS
   render with the fixed egress zone and interface pair (pre-existing, also true of REP-021);
-  recorded as a follow-up, not widened into this change.
+  recorded as a follow-up, not widened into this change. Fixed 2026-10-19 on PAN-OS (zones,
+  interfaces, no egress SNAT) and on Check Point (`inzone=External`, the same defect found in the
+  same pass); `tests/test_inbound_direction.py`. The engine's inbound mark is the reversed
+  `src_intf`/`dst_intf` pair, read through `profiles.base.is_inbound`.
 
   Implementation note (2026-10-09): the fourth, REP-054 (internal data staging fan-in,
   Collection), is built with SCEN-004 (staging fan-in to bulk exfil), by the owner's decision

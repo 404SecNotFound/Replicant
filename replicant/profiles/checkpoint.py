@@ -35,6 +35,7 @@ from replicant.core.models import CefHeader, EventRecord
 from replicant.profiles.base import (
     DetectionMetadata,
     VendorProfile,
+    is_inbound,
     mapped_detection_field,
     require,
 )
@@ -348,7 +349,9 @@ class CheckPointProfile(VendorProfile):
             ext["cn1"] = e["duration"]
         ext["in"] = require(event.in_bytes, "in_bytes")
         ext["out"] = require(event.out_bytes, "out_bytes")
-        ext["inzone"] = self.device.inzone
+        # A session from the internet enters from the external zone. Until
+        # 2026-10-19 every traffic record said it entered from the internal one.
+        ext["inzone"] = self.device.outzone if is_inbound(event) else self.device.inzone
         ext["outzone"] = self.device.inzone if _is_internal(dst) else self.device.outzone
         ext["layer_name"] = self.device.layer_name
         ext["product"] = self.device.product_fw

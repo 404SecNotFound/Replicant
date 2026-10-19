@@ -56,6 +56,18 @@ def require(value: object, field: str) -> str:
     return str(value)
 
 
+def is_inbound(event: EventRecord) -> bool:
+    """True for an internet-to-inside session.
+
+    The engine marks one by reversing the interface pair (``src_intf`` and
+    ``dst_intf`` in ``extra``, FortiGate's port names). FortiGate renders the
+    pair as given; the other profiles read the mark and map it onto their own
+    zones and interfaces.
+    """
+
+    return "src_intf" in event.extra
+
+
 def mapped_detection_field(
     mapping: Mapping[str, str | None],
     field: str,
