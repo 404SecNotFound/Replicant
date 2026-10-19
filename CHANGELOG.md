@@ -6,6 +6,34 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Changed (web UI: operations console, 2026-10-19)
+
+- **The web UI reads as a security tool.** Handling banners at the top and bottom
+  of every screen (`Synthetic telemetry // lab use only // detection unverified`),
+  a top command bar with mono tabs and live status cells (profile, egress, UTC)
+  in place of the left rail, a status footer, a darker canvas (`#0c0e10`),
+  hairline separation, 4px panels and 3px controls. Field labels take a mono
+  capitals voice. Red keeps its roles: primary action, selection, live signal.
+- **Coverage board replaces the technique list.** ATT&CK tactics as swimlanes in
+  kill-chain order with one cell per technique, the tactics no firewall log can
+  express named rather than drawn empty, and a dossier (objective, mapping, held
+  and varied fields, benign baseline, parser-only disclosure) that loads a
+  technique into the run workspace. The tab is now "Coverage".
+- **Wire view replaces the plain event stream.** An event list, the selected line
+  dissected into syslog prefix, CEF header and extension with the profile's held
+  keys marked, and the same line as UTF-8 bytes; selecting a field lights its
+  bytes. Parsed from the emitted line (`webui/src/lib/cef.ts`), never from the
+  plan. After a run, the evidence (readout, manifest, wire) sits in a full-width
+  band above the form, and the full technique reference spans both columns.
+- **Not built: an Operations timeline for scenarios.** It was one of the three
+  mocked directions, but web scenario support stays deferred (CHAIN-16) and new
+  surface stays behind the first observed rule fire (`docs/roadmap-2026-09.md`).
+- `scripts/capture-webui-screenshots.py` takes `REPLICANT_CHROME` and
+  `REPLICANT_CHROME_ARGS`, waits for the loaded validation contract instead of a
+  title the loading card also carries, and was executed to regenerate every
+  README screenshot. Validation tiles wrap long dimension names.
+- Design contract: the 2026-10-19 revision in `docs/webui-silver-red-design.md`.
+
 Review of 2026-10-07: a fourth adversarial pass over the whole repository at `ef97905`, scoped to what the three closed reviews had not found. Security decision record: `docs/security-review-2026-10-07.md`. Catalog measurement record: `docs/catalog-review-2026-10-07.md`. Every new guard was run against the unfixed code and observed to fail.
 
 ### Security (2026-10-07 review)

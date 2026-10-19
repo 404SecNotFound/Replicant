@@ -19,11 +19,12 @@ regeneration was done ad hoc and not kept, so it had to be reinvented. This is
 that method, written down.
 
 Drives headless Chrome over the DevTools Protocol. Captures the workspace,
-validation result, technique library, reference, completed run, and terminal at
+validation result, coverage board, reference, completed run, and terminal at
 1440x900 at scale 1, plus the workspace at 360x900 for the narrow-screen example.
 
-The UI is dark-only (the silver-and-red system), so there is no theme to pin any more;
-the script still refuses to capture until the page has painted the silver-and-red canvas,
+The UI is dark-only (the operations-console revision of the silver-and-red system), so
+there is no theme to pin; the script still refuses to capture until the page has painted
+the console canvas,
 so a shot of a half-loaded or unstyled page cannot land in the repo unnoticed.
 
 Usage:
@@ -46,13 +47,19 @@ import argparse
 import asyncio
 import base64
 import json
+import os
+import shlex
 import subprocess
 import urllib.request
 from pathlib import Path
 
 import websockets
 
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# REPLICANT_CHROME overrides the browser, e.g. a Playwright Chromium on Linux, and
+# REPLICANT_CHROME_ARGS adds launch flags.
+CHROME = os.environ.get(
+    "REPLICANT_CHROME", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+)
 DEBUG_PORT = 9222
 WIDTH, HEIGHT = 1440, 900
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "images"
@@ -139,15 +146,13 @@ class Chrome:
         """Fail rather than capture an unstyled or half-loaded page.
 
         The UI is dark-only, so the check is no longer which theme won but
-        whether the stylesheet painted at all: the body must be the workspace
-        canvas (#101214). A CSS load failure otherwise produces a white shot
+        whether the stylesheet painted at all: the body must be the console
+        canvas (#0c0e10). A CSS load failure otherwise produces a white shot
         that quietly replaces a committed dark one.
         """
         actual = await self.evaluate("getComputedStyle(document.body).backgroundColor")
-        if actual != "rgb(16, 18, 20)":
-            raise RuntimeError(
-                f"expected the silver-and-red canvas rgb(16, 18, 20), got {actual!r}"
-            )
+        if actual != "rgb(12, 14, 16)":
+            raise RuntimeError(f"expected the console canvas rgb(12, 14, 16), got {actual!r}")
 
 
 def button_by_text(text: str) -> str:
@@ -173,6 +178,8 @@ async def capture_all(url: str, views: set[str]) -> None:
             "--disable-gpu",
             "--no-first-run",
             "--user-data-dir=/tmp/replicant-shots",
+            # Extra flags for the environment, e.g. --no-sandbox in a root container.
+            *shlex.split(os.environ.get("REPLICANT_CHROME_ARGS", "")),
             "about:blank",
         ],
         stdout=subprocess.DEVNULL,
@@ -251,6 +258,12 @@ async def capture_all(url: str, views: set[str]) -> None:
                     ".find(d => d.textContent.trim() === 'Validation contract')"
                     ".parentElement.scrollIntoView({ block: 'start' })"
                 )
+                # "Validation contract" is also the title of the loading card, so
+                # wait for the control itself before pressing it.
+                await page.wait_for(
+                    f"!!{button_by_text('Run Tier 0 · plan')}",
+                    what="the loaded validation contract",
+                )
                 await page.click(button_by_text("Run Tier 0 · plan"))
                 await page.wait_for(
                     "document.body.textContent.includes('Download evidence pack')",
@@ -261,11 +274,11 @@ async def capture_all(url: str, views: set[str]) -> None:
                 await page.evaluate("window.scrollTo(0, 0)")
 
             if "techniques" in views:
-                print("technique library")
-                await page.click(button_by_text("Techniques"))
+                print("coverage board")
+                await page.click(button_by_text("Coverage"))
                 await page.wait_for(
                     "!!document.querySelector('input[aria-label=\"Filter techniques\"]')",
-                    what="the technique library",
+                    what="the coverage board",
                 )
                 await asyncio.sleep(0.4)
                 await page.capture(shot_name("techniques"))
@@ -291,7 +304,7 @@ async def capture_all(url: str, views: set[str]) -> None:
                 await page.wait_for(
                     "!!document.querySelector('main')", what="the emitter view to come back"
                 )
-                await page.click(button_by_text("Techniques"))
+                await page.click(button_by_text("Coverage"))
                 # The shot needs a plan big enough to fill the waveform and the
                 # progress bar. REP-001's default is 243 events and is over in well
                 # under a second; REP-004's medium preset is 90000 positive plus
@@ -312,11 +325,17 @@ async def capture_all(url: str, views: set[str]) -> None:
                 await page.wait_for(
                     "[...document.querySelectorAll('button')]"
                     ".some(b => b.textContent.includes('DNS tunneling'))",
-                    what="REP-004 in the filtered library",
+                    what="REP-004 on the filtered coverage board",
                 )
+                # A cell only focuses the dossier; the dossier's button loads the
+                # technique into the run workspace.
                 await page.click(
                     "[...document.querySelectorAll('button')]"
                     ".find(b => b.textContent.includes('DNS tunneling'))"
+                )
+                await page.click(
+                    "[...document.querySelectorAll('button')]"
+                    ".find(b => /into run workspace|in run workspace/.test(b.textContent))"
                 )
                 await asyncio.sleep(0.8)
                 # No collector and no output file: the run emits to the browser

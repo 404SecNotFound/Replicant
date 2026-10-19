@@ -14,9 +14,9 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronRight, Play, Square } from "lucide-react";
-import { TechniquePreview } from "@/components/TechniquePreview";
+import { TechniquePreview, TechniqueReference } from "@/components/TechniquePreview";
 import { Input } from "@/components/ui/input";
-import { CefLine } from "@/components/CefLine";
+import { WireView } from "@/components/WireView";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -199,7 +199,6 @@ export function RunPanel({
   const runIdRef = useRef<string | null>(null);
   const runTechniqueRef = useRef<string | null>(null);
   const runVendorRef = useRef<string | null>(null);
-  const logRef = useRef<HTMLDivElement | null>(null);
   const countRef = useRef(0);
   const startRef = useRef(0);
   const mountedRef = useRef(true);
@@ -625,7 +624,6 @@ export function RunPanel({
         setSamples((s) => [...s.slice(-(SAMPLE_WINDOW - 1)), rate]);
       }
       setElapsed(fmtDur((now - startRef.current) / 1000));
-      if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
     }, SAMPLE_MS);
     return () => clearInterval(timer);
   }, [running]);
@@ -1216,6 +1214,10 @@ export function RunPanel({
   const manifestElapsed = manifest?.ended_at
     ? (Date.parse(manifest.ended_at) - Date.parse(manifest.started_at)) / 1000 : NaN;
   const resultTechnique = manifest?.technique_id ?? runDraft?.body.technique_id;
+  // Held keys are profile-specific. Mark them only when the loaded technique and
+  // profile are the ones the stream was rendered with, never from a changed draft.
+  const resultHeldFields = technique.id === resultTechnique && vendor === resultVendor
+    ? technique.native_cef_fields_held : [];
   const outputSummary = sending
     ? `${collector?.host}:${collector?.port} · ${collector?.transport.toUpperCase()}${toFile ? ` + ${filePath}` : ""}`
     : toFile ? filePath : "Browser events only · no send";
@@ -1224,11 +1226,12 @@ export function RunPanel({
     technique.intensities.length === 0 || technique.intensities.includes(value));
 
   return (
-    <div className="mx-auto max-w-[1240px]">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-5">
+    <div className="min-w-0">
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-5 border-b pb-5">
         <div className="min-w-0">
-          <h1 className="text-3xl font-medium tracking-tight">New detection test</h1>
-          <p className="mt-2 text-body text-muted-foreground">Choose a technique, shape the signal, and inspect the result.</p>
+          <div className="u-label">Run workspace · {technique.id}</div>
+          <h1 className="mt-1 text-stat font-normal">New detection test</h1>
+          <p className="mt-1 text-body text-muted-foreground">Choose a technique, shape the signal, and inspect every byte that leaves.</p>
         </div>
         <div className="min-w-0 max-w-full space-y-2">
           <div className="flex flex-wrap gap-2">
@@ -1298,6 +1301,80 @@ export function RunPanel({
 
 
       {error && <div role="alert" className="mb-4 mt-4 rounded-btn border border-destructive/50 p-3 text-body text-destructive">{error}</div>}
+      {hasResult && <div className={cn("mt-4 grid items-start gap-5", !remoteManifest && "xl:grid-cols-[minmax(0,480px)_minmax(0,1fr)]")}>
+        <section aria-label="Run result" className="min-w-0">
+            <div className="panel">
+              <h2 className="text-sm font-medium">{running ? "Active run" : "Latest run evidence"}</h2>
+              <p className="mt-2 wrap-break-word font-mono text-label">{resultTechnique} · {vendorShortLabel(resultVendor)}</p>
+              {!remoteManifest && runDraft && <p data-testid="run-destination" className="mt-2 break-all text-label text-muted-foreground">
+                {runDraft.body.no_send ? "No send" : `${runDraft.body.collector?.host}:${runDraft.body.collector?.port} · ${runDraft.body.collector?.transport.toUpperCase()}`}
+                {runDraft.body.to_file ? ` · File: ${runDraft.outputPath ?? (manifest?.transport === "file" ? manifest.target : "awaiting resolved path")}` : ""}
+              </p>}
+              {draftChanged && <p role="status" className="mt-3 border-t pt-3 text-label text-muted-foreground">The draft has changed. Run evidence retains its original technique, profile, and destination.</p>}
+            </div>
+            <SignalReadout eps={remoteManifest ? 0 : eps} cap={typeof manifest?.rate === "number" ? manifest.rate : runDraft?.body.rate ?? epsCap}
+              capApplies={manifest ? ["udp", "tcp", "tls"].includes(manifest.transport) : runDraft ? !runDraft.body.no_send : runSending}
+              samples={remoteManifest ? [] : samples} windowSeconds={Math.round((SAMPLE_WINDOW * SAMPLE_MS) / 1000)} pct={manifest?.planned_event_count ? Math.min(100, Math.round(manifest.event_count / manifest.planned_event_count * 100)) : pct}
+              running={running} count={manifest?.event_count ?? count} total={manifest?.planned_event_count ?? total}
+              elapsedLabel={remoteManifest ? (Number.isFinite(manifestElapsed) ? fmtDur(manifestElapsed) : "Unknown") : elapsed}
+              rateAvailable={!remoteManifest} />
+      {/* manifest */}
+      {manifest && (
+        <div className="mt-4 rounded-lg border bg-card p-4">
+          <div className="mb-4 flex items-center gap-2 text-body">
+            {manifest.status === undefined || manifest.status === "done" ? (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-muted-foreground">
+                <path d="M2.5 7.5 L5.5 10.5 L11.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : (
+              <span aria-hidden="true" className="font-mono text-signal">!</span>
+            )}
+            {manifestHeading}
+          </div>
+          {/* Audit fields. Two columns is the floor: these are short mono values
+              and one column per row would make a seven-field manifest a scroll. */}
+          <div className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 xl:grid-cols-2">
+            {[
+              [
+                "events",
+                typeof manifest.planned_event_count === "number"
+                  ? `${manifest.event_count} / ${manifest.planned_event_count}`
+                  : manifest.event_count,
+              ],
+              ["status", manifest.status ?? "done"],
+              ["technique", manifest.technique_id],
+              ["profile", typeof manifest.vendor === "string" ? vendorShortLabel(manifest.vendor) : resultVendor],
+              ["seed", manifest.seed],
+              ["intensity", manifest.intensity],
+              ["use case", manifest.ndr_uc],
+              ["target", manifest.target],
+              ["transport", manifest.transport],
+              ["anchor", manifest.anchor_epoch],
+            ].map(([k, v]) => (
+              <div
+                key={k}
+                className="u-label"
+                data-testid={k === "events" ? "manifest-events" : undefined}
+              >
+                {k}
+                <b className="mt-0.5 block break-all font-mono text-data font-normal normal-case tracking-normal text-foreground">
+                  {String(v)}
+                </b>
+              </div>
+            ))}
+          </div>
+          {manifest.warmup_note && (
+            <div className="mt-3 font-mono text-micro text-text-3">note: {manifest.warmup_note}</div>
+          )}
+        </div>
+      )}
+
+        </section>
+        {!remoteManifest && <section aria-label="Wire view" className="min-w-0">
+        <WireView lines={linesRef.current} running={running} revision={count}
+          heldFields={resultHeldFields} bufferLimit={MAX_VISIBLE} profile={runDraft?.body.vendor ?? resultVendor} />
+        </section>}
+      </div>}
       <div className="mt-4 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">
           <section className="panel">
@@ -1459,87 +1536,10 @@ export function RunPanel({
           </section>
         </div>
         <div className="min-w-0 space-y-4">
-          {hasResult && <section aria-label="Run result" className="min-w-0">
-            <div className="panel">
-              <h2 className="text-sm font-medium">{running ? "Active run" : "Latest run evidence"}</h2>
-              <p className="mt-2 wrap-break-word font-mono text-label">{resultTechnique} · {vendorShortLabel(resultVendor)}</p>
-              {!remoteManifest && runDraft && <p data-testid="run-destination" className="mt-2 break-all text-label text-muted-foreground">
-                {runDraft.body.no_send ? "No send" : `${runDraft.body.collector?.host}:${runDraft.body.collector?.port} · ${runDraft.body.collector?.transport.toUpperCase()}`}
-                {runDraft.body.to_file ? ` · File: ${runDraft.outputPath ?? (manifest?.transport === "file" ? manifest.target : "awaiting resolved path")}` : ""}
-              </p>}
-              {draftChanged && <p role="status" className="mt-3 border-t pt-3 text-label text-muted-foreground">The draft has changed. Run evidence retains its original technique, profile, and destination.</p>}
-            </div>
-            <SignalReadout eps={remoteManifest ? 0 : eps} cap={typeof manifest?.rate === "number" ? manifest.rate : runDraft?.body.rate ?? epsCap}
-              capApplies={manifest ? ["udp", "tcp", "tls"].includes(manifest.transport) : runDraft ? !runDraft.body.no_send : runSending}
-              samples={remoteManifest ? [] : samples} windowSeconds={Math.round((SAMPLE_WINDOW * SAMPLE_MS) / 1000)} pct={manifest?.planned_event_count ? Math.min(100, Math.round(manifest.event_count / manifest.planned_event_count * 100)) : pct}
-              running={running} count={manifest?.event_count ?? count} total={manifest?.planned_event_count ?? total}
-              elapsedLabel={remoteManifest ? (Number.isFinite(manifestElapsed) ? fmtDur(manifestElapsed) : "Unknown") : elapsed}
-              rateAvailable={!remoteManifest} />
-            {!remoteManifest && <div className="rounded-lg border bg-well p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <span className="u-label">Event stream · {runDraft?.body.vendor ?? resultVendor}</span>
-                <span className="font-mono text-micro text-muted-foreground">last {MAX_VISIBLE}</span>
-              </div>
-              <div ref={logRef} tabIndex={0} aria-label="Event stream" className="scroll-thin h-40 overflow-auto font-mono text-data leading-[1.7] text-text-3">
-                {linesRef.current.length === 0 ? <div className="text-label text-muted-foreground">{running ? "Waiting for events…" : "No streamed events captured in this browser."}</div>
-                  : linesRef.current.map((line, i) => <CefLine key={i} line={line} className="whitespace-pre" />)}
-              </div>
-            </div>}
-      {/* manifest */}
-      {manifest && (
-        <div className="mt-4 rounded-lg border bg-card p-4">
-          <div className="mb-4 flex items-center gap-2 text-body">
-            {manifest.status === undefined || manifest.status === "done" ? (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-muted-foreground">
-                <path d="M2.5 7.5 L5.5 10.5 L11.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            ) : (
-              <span aria-hidden="true" className="font-mono text-signal">!</span>
-            )}
-            {manifestHeading}
-          </div>
-          {/* Audit fields. Two columns is the floor: these are short mono values
-              and one column per row would make a seven-field manifest a scroll. */}
-          <div className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 xl:grid-cols-2">
-            {[
-              [
-                "events",
-                typeof manifest.planned_event_count === "number"
-                  ? `${manifest.event_count} / ${manifest.planned_event_count}`
-                  : manifest.event_count,
-              ],
-              ["status", manifest.status ?? "done"],
-              ["technique", manifest.technique_id],
-              ["profile", typeof manifest.vendor === "string" ? vendorShortLabel(manifest.vendor) : resultVendor],
-              ["seed", manifest.seed],
-              ["intensity", manifest.intensity],
-              ["use case", manifest.ndr_uc],
-              ["target", manifest.target],
-              ["transport", manifest.transport],
-              ["anchor", manifest.anchor_epoch],
-            ].map(([k, v]) => (
-              <div
-                key={k}
-                className="u-label"
-                data-testid={k === "events" ? "manifest-events" : undefined}
-              >
-                {k}
-                <b className="mt-0.5 block break-all font-mono text-data font-normal normal-case tracking-normal text-foreground">
-                  {String(v)}
-                </b>
-              </div>
-            ))}
-          </div>
-          {manifest.warmup_note && (
-            <div className="mt-3 font-mono text-micro text-text-3">note: {manifest.warmup_note}</div>
-          )}
-        </div>
-      )}
-
-          </section>}
           <TechniquePreview technique={technique} vendor={vendor} preview={preview} pending={previewPending} />
         </div>
       </div>
+      <div className="mt-5"><TechniqueReference technique={technique} vendor={vendor} /></div>
     </div>
   );
 }
