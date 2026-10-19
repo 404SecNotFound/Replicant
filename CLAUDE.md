@@ -404,6 +404,17 @@ Output convention: command results go to stdout, operator-facing errors go to st
   keeps that id, and REP-054 should have kept REP-036 (recorded in the catalog header;
   renumbering is the owner's call).
 
+- Catalog-wide fidelity (2026-10-19): roadmap item 6 had shipped in v0.10.0 as four checks on
+  three techniques under a title promising each technique. `tests/test_catalog_fidelity.py`
+  measures at least one `distributions` claim per entry, every preset, five seeds, with a
+  completeness guard; the five newest entries are covered by their dedicated files.
+  **Rule: a new technique needs a measured fidelity claim, or the completeness guard fails.**
+  Its first run found REP-018's entry login joined no hop; it now carries `tunnelip` = hop 1.
+  Four of its first five failures were the check misreading the catalog, not the engine: the
+  catalog's clock is UTC+04:00, and `ipaddress.is_private` is true for the documentation
+  ranges every synthetic external pool uses. Read the claim and the builder before calling a
+  failure a defect.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 **The LogRhythm lab test has still never observed a rule fire.** Implementation note

@@ -98,6 +98,36 @@ Review of 2026-10-07: a fourth adversarial pass over the whole repository at `ef
 - The systemd unit's comments said the catalog and frontend load by
   repository-relative path. They ship inside the package since v0.3.1.
 
+### Added (verification, 2026-10-19): catalog-wide statistical fidelity
+
+- **Every technique's attack stream is measured against its own catalog
+  entry** (roadmap 2026-09 item 6). v0.10.0 shipped item 6 as four checks on
+  REP-001, REP-004 and REP-016; the title promised each technique.
+  `tests/test_catalog_fidelity.py` measures at least one `distributions` claim
+  for each of the 26 entries that predate the dedicated per-technique files, at
+  every preset over five seeds: interval and jitter envelopes, byte bands and
+  ratios, preset counts, port sets, label lengths, entropy and qtype mix,
+  ordering and joins. The five newest entries are measured by their own files,
+  which the suite checks exist. A completeness guard fails when an entry is
+  added with neither.
+- One claim is stated as not measurable rather than dropped: REP-011's
+  "> 900 km/h", because the GeoIP tags are fictional countries with no
+  coordinates.
+- Positive controls: REP-001 jitter tripled, REP-004 qtype weighted to A,
+  REP-023 bytes widened and REP-018's entry join removed each failed all 15 of
+  that technique's cases; removing REP-030 from the registry failed the
+  completeness guard.
+
+### Fixed (catalog, 2026-10-19): REP-018's entry login joins the chain
+
+- The suite's first run found that REP-018's entry VPN login named no inside
+  address, so the path a rule follows began at hop 2 and "a login into hop 1"
+  was not observable. The tunnel-up now carries `tunnelip` = hop 1, which is
+  the `src` of the next login, the same join REP-011 gained on 2026-10-07.
+  No random draw changed, so every other field of every plan is identical; the
+  vendor keys are the existing `[Unverified]` optional ones and no golden line
+  moved.
+
 ### Fixed (catalog follow-ups, 2026-10-07)
 
 - **REP-022's exfil stage leaves the victim.** The high preset's fifth stage,
