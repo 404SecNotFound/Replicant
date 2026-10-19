@@ -98,6 +98,30 @@ Review of 2026-10-07: a fourth adversarial pass over the whole repository at `ef
 - The systemd unit's comments said the catalog and frontend load by
   repository-relative path. They ship inside the package since v0.3.1.
 
+### Changed (lab runbook, 2026-10-19): `tasks/lab-test-runbook.md` matches the code again
+
+- **The parsing phases would have run marked.** Since v0.10.0 a non-loopback
+  send carries the synthetic marker by default, and the runbook still said to
+  leave out `--mark-synthetic` to get an unmarked line. Those commands now pass
+  `--no-marker`.
+- **Each lab command took about four hours.** Sending defaults to
+  `--pace plan`, and REP-001 spans 240 minutes, so the runbook as written cost
+  more than a day of lab time. Every command outside the timing phase now
+  carries `--duration`, which keeps the interval a cadence rule reads; the
+  Phase 4 pilot emits 16 callbacks in 15 minutes against the reference spec's
+  minimum of 8.
+- **Phase 4 said REP-001 has no foil.** It has had one since before the
+  runbook was written; 26 of 31 techniques emit one. The pilot pair is now
+  REP-001 attack, then REP-001 foil.
+- **Phase 1.3 could not produce 39947.** It ran REP-007 at low, which emits
+  only the confirmed 39426. It now names one short run per `[Unverified]` ID:
+  54803, 39947, 32001 and 44547. The UAT plan's SIEM-10 row carries the same
+  correction as a dated note.
+- The offline pre-flight now rehearses the exact Phase 4 pair, and it was run
+  verbatim on `main` with an isolated config directory: `validate` pass, 98 of
+  98 lines marked with one run id, 0 on the plain run, controls 32 = 16 + 16.
+  Every lab command was parse-checked with `--no-send`; nothing was sent.
+
 ### Added (verification, 2026-10-19): catalog-wide statistical fidelity
 
 - **Every technique's attack stream is measured against its own catalog
