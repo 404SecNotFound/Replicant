@@ -24,7 +24,6 @@ interface Props { technique: Technique; vendor: string; preview: PlanPreview | n
 
 export function TechniquePreview({ technique, vendor, preview, pending = false }: Props) {
   const [view, setView] = useState("signal");
-  const [referenceOpen, setReferenceOpen] = useState(false);
   const missing = pending ? "Calculating…" : "Unavailable";
   return (
     <div className="space-y-4">
@@ -72,10 +71,21 @@ export function TechniquePreview({ technique, vendor, preview, pending = false }
           <p className="mt-1 font-mono">{technique.native_log_type}:{technique.native_subtype}</p>
         </div>
       </section>
-      <details className="panel" open={referenceOpen} onToggle={(event) => setReferenceOpen(event.currentTarget.open)}>
-        <summary className="text-sm font-medium">Full technique reference</summary>
-        {referenceOpen && <div className="mt-5"><TechniqueDetail technique={technique} vendor={vendor} /></div>}
-      </details>
     </div>
+  );
+}
+
+/**
+ * The full reference, rendered by the run workspace across both columns. Opened,
+ * it is the longest thing on the page; inside the right column it left the left
+ * column ending early above an empty half-screen.
+ */
+export function TechniqueReference({ technique, vendor }: { technique: Technique; vendor: string }) {
+  const [referenceOpen, setReferenceOpen] = useState(false);
+  return (
+    <details className="panel" open={referenceOpen} onToggle={(event) => setReferenceOpen(event.currentTarget.open)}>
+      <summary className="text-sm font-medium">Full technique reference</summary>
+      {referenceOpen && <div className="mt-5"><TechniqueDetail technique={technique} vendor={vendor} /></div>}
+    </details>
   );
 }

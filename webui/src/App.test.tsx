@@ -944,9 +944,9 @@ describe("workspace drafts and run evidence", () => {
     fireEvent.change(duration, { target: { value: "30m" } });
     fireEvent.change(screen.getByLabelText("Seed"), { target: { value: "42" } });
     fireEvent.click(screen.getByRole("radio", { name: "high" }));
-    fireEvent.click(screen.getByRole("button", { name: "Techniques" }));
+    fireEvent.click(screen.getByRole("button", { name: "Coverage" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Filter techniques" }), { target: { value: "T1071" } });
-    expect(screen.getByRole("button", { name: /Beaconing T1071/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /REP-001.*Beaconing/ })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Collector" }));
     expect(screen.getByRole("heading", { name: "Collector connection" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Back to run workspace" }));
@@ -956,7 +956,7 @@ describe("workspace drafts and run evidence", () => {
     expect(await screen.findByLabelText("Duration")).toHaveValue("30m");
     expect(screen.getByLabelText("Seed")).toHaveValue("42");
     expect(screen.getByRole("radio", { name: "high" })).toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Techniques" }));
+    fireEvent.click(screen.getByRole("button", { name: "Coverage" }));
     expect(screen.getByRole("textbox", { name: "Filter techniques" })).toHaveValue("T1071");
   });
 
@@ -985,7 +985,7 @@ describe("workspace drafts and run evidence", () => {
     await waitFor(() => expect(start).toBeEnabled());
     fireEvent.click(start);
     await waitFor(() => expect(screen.getByRole("button", { name: "Stop run" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Techniques" }));
+    fireEvent.click(screen.getByRole("button", { name: "Coverage" }));
     expect(stream.close).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Run workspace" }));
     expect(screen.getByRole("button", { name: "Stop run" })).toBeEnabled();
@@ -1003,7 +1003,7 @@ describe("workspace drafts and run evidence", () => {
     fireEvent.click(screen.getByRole("radio", { name: "PAN-OS" }));
     await screen.findByRole("radio", { name: "PAN-OS", checked: true });
     expect(screen.getByRole("region", { name: "Run result" })).toHaveTextContent("REP-001 · FortiGate");
-    expect(screen.getByRole("region", { name: "Run result" })).toHaveTextContent("Event stream · fortigate");
+    expect(screen.getByRole("region", { name: "Wire view" })).toHaveTextContent("Wire · fortigate");
     expect(screen.getByTestId("run-destination")).toHaveTextContent("No send");
     expect(screen.getByTestId("run-destination")).toHaveTextContent("/server/out/test.log");
     expect(screen.getByTestId("run-destination")).not.toHaveTextContent("/requested/test.log");

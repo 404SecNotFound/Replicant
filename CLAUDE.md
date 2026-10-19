@@ -120,6 +120,12 @@ Output convention: command results go to stdout, operator-facing errors go to st
      call; `utils.test.ts` pins every rung the `@theme` block in `webui/src/index.css` declares
      (Tailwind 4 since 2026-10-07; `tailwind.config.js` is gone). Add a rung, register it.
 
+  Implementation note (2026-10-19): the live contract is `docs/webui-silver-red-design.md`
+  (it superseded Factory on 2026-09-08), now with an operations-console revision: handling
+  banners, a top command bar, the Coverage board (ATT&CK swimlanes) and the Wire view (CEF
+  dissection and bytes, parsed from the emitted line in `webui/src/lib/cef.ts`). The
+  mocked Operations timeline was not built: web scenario surface stays deferred (CHAIN-16).
+
 - Plan-timed pacing (complete): the emit loop honours the plan's own per-event times.
   `--pace {burst,plan}` and `--speed N`, defaulting to plan when sending to a collector
   and burst for `--to-file`, with the same choice as a labelled radio group in the web

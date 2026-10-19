@@ -40,6 +40,35 @@ const TACTIC_ORDER = [
   "TA0040", // Impact
 ];
 
+export const TACTIC_NAMES: Record<string, string> = {
+  TA0043: "Reconnaissance",
+  TA0042: "Resource Development",
+  TA0001: "Initial Access",
+  TA0002: "Execution",
+  TA0003: "Persistence",
+  TA0004: "Privilege Escalation",
+  TA0005: "Defense Evasion",
+  TA0006: "Credential Access",
+  TA0007: "Discovery",
+  TA0008: "Lateral Movement",
+  TA0009: "Collection",
+  TA0011: "Command and Control",
+  TA0010: "Exfiltration",
+  TA0040: "Impact",
+};
+
+/**
+ * Enterprise tactics no technique in the list maps to, in kill-chain order.
+ *
+ * The coverage matrix names these rather than drawing empty columns: a firewall
+ * log cannot express most host-side tactics, and saying so is the honest answer
+ * to "why is Execution blank".
+ */
+export function absentTactics(techniques: Technique[]): string[] {
+  const present = new Set(techniques.flatMap((t) => t.tactics.map((tactic) => tactic.slice(0, 6))));
+  return TACTIC_ORDER.filter((id) => !present.has(id)).map((id) => TACTIC_NAMES[id]);
+}
+
 export const UNMAPPED = "Unmapped";
 
 export interface TacticGroup {

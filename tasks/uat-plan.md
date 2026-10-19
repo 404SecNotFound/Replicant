@@ -239,7 +239,7 @@ seed  [q] quit`. The `[a]` key and TUI-07..09 were added in r2 (Phase 4).
 
 ## 7. Suite D — Manual web UI (DJR-driven)
 
-Open the URL printed by `replicant web`. Emitter view = left rail (Connection + Catalog) / right (Run panel); Terminal tab = embedded `replicant menu`.
+Open the URL printed by `replicant web`. Emitter view = left rail (Connection + Catalog) / right (Run panel); Terminal tab = embedded `replicant menu`. Implementation note (2026-10-19): navigation is a top command bar; the catalog is the Coverage tab (tactic swimlanes and a dossier) and the run workspace carries the Wire view after a run.
 
 UI-07 and UI-08 are revision 4 cases and are not yet executed. For UI-08, use
 two terminals:
@@ -260,7 +260,7 @@ tools open from before navigation so the bootstrap response is retained.
 | ID | Req | Objective | Steps | Expected | Result |
 |----|-----|-----------|-------|----------|--------|
 | UI-01 | FR-7 | Factory emitter layout | Load page | Dark-only Factory shell renders with Replicant header; Emitter, Docs, and Logs navigation plus Terminal when enabled; Connection and grouped Catalog rail; technique detail and run stage; no theme toggle is present | |
-| UI-02 | FR-1 | Technique detail + selection | Click techniques in the left rail | First implemented technique is selected on load; selection preserves one armed id and updates the objective, ATT&CK chips, signal path, native rule fields, intensity presets, vendor sample CEF, and Run panel | |
+| UI-02 | FR-1 | Technique detail + selection | Click technique cells on the Coverage tab, then the dossier's load button (left rail before 2026-10-19) | First implemented technique is selected on load; selection preserves one armed id and updates the objective, ATT&CK chips, signal path, native rule fields, intensity presets, vendor sample CEF, and Run panel | |
 | UI-03 | FR-2 | Idle vendor selector and native catalog metadata | With no active run, change each vendor radio in the Connection card | Vendor switches, catalog/detail native match and field names refresh for that profile, selected technique id is preserved, and eps cap label shows real `config.eps_cap` | |
 | UI-04 | FR-7 | Connection test | Enter collector, click Test | One benign line rendered/returned | |
 | UI-05 | FR-7/SR-4 | Run + eps SignalReadout | Start a run | Progress + live eps waveform; count/total advance; stop works. WATCH: does the waveform cap/scale match a non-default eps_cap? (see DEF-002) | |
@@ -303,7 +303,7 @@ Note the CLI/menu asymmetry recorded as OBS-005: `scenario run` takes `--to-file
 | CHAIN-13 | FR-2 | Vendor selection applies to scenarios | `scenario run SCEN-001 --vendor checkpoint --to-file f --no-send` | Every line renders `CEF:0\|Check Point\|…`; repeat for `paloalto` | |
 | CHAIN-14 | SR-4 | eps cap governs the whole chain | `scenario run SCEN-003 --rate 50` to a loopback receiver | Delivered rate ≤ 50/s measured across the full chain, not reset per stage | |
 | CHAIN-15 | SR-2 | Entities synthetic across every stage | Scan a full scenario `--to-file` output | All IPs in RFC1918/documentation ranges; usernames and DNS names synthetic. Multi-stage chains reuse entities across techniques, so this is not covered by CORE-06 | |
-| CHAIN-16 | — | Web UI scenario surface absent, no regression | With the server running, request `/api/scenarios`, `/api/scenarios/SCEN-001`, `/api/scenario/list`, `/api/runs/scenario`, `/ws/scenario`. In the UI, confirm there is no scenario control in the left rail, the run form, or the Docs tab | All five routes 404. No scenario control anywhere in the UI. Asserts the documented deferral (OBS-006), not a feature | |
+| CHAIN-16 | — | Web UI scenario surface absent, no regression | With the server running, request `/api/scenarios`, `/api/scenarios/SCEN-001`, `/api/scenario/list`, `/api/runs/scenario`, `/ws/scenario`. In the UI, confirm there is no scenario control in the navigation, the Coverage tab, the run form, or the Docs tab | All five routes 404. No scenario control anywhere in the UI. Asserts the documented deferral (OBS-006), not a feature | |
 
 ## 10. Suite G — Linux installer (DJR-driven, requires a Linux host)
 

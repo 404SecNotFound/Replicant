@@ -79,7 +79,7 @@
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
-  --radius-btn: 6px;
+  --radius-btn: 3px;
 
   --font-sans: Geist, system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
@@ -158,21 +158,21 @@
      Errors and warnings use warm amber; color never carries status alone. */
   :root {
     color-scheme: dark;
-    --background: 210.000 11.111% 7.059%; /* #101214 */
+    --background: 210.000 14.286% 5.490%; /* #0c0e10 */
     --foreground: 217.500 14.815% 89.412%; /* #e0e3e8 */
-    --card: 210.000 11.111% 10.588%; /* #181b1e */
+    --card: 214.286 15.556% 8.824%; /* #13161a */
     --card-foreground: 217.500 14.815% 89.412%; /* #e0e3e8 */
     --primary: 0.000 79.167% 47.059%; /* #d71919 */
     --primary-foreground: 0.000 0.000% 100.000%; /* #ffffff */
-    --secondary: 210.000 13.514% 14.510%; /* #20252a */
+    --secondary: 213.333 14.286% 12.353%; /* #1b1f24 */
     --secondary-foreground: 217.500 14.815% 89.412%; /* #e0e3e8 */
-    --muted: 210.000 13.514% 14.510%; /* #20252a */
+    --muted: 213.333 14.286% 12.353%; /* #1b1f24 */
     --muted-foreground: 216.667 11.842% 70.196%; /* #aab1bc */
-    --accent: 212.308 11.111% 22.941%; /* #343a41 */
+    --accent: 212.727 11.579% 18.627%; /* #2a2f35 */
     --accent-foreground: 217.500 14.815% 89.412%; /* #e0e3e8 */
     --destructive: 27.097 74.400% 75.490%; /* #efbc92 */
-    --destructive-foreground: 210.000 11.111% 7.059%; /* #101214 */
-    --border: 212.308 11.111% 22.941%; /* #343a41 */
+    --destructive-foreground: 210.000 14.286% 5.490%; /* #0c0e10 */
+    --border: 212.727 11.579% 18.627%; /* #2a2f35 */
     --input: 213.333 9.184% 38.431%; /* #59616b */
     --ring: 213.333 14.754% 88.039%; /* #dce0e5 */
     --signal: 0.000 100.000% 59.412%; /* #ff3030 */
@@ -180,12 +180,12 @@
     --selection: 0.000 74.502% 49.216%; /* #db2020 */
     --selected: 0.000 32.258% 12.157%; /* #291515 */
     --metric: 149.143 51.471% 73.333%; /* #98deba */
-    --elev: 212.308 11.111% 22.941%; /* #343a41 */
-    --frame: 210.000 14.286% 8.235%; /* #121518 */
+    --elev: 212.727 11.579% 18.627%; /* #2a2f35 */
+    --frame: 216.000 14.286% 6.863%; /* #0f1114 */
     --text-3: 215.294 13.821% 75.882%; /* #b9c0ca */
     --text-4: 216.667 11.842% 70.196%; /* #aab1bc */
-    --well: 210.000 14.286% 8.235%; /* #121518 */
-    --radius: 8px;
+    --well: 216.000 14.286% 6.863%; /* #0f1114 */
+    --radius: 4px;
     --signal-dim: rgba(255, 48, 48, 0.12);
     --signal-line: rgba(255, 48, 48, 0.45);
   }
@@ -209,12 +209,30 @@
   }
 }
 
-/* Human-readable interface labels. Technical values opt into font-mono. */
+/* Field labels: the console's instrument voice, mono capitals at 11px. Sentences
+   stay in Geist; a label names a field, it does not explain one. */
 .u-label {
-  font-family: "Geist", system-ui, sans-serif;
-  font-size: 12px;
-  font-weight: 500;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: hsl(var(--text-3));
+}
+
+/* The handling banner at the top and bottom of every screen. It borrows the
+   shape of a classification banner and states a fact instead: everything here
+   is synthetic, and nothing on screen proves a detection fired. */
+.handling-banner {
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 3px 16px;
 }
 
 /* The default focus outline for anything that does not set its own. Inside

@@ -106,13 +106,13 @@ function VerdictCell({ label, status }: { label: string; status: ValidationDimen
     <div
       data-testid={`validation-dimension-${label}`}
       className={cn(
-        "rounded-btn border px-3 py-2",
+        "min-w-0 rounded-btn border px-3 py-2",
         isNotRun && "border-dashed bg-background text-muted-foreground",
         isPass && "border-metric/40 text-metric",
         !isNotRun && !isPass && "border-destructive/50 text-destructive",
       )}
     >
-      <span className="block font-mono text-micro uppercase text-text-4">{label}</span>
+      <span className="block break-words font-mono text-micro uppercase text-text-4">{label.replace(/_/g, " ")}</span>
       <span className="mt-1 block font-mono text-label uppercase">
         {isNotRun ? "NOT RUN" : status.replace(/_/g, " ")}
       </span>

@@ -8,12 +8,13 @@ visual inspiration only; no Keymaker source or assets were copied.
 
 | Role | Color |
 | --- | --- |
-| Canvas | `#101214` |
-| Panels | `#181b1e` |
-| Recessed controls and telemetry | `#121518` |
+| Canvas | `#0c0e10` (was `#101214`) |
+| Panels | `#13161a` (was `#181b1e`) |
+| Recessed controls and telemetry | `#0f1114` (was `#121518`) |
+| Raised controls and hover | `#1b1f24` (was `#20252a`) |
 | Reading text | `#e0e3e8` |
 | Secondary text | `#aab1bc` |
-| Panel border | `#343a41` |
+| Panel border and hairlines | `#2a2f35` (was `#343a41`) |
 | Input outline | `#59616b` |
 | Selection outline | `#db2020` |
 | Selected surface | `#291515` |
@@ -24,9 +25,68 @@ visual inspiration only; no Keymaker source or assets were copied.
 
 Silver headings and reading text remain neutral. Saturated red marks the primary
 action, selected controls, navigation, and signal diagrams. There are no pastel
-red headings, gradients, glows, or background artwork. Cards use an 8px radius;
-controls use 6px. Geist is the interface face, with JetBrains Mono for technical
-values. Both remain self-hosted with their existing OFL licenses.
+red headings, gradients, glows, or background artwork. Cards use a 4px radius and
+controls 3px since the 2026-10-19 revision (8px and 6px before). Geist is the
+interface face, with JetBrains Mono for technical values and field labels. Both
+remain self-hosted with their existing OFL licenses.
+
+## Revision 2026-10-19: operations console
+
+The owner asked for the UI to read as a security tool rather than a generic
+developer dashboard. Three directions were mocked from Refero screen research
+(Fingerprint's detection views, Stripe's security history, Gladia's live
+console) plus the conventions of packet analysers and the ATT&CK matrix; the
+Coverage board and the Wire view were adopted. The third, an Operations
+timeline for scenarios, is not built: web scenario support is deliberately
+deferred (`tasks/uat-plan.md` CHAIN-16) and `docs/roadmap-2026-09.md` holds new
+surface behind the first observed rule fire.
+
+What changed, and the rules that now bind:
+
+- **Frame.** A handling banner at the top and bottom of every screen reads
+  `Synthetic telemetry // lab use only // detection unverified`. It borrows the
+  shape of a classification banner and states facts instead; it never carries a
+  real classification marking. A top command bar replaces the left rail: the
+  brand mark, mono tab labels, and status cells for profile, egress and a UTC
+  clock. A status footer repeats the catalog size, profile, rate cap, and that
+  emission is not evidence of SIEM receipt.
+- **Shape.** Panels are 4px, controls 3px. Hairlines separate regions; a card
+  is used only where it groups controls. Palette changes are in the table above;
+  the red roles are unchanged.
+- **Labels.** `.u-label` is the instrument voice: JetBrains Mono, 11px,
+  capitals, 0.06em tracking. It names a field. Sentences stay in Geist.
+- **Coverage board** (the old technique library). Tactics are swimlanes in
+  kill-chain order with the techniques as cells; a technique mapped to several
+  tactics appears in each. Tactics no entry reaches are named, not drawn empty,
+  because a firewall log cannot express them. A cell focuses the dossier; only
+  the dossier's button loads a technique into the run workspace. "Rule fire"
+  reads "Not visible to Replicant", because it is not.
+- **Wire view** (the old event stream). After a run starts, the run evidence
+  sits in a full-width band above the settings: the readout and manifest on
+  the left, the wire on the right. The wire lists buffered events, dissects the
+  selected line into syslog prefix, CEF header and extension, and shows the
+  same line as UTF-8 bytes; selecting a field lights its bytes, and the
+  profile's held keys are marked. Everything in it is parsed from the line
+  itself (`webui/src/lib/cef.ts`), never inferred from the plan. A pinned
+  selection follows the event, not its index, as the bounded buffer drops old
+  lines. Held keys are shown only when the loaded technique and profile are
+  the ones the stream was rendered with.
+- **Full technique reference** spans both columns below the run form. Inside
+  the right column, opening it left the left column ending above an empty half
+  screen.
+
+Verification for this revision: `tsc`, the vitest suite (new guards for the
+dissector, the wire view and the coverage board, each run against deliberately
+broken code and observed to fail), a rendered contrast audit of every text
+node on the run, coverage, collector, logs and docs views (zero below AA, with
+a planted low-contrast control confirmed to be caught), no horizontal page
+overflow at 1440 and 390 wide, and the README screenshots regenerated with
+`scripts/capture-webui-screenshots.py`, executed this time under a Linux
+Chromium (`REPLICANT_CHROME`, `REPLICANT_CHROME_ARGS`).
+
+The sections below describe the September layout; where they mention the
+persistent sidebar, the catalog page or the event stream, read the revision
+above.
 
 ## Workspace
 
