@@ -169,6 +169,21 @@ seeds at 3 presets; every check was run against the unfixed engine and failed.
   REP-020 state that T1583 is the adversary-side anchor; the header's
   Credential Access count is 2.
 
+### Fixed (vendor profiles, 2026-10-19): inbound traffic direction on PAN-OS and Check Point
+
+- **PAN-OS rendered every traffic record as egress.** An inbound session
+  (REP-021, REP-043's inbound stage, REP-053) carried `cs4=trust cs5=untrust`,
+  the egress interface pair, and the egress `sourceTranslatedAddress`. It now
+  carries `cs4=untrust cs5=trust`, the interfaces swapped, and no source NAT.
+  The destination NAT a real inbound session would carry is not emitted.
+- **Check Point said every session entered from the internal zone.** An
+  inbound session now renders `inzone=External`.
+- FortiGate already rendered the reversed pair and is unchanged. No golden line
+  is inbound, so no golden line moved; the inbound shape on both vendors is
+  `[Unverified]`. Guard: `tests/test_inbound_direction.py`, real plans at every
+  preset; with the fix reverted, all 18 PAN-OS and Check Point inbound cases
+  failed.
+
 ### Added (catalog, 2026-10-09): REP-046, VPN login from an unfamiliar source network
 
 - **REP-046, VPN login from an unfamiliar source network** (Initial Access,

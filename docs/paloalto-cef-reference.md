@@ -148,5 +148,11 @@ System admin auth failure:
   lists are unions across the plan.
 - `event:vpn` with `srccountry` present (REP-011 geovelocity) adds `cs4Label=Source Region cs4=<country>`
   after `PanOSAuthMethod`; the eight golden lines omit it, so it stays optional.
+- An inbound session (the engine reverses the interface pair: REP-021, REP-043's inbound stage,
+  REP-053) renders with the zones and interfaces swapped, `cs4=untrust cs5=trust
+  deviceInboundInterface=ethernet1/1 deviceOutboundInterface=ethernet1/2`, and without the egress
+  `sourceTranslatedAddress`. The destination NAT a real inbound session would carry is not emitted.
+  Until 2026-10-19 every traffic record took the egress shape. None of the eight golden lines is
+  inbound, so this shape is `[Unverified]` like the rest of the reference.
 - Select the vendor at run time with `--vendor paloalto` (default `fortigate`). Same seed plus
   technique yields the same plan for either vendor; only the serialization differs.

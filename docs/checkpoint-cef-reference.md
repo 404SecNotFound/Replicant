@@ -207,6 +207,10 @@ System admin auth failure:
 - `event:vpn` with `srccountry` present (REP-011 geovelocity) is not represented in the eight golden
   lines; if added, a Source Region custom field would follow `auth_status`, matching how the FortiGate
   and PAN-OS profiles gate the same optional GeoIP tag.
+- An inbound session (the engine reverses the interface pair: REP-021, REP-043's inbound stage,
+  REP-053) renders `inzone=External outzone=Internal deviceDirection=0`. Until 2026-10-19 every
+  traffic record said `inzone=Internal`. None of the eight golden lines is inbound, so this shape is
+  `[Unverified]` like the rest of the reference.
 - Select the vendor at run time with `--vendor checkpoint` (default `fortigate`). Same seed plus
   technique yields the same plan for any vendor; only the serialization differs.
 - Real Log Exporter output also carries `loguid`, `sequencenum`, `rule_uid`, `layer_uuid`,

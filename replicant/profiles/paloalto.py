@@ -30,6 +30,7 @@ from replicant.core.models import CefHeader, EventRecord
 from replicant.profiles.base import (
     DetectionMetadata,
     VendorProfile,
+    is_inbound,
     mapped_detection_field,
     require,
 )
@@ -330,13 +331,19 @@ class PaloAltoProfile(VendorProfile):
         ext["cs1"] = f"policy-{e['policyid']}"
         ext["cs3Label"] = "Virtual System"
         ext["cs3"] = self.device.vsys
+        # An inbound session enters on the untrust side, so zones and interfaces
+        # swap, and the egress source NAT does not apply to it. The destination
+        # NAT an inbound session would carry is not emitted. Until 2026-10-19
+        # every traffic record took the egress shape.
+        inbound = is_inbound(event)
+        d = self.device
         ext["cs4Label"] = "Source Zone"
-        ext["cs4"] = self.device.src_zone
+        ext["cs4"] = d.dst_zone if inbound else d.src_zone
         ext["cs5Label"] = "Destination Zone"
-        ext["cs5"] = self.device.dst_zone
-        ext["deviceInboundInterface"] = self.device.inbound_intf
-        ext["deviceOutboundInterface"] = self.device.outbound_intf
-        if accept:
+        ext["cs5"] = d.src_zone if inbound else d.dst_zone
+        ext["deviceInboundInterface"] = d.outbound_intf if inbound else d.inbound_intf
+        ext["deviceOutboundInterface"] = d.inbound_intf if inbound else d.outbound_intf
+        if accept and not inbound:
             ext["sourceTranslatedAddress"] = self.device.nat_ip
             ext["sourceTranslatedPort"] = require(event.spt, "spt")
         ext["cn1Label"] = "SessionID"
