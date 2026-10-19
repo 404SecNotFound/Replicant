@@ -2953,6 +2953,41 @@ class ScenarioEngine:
         # whenever the hop draw included it, so the "benign" star source was
         # also a lateral-movement hop.
         star_src = _last_excluding(pool, set(hops))
+        # The admin reaches the estate the way the chain does: a VPN tunnel-up
+        # from the same external pool, whose assigned address is the star's
+        # source. Until 2026-10-19 the star had no VPN record, so "this stream
+        # contains a VPN login" separated it from the chain on every seed, and
+        # the contract names only path shape and identity transition.
+        if len(events) < self.max_events:
+            # Drawn, not the pool's last free entry: a constant foil address
+            # is itself a feature (catalog review 2026-10-07).
+            entries = [a for a in entities.adversary_external if a != entry_src]
+            star_entry = str(rng.choice(entries)) if entries else entry_src
+            events.append(
+                EventRecord(
+                    log_type="event",
+                    subtype="vpn",
+                    action="tunnel-up",
+                    level="notice",
+                    eventtime=anchor + 5,
+                    duser=users[0],
+                    src=star_entry,
+                    session_id=session,
+                    extra={
+                        "logdesc": "SSL VPN tunnel up",
+                        "fgt_action": "tunnel-up",
+                        "remip": star_entry,
+                        "srccountry": entities.countries.get(star_entry, "Wadiya"),
+                        "tunneltype": "ssl-tunnel",
+                        "tunnelid": str(int(rng.integers(1_000_000, 9_999_999))),
+                        "tunnelip": star_src,
+                        "group": "vpn-users",
+                        "reason": "login-success",
+                        "msg": "SSL tunnel established",
+                    },
+                )
+            )
+            session += 1
         for index in range(1, len(hops)):
             if len(events) + 2 > self.max_events:
                 truncated = True
