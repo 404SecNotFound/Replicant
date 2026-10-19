@@ -641,7 +641,7 @@ techniques:
       medium: { path_len: 5, users: 3, switch_at_hop: 3, window_min: 45 }
       high:   { path_len: 7, users: 4, switch_at_hop: 2, window_min: 30 }
     distributions:
-      path: "a login into hop 1, then each hop becomes the source of the login into the next. Strictly ordered, never overlapping"
+      path: "a login into hop 1 (the VPN tunnel-up's assigned address, tunnelip, is hop 1), then each hop becomes the source of the login into the next. Strictly ordered, never overlapping"
       user_switch: "duser changes at switch_at_hop, modelling credential theft partway along the path (the causal-user change Hopper keys on)"
       timing: "hops separated by minutes within window_min"
     benign_baseline: "an admin star pattern is emitted alongside: one workstation logging into several hosts. The star emits path_len-1 logins against the chain's path_len total records (a tunnel-up plus one login per subsequent hop), with the chain's own port rotation and traffic-leg byte and duration draw; the shapes, not the counts, ports or bytes, are what separate them. Separating star from chain is the detection"

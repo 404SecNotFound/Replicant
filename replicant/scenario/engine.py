@@ -2855,7 +2855,11 @@ class ScenarioEngine:
         session = int(rng.integers(1_000_000, 9_999_999))
         truncated = False
 
-        # Hop 1 is remote access into the estate: an SSL-VPN tunnel-up.
+        # Hop 1 is remote access into the estate: an SSL-VPN tunnel-up whose
+        # assigned address is hop 1, so the chain's first link joins like every
+        # later one (tunnelip, then the src of the next login). Until 2026-10-19
+        # the entry login named no inside address, and the path a rule follows
+        # began at hop 2. Same join REP-011 gained on 2026-10-07.
         events.append(
             EventRecord(
                 log_type="event",
@@ -2873,6 +2877,7 @@ class ScenarioEngine:
                     "srccountry": entities.countries.get(entry_src, "Wadiya"),
                     "tunneltype": "ssl-tunnel",
                     "tunnelid": str(int(rng.integers(1_000_000, 9_999_999))),
+                    "tunnelip": hops[0],
                     "group": "vpn-users",
                     "reason": "login-success",
                     "msg": "SSL tunnel established",

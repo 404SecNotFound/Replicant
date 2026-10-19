@@ -21,6 +21,10 @@ that bytes-per-packet is not the fixed fingerprint a fixed divisor produced.
 
 Offline and deterministic; no SIEM, no collector. This is the class of evidence
 producible here while the lab test cannot yet run.
+
+Since 2026-10-19 the catalog-wide half of item 6, one measured claim per entry,
+lives in ``tests/test_catalog_fidelity.py``; this file keeps the cross-cutting
+checks (packet sizing, entropy across a whole run, the REP-016 foil).
 """
 
 from __future__ import annotations

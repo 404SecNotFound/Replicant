@@ -11,6 +11,18 @@ This is a decision record on the same terms as `docs/10x-roadmap-triage.md` and
 build on a date. Nothing here is implemented yet. The full per-agent debate is in the
 workflow journal for the run that produced this (not in the repo by design).
 
+Implementation note (2026-10-19): "Nothing here is implemented yet" was true on
+2026-09-01 and is not now. v0.10.0 (`CHANGELOG.md`) shipped the 13 buildable
+items; 4 (the pilot) and 10 and 11 (which refine the unbuilt F5 and the unbuilt
+F2 detection tier) are behind the launch gate. Three shipped items are narrower
+than their titles. **Item 6 measured four claims on three techniques against a
+title that says each technique**; as of 2026-10-19
+`tests/test_catalog_fidelity.py` measures every entry, and a guard fails when an
+entry is added without a measured claim. Item 8 is phase 1 only
+(`docs/detection-specs/REP-001.md`). Item 14 builds a wheel and a CLI image in
+CI, but nothing is published to PyPI or a registry. Item 15's positioning
+shipped; the Action did not, by design.
+
 ## The keystone
 
 The room did not actually split five ways; it split along four seams, and the four domain experts agreed with each other far more than the proposal count suggests. My job as chair was to stop that agreement from producing a 20-item wish list and force it down to the few things that change what Replicant IS.
