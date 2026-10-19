@@ -34,7 +34,7 @@ PR, then to pass after the fix.
 from __future__ import annotations
 
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -383,6 +383,40 @@ def rep018_star_bytes_overlap_chain_bytes(s: Streams) -> None:
         ), f"{s.tag}: legs carry constants {sorted(set(chain) | set(star))}"
 
 
+def _family_counts(events: list[EventRecord]) -> Counter[str]:
+    return Counter(f"{e.log_type}:{e.subtype}" for e in events)
+
+
+def rep018_star_enters_by_vpn_like_the_chain(s: Streams) -> None:
+    # Until 2026-10-19 the chain began with a VPN tunnel-up and the star had no
+    # VPN record, so "this stream contains a VPN login" separated them on every
+    # seed at every preset, a feature the contract does not name.
+    assert _family_counts(s.negative) == _family_counts(s.positive), (
+        f"{s.tag}: record families differ, star {dict(_family_counts(s.negative))} "
+        f"against chain {dict(_family_counts(s.positive))}"
+    )
+
+
+def rep018_star_entry_shares_the_chain_pool_and_join(s: Streams) -> None:
+    def entry(events: list[EventRecord]) -> EventRecord:
+        found = next((e for e in events if e.subtype == "vpn"), None)
+        assert found is not None, f"{s.tag}: a stream has no VPN entry"
+        return found
+
+    def first_login(events: list[EventRecord]) -> EventRecord:
+        return min((e for e in events if e.subtype == "system"), key=lambda e: e.eventtime)
+
+    chain, star = entry(s.positive), entry(s.negative)
+    pool = set(ENTITIES.adversary_external)
+    assert chain.src in pool and star.src in pool, f"{s.tag}: entry pools differ"
+    assert star.src != chain.src, f"{s.tag}: the star enters from the attacker's address"
+    for name, events, vpn in (("chain", s.positive, chain), ("star", s.negative, star)):
+        assert (
+            vpn.extra.get("tunnelip") == first_login(events).src
+        ), f"{s.tag}: the {name}'s tunnel address is not the source of its first login"
+    assert star.duser == chain.duser, f"{s.tag}: entry identities differ"
+
+
 # -- REP-019: sparse benign denies across several sources and ports ------------
 
 
@@ -494,7 +528,12 @@ CHECKS: dict[str, list[Check]] = {
         rep013_foil_per_source_volume_scales_with_fanout,
         rep013_source_growth_preserved,
     ],
-    "REP-018": [rep018_star_ports_match_chain_ports, rep018_star_bytes_overlap_chain_bytes],
+    "REP-018": [
+        rep018_star_ports_match_chain_ports,
+        rep018_star_bytes_overlap_chain_bytes,
+        rep018_star_enters_by_vpn_like_the_chain,
+        rep018_star_entry_shares_the_chain_pool_and_join,
+    ],
     "REP-019": [
         rep019_foil_sources_several,
         rep019_foil_ports_span_attack_ports,

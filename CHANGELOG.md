@@ -126,6 +126,71 @@ Review of 2026-10-07: a fourth adversarial pass over the whole repository at `ef
 - The systemd unit's comments said the catalog and frontend load by
   repository-relative path. They ship inside the package since v0.3.1.
 
+### Changed (lab runbook, 2026-10-19): `tasks/lab-test-runbook.md` matches the code again
+
+- **The parsing phases would have run marked.** Since v0.10.0 a non-loopback
+  send carries the synthetic marker by default, and the runbook still said to
+  leave out `--mark-synthetic` to get an unmarked line. Those commands now pass
+  `--no-marker`.
+- **Each lab command took about four hours.** Sending defaults to
+  `--pace plan`, and REP-001 spans 240 minutes, so the runbook as written cost
+  more than a day of lab time. Every command outside the timing phase now
+  carries `--duration`, which keeps the interval a cadence rule reads; the
+  Phase 4 pilot emits 16 callbacks in 15 minutes against the reference spec's
+  minimum of 8.
+- **Phase 4 said REP-001 has no foil.** It has had one since before the
+  runbook was written; 26 of 31 techniques emit one. The pilot pair is now
+  REP-001 attack, then REP-001 foil.
+- **Phase 1.3 could not produce 39947.** It ran REP-007 at low, which emits
+  only the confirmed 39426. It now names one short run per `[Unverified]` ID:
+  54803, 39947, 32001 and 44547. The UAT plan's SIEM-10 row carries the same
+  correction as a dated note.
+- The offline pre-flight now rehearses the exact Phase 4 pair, and it was run
+  verbatim on `main` with an isolated config directory: `validate` pass, 98 of
+  98 lines marked with one run id, 0 on the plain run, controls 32 = 16 + 16.
+  Every lab command was parse-checked with `--no-send`; nothing was sent.
+
+### Added (verification, 2026-10-19): catalog-wide statistical fidelity
+
+- **Every technique's attack stream is measured against its own catalog
+  entry** (roadmap 2026-09 item 6). v0.10.0 shipped item 6 as four checks on
+  REP-001, REP-004 and REP-016; the title promised each technique.
+  `tests/test_catalog_fidelity.py` measures at least one `distributions` claim
+  for each of the 26 entries that predate the dedicated per-technique files, at
+  every preset over five seeds: interval and jitter envelopes, byte bands and
+  ratios, preset counts, port sets, label lengths, entropy and qtype mix,
+  ordering and joins. The five newest entries are measured by their own files,
+  which the suite checks exist. A completeness guard fails when an entry is
+  added with neither.
+- One claim is stated as not measurable rather than dropped: REP-011's
+  "> 900 km/h", because the GeoIP tags are fictional countries with no
+  coordinates.
+- Positive controls: REP-001 jitter tripled, REP-004 qtype weighted to A,
+  REP-023 bytes widened and REP-018's entry join removed each failed all 15 of
+  that technique's cases; removing REP-030 from the registry failed the
+  completeness guard.
+
+### Fixed (catalog foils, 2026-10-19): REP-018's star enters by VPN
+
+- The chain began with a VPN tunnel-up and the admin-star foil had no VPN
+  record, so "the stream contains a VPN login" separated them on 60 of 60
+  seed-presets, a feature the contract does not name (it names path shape and
+  identity transition). The star now enters by VPN too, from the chain's
+  external pool with a drawn address, and its `tunnelip` is the star's source.
+  The attack stream is byte-identical. Guards in `tests/test_foil_parity.py`
+  assert equal record families and the shared pool and join; both failed on
+  every preset against the unfixed builder.
+
+### Fixed (catalog, 2026-10-19): REP-018's entry login joins the chain
+
+- The suite's first run found that REP-018's entry VPN login named no inside
+  address, so the path a rule follows began at hop 2 and "a login into hop 1"
+  was not observable. The tunnel-up now carries `tunnelip` = hop 1, which is
+  the `src` of the next login, the same join REP-011 gained on 2026-10-07.
+  No random draw changed, so every other field of every plan is identical; the
+  vendor keys are the existing `[Unverified]` optional ones and no golden line
+  moved.
+
 ### Fixed (catalog follow-ups, 2026-10-07)
 
 - **REP-022's exfil stage leaves the victim.** The high preset's fifth stage,
