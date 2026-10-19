@@ -26,8 +26,36 @@ cases into clean measurements:
 **One caution, stated up front.** The marker adds a non-standard CEF extension
 field (`flexString1`). The parsing and field-mapping cases (SIEM-02/03/04/10) must
 be run **without** the marker, against the reference the FortiGate MPE expects.
-Introduce the marker only for the count and detection phases. If the marker itself
-changes how LogRhythm parses a line, that is itself a finding worth recording.
+Since v0.10.0 a send to a non-loopback collector is marked **by default**, so
+leaving out `--mark-synthetic` no longer leaves a line unmarked: the parsing
+commands below pass `--no-marker`. Use the marker for the count and detection
+phases. If the marker itself changes how LogRhythm parses a line, that is itself a
+finding worth recording.
+
+**Implementation note (2026-10-19).** This runbook was written on 2026-09-06 and
+had drifted from the code. Every offline command in section 0 was re-run on
+`main` at `1c1a2d3` with an isolated `REPLICANT_CONFIG_DIR`, and the lab commands
+were checked against the plans they produce. What changed:
+
+- **Marker default.** As above: the parsing phases now pass `--no-marker`.
+- **Run length.** A send to a collector defaults to `--pace plan`, so an event
+  leaves when its own timestamp says it happened. REP-001 spans 240 minutes at low
+  and at medium, so each Phase 1 to 5 command as written took about four hours,
+  and the whole runbook more than a day. Every command outside Phase 6 now carries
+  `--duration`, which shortens the span and keeps the interval (the property a
+  cadence rule reads), so the event count falls instead.
+- **Foils.** 26 of 31 techniques emit a benign foil, REP-001 included (and
+  REP-001 already did when this runbook was written), so the pilot pair in Phase
+  4 is REP-001 attack, then REP-001 foil.
+- **Signature IDs.** Phase 1.3 ran REP-007 at low, which emits only the confirmed
+  39426 (`ssl-login-fail`); 39947 appears in REP-007 only at high, once. Two more
+  `[Unverified]` IDs exist since 2026-10-07 (32001, 44547). Phase 1.3 now names
+  a short run that emits each.
+- **New since the runbook:** the per-run validation card (`<manifest>.card.md`)
+  prints the pivot and the emitted window to search on; `replicant validate`
+  checks the plan offline; inbound records (REP-021, REP-043's inbound stage,
+  REP-053) render with reversed zones and interfaces on every vendor since
+  2026-10-19.
 
 ---
 
@@ -41,20 +69,27 @@ failures before a lab window is burning.
 replicant --version
 replicant list | head -20
 
-# The three new capabilities actually work, offline, to a file.
-replicant run REP-001 --intensity low --no-send --mark-synthetic --to-file /tmp/pf-mark.log
-grep -c 'flexString1Label=ReplicantSynthetic' /tmp/pf-mark.log      # expect: all lines
-grep -o 'flexString1=RUN-[0-9A-Za-z-]*' /tmp/pf-mark.log | sort -u  # expect: one run id
+# The generator contract holds offline (Tier 0; proves nothing about a SIEM).
+replicant validate REP-001 --tier plan
 
-replicant run REP-014 --intensity medium --no-send --controls both     --to-file /tmp/pf-both.log
-replicant run REP-014 --intensity medium --no-send --controls positive --to-file /tmp/pf-pos.log
-replicant run REP-014 --intensity medium --no-send --controls negative --to-file /tmp/pf-neg.log
-wc -l /tmp/pf-both.log /tmp/pf-pos.log /tmp/pf-neg.log   # both == pos + neg
+# The marker: forced on for a file, off by default for a file.
+replicant run REP-001 --intensity low --no-send --mark-synthetic --to-file /tmp/pf-mark.log
+grep -c 'flexString1Label=ReplicantSynthetic' /tmp/pf-mark.log      # expect: all lines (98)
+grep -o 'flexString1=RUN-[0-9A-Za-z-]*' /tmp/pf-mark.log | sort -u  # expect: one run id
+replicant run REP-001 --intensity low --no-send --to-file /tmp/pf-plain.log
+grep -c 'flexString1' /tmp/pf-plain.log                             # expect: 0
+
+# The Phase 4 pilot pair, rehearsed offline with the same bounded window.
+replicant run REP-001 --intensity medium --duration 15m --no-send --controls both     --to-file /tmp/pf-both.log
+replicant run REP-001 --intensity medium --duration 15m --no-send --controls positive --to-file /tmp/pf-pos.log
+replicant run REP-001 --intensity medium --duration 15m --no-send --controls negative --to-file /tmp/pf-neg.log
+wc -l /tmp/pf-both.log /tmp/pf-pos.log /tmp/pf-neg.log   # both == pos + neg (measured 32 = 16 + 16)
 ```
 
-Pre-flight passes when: the marked file carries one run id on every line, and the
-control counts add up. If they do not, stop here; nothing in the lab will be
-interpretable.
+Pre-flight passes when: `validate` reports pass, the marked file carries one run
+id on every line and the plain file none, and the control counts add up. If they
+do not, stop here; nothing in the lab will be interpretable. Each run prints its
+manifest and validation card path; the card is what Phase 4 searches on.
 
 ---
 
@@ -74,6 +109,11 @@ interpretable.
   detection phases. Replicant does not generate, install, or tune AIE content. If
   no matching rule is available, parsing can still be measured, but the detection
   gate remains blocked.
+
+**Run length.** Sending defaults to `--pace plan`: events leave on the plan's own
+timeline, which is what makes timing measurable and what makes an unbounded
+REP-001 run take four hours. Every command below outside Phase 6 carries
+`--duration`; Phase 6 is the one place a long run is the point.
 
 Set once, for every command below:
 
@@ -125,7 +165,7 @@ expects.
 ### 1.1 Log source is FortiGate, and the MPE parses  (SIEM-02, SIEM-03)
 
 ```bash
-replicant run REP-001 --intensity low --anchor now \
+replicant run REP-001 --intensity low --anchor now --duration 15m --no-marker \
   --host "$COLLECTOR" --port "$PORT" --transport udp
 ```
 
@@ -141,20 +181,30 @@ replicant run REP-001 --intensity low --anchor now \
 Compare LogRhythm's parsed metadata for the REP-001 events, **field by field**,
 against the table in `docs/fortigate-cef-reference.md`: src/dst IP, src/dst port,
 protocol, action, bytes in/out, device identity. Any mismatch is a defect against
-the reference doc; record which side is wrong before changing either.
+the reference doc; record which side is wrong before changing either. REP-001 is
+egress. An inbound technique (REP-021, REP-043's inbound stage, REP-053) carries
+the reversed interface pair, and on PAN-OS and Check Point the reversed zones,
+since 2026-10-19; compare those against the inbound notes in each vendor
+reference, not the egress table.
 
-### 1.3 Resolve the two `[Unverified]` signature IDs  (SIEM-10)
+### 1.3 Resolve the `[Unverified]` signature IDs  (SIEM-10)
 
 ```bash
-replicant run REP-004 --intensity low --anchor now --host "$COLLECTOR" --port "$PORT"  # dns-query 54803
-replicant run REP-007 --intensity low --anchor now --host "$COLLECTOR" --port "$PORT"  # event:vpn 39947 (tunnel-up)
+NM="--anchor now --no-marker --host $COLLECTOR --port $PORT"
+replicant run REP-004 --intensity low --duration 1m $NM  # dns-query 54803 (about 2,400 lines)
+replicant run REP-011 --intensity low --duration 2m $NM  # event:vpn tunnel-up 39947 (2 lines)
+replicant run REP-028 --intensity low --duration 5m $NM  # event:system login success 32001, config change 44547
+replicant run REP-007 --intensity low --duration 2m $NM  # control: login-fail 39426 (confirmed)
 ```
 
-Read what the parser makes of signature **54803** and **39947**. Either the parser
-accepts them (the `[Unverified]` markers in `replicant/profiles/fortigate.py`
-around lines 53/55 come off) or it does not (record the correct values and correct
-the code, the reference doc and the CHANGELOG together). 54802 and 39426 are
-already confirmed and serve as the control.
+Read what the parser makes of signatures **54803**, **39947**, **32001** and
+**44547**. Either the parser accepts them (the `[Unverified]` markers on
+`LOGID_DNS_QUERY`, `LOGID_VPN_SUCCESS`, `LOGID_EVENT_SYSTEM_LOGIN_SUCCESS` and the
+config-change logid in `replicant/profiles/fortigate.py` come off) or it does not
+(record the correct values and correct the code, the reference doc and the
+CHANGELOG together). 54802 and 39426 are already confirmed and serve as the
+control. Until 2026-10-19 this step ran REP-007 at low for 39947, which REP-007
+emits only at high.
 
 ---
 
@@ -163,8 +213,8 @@ already confirmed and serve as the control.
 ### 2.1 `--anchor now` yields a current event time  (SIEM-05)
 
 ```bash
-replicant run REP-001 --intensity low --anchor now --host "$COLLECTOR" --port "$PORT"   # then, for contrast:
-replicant run REP-001 --intensity low             --host "$COLLECTOR" --port "$PORT"    # default fixed anchor
+replicant run REP-001 --intensity low --duration 15m --no-marker --anchor now --host "$COLLECTOR" --port "$PORT"   # then, for contrast:
+replicant run REP-001 --intensity low --duration 15m --no-marker              --host "$COLLECTOR" --port "$PORT"   # default fixed anchor
 ```
 
 With `--anchor now`: event time within minutes of receipt. With the default:
@@ -186,12 +236,13 @@ This is where defect 1 and defect 2 pay off. Before, reconciling the manifest
 against the SIEM meant guessing a time window. Now the run labels itself.
 
 ```bash
-replicant run REP-001 --intensity low --anchor now --mark-synthetic \
+replicant run REP-001 --intensity low --duration 15m --anchor now --mark-synthetic \
   --host "$COLLECTOR" --port "$PORT" --transport udp
 ```
 
-The CLI prints the run id (`run id : RUN-...`) and writes it into the manifest
-filename. In LogRhythm, full-text search the raw message for that exact run id
+`--mark-synthetic` is the default for this send and is kept explicit. The CLI
+prints the run id (`run id : RUN-...`), the manifest path and the validation card
+path, and writes the run id into the manifest filename. In LogRhythm, full-text search the raw message for that exact run id
 string.
 
 - **SIEM-01 / SIEM-13:** the count of events carrying this run id must equal the
@@ -221,9 +272,20 @@ artifact Replicant generates or tunes.
 ### 4.1 The attack fires the rule  (SIEM-08)
 
 ```bash
-replicant run REP-001 --intensity medium --anchor now --controls positive \
+replicant run REP-001 --intensity medium --duration 15m --anchor now --controls positive \
   --host "$COLLECTOR" --port "$PORT" --transport udp
 ```
+
+`--duration 15m` keeps REP-001's real 60 s cadence and emits about 16 callbacks
+(measured: 16), above the reference spec's `min_callbacks = 8`; the spec states
+that a run shorter than the full window still fires. Search on the `(src, dst,
+dpt)` pivot and the emitted window the run's validation card prints.
+
+> [Inference] The reference spec's own example uses `--pace plan --speed 60` at
+> medium, which divides the 60 s interval to about 1 s. Event times are whole
+> seconds, so at that compression the cadence is quantised and an inter-arrival
+> CV rule may not behave as it does at the real interval. `--duration` avoids the
+> question. Whether to change the spec's example is the spec author's call.
 
 `--controls positive` sends the attack pattern **without** its benign foil, so a
 rule that fires here is firing on the signal and not on the foil. Record the
@@ -232,7 +294,7 @@ technique, rule, intensity, and time to alarm.
 ### 4.2 The benign foil does NOT fire it  (SIEM-09)
 
 ```bash
-replicant run REP-001 --intensity medium --anchor now --controls negative \
+replicant run REP-001 --intensity medium --duration 15m --anchor now --controls negative \
   --host "$COLLECTOR" --port "$PORT" --transport udp
 ```
 
@@ -240,13 +302,15 @@ replicant run REP-001 --intensity medium --anchor now --controls negative \
 rule that fires on both 4.1 and 4.2 has a false-positive problem the lab should
 know about; that is a finding about the rule, not about Replicant.
 
-> Only the twelve techniques with `emits_foil` (REP-006, 007, 012, 013, 014, 015,
-> 016, 018, 019, 022, 023, 024) have a negative stream. REP-006 and REP-007 carry
-> the structural foils (shared-IP fan-out, NAT source-collapse) that break the
-> aggregation key. REP-001 does **not** — for 4.2, use one of those twelve whose UC
-> maps to a lab rule, or run REP-001's baseline peer per
-> the SIEM-09 note in the UAT plan. Asking for the negative stream on a foil-less
-> technique emits nothing and the CLI says so.
+> 26 of the 31 techniques emit a negative stream, REP-001 included (a
+> same-count, same-window irregular callback foil). The five without one are
+> REP-008, REP-011, REP-017, REP-020 and REP-021; REP-008 and REP-020 embed their
+> history in the positive stream instead. REP-006 and REP-007 carry the structural
+> foils (shared-IP fan-out, NAT source-collapse) that break the aggregation key.
+> Asking for the negative stream on a foil-less technique emits nothing and the
+> CLI says so. (Until 2026-10-19 this note listed twelve and said REP-001 had no
+> foil. The catalog already marked REP-001 `emits_foil: true` on 2026-08-31, before
+> this runbook was written, so the note was wrong from the start, not only stale.)
 
 ---
 
@@ -256,7 +320,7 @@ know about; that is a finding about the rule, not about Replicant.
 # In one terminal, capture the sending host for the duration of a run:
 sudo tcpdump -n -i any host "$COLLECTOR" or not "$COLLECTOR" -w /tmp/replicant-egress.pcap &
 # In another, run:
-replicant run REP-001 --intensity low --anchor now --host "$COLLECTOR" --port "$PORT"
+replicant run REP-001 --intensity low --duration 5m --anchor now --host "$COLLECTOR" --port "$PORT"
 # Stop tcpdump, then inspect:
 tcpdump -n -r /tmp/replicant-egress.pcap 'not host '"$COLLECTOR"' and not arp' | head
 ```
@@ -277,7 +341,8 @@ Only meaningful once ingestion and parsing work. The headline cases:
 sudo tcpdump -tt -n -i any host "$COLLECTOR" -w /tmp/tf01.pcap &
 replicant run REP-001 --intensity low --anchor now --pace burst --host "$COLLECTOR" --port "$PORT"
 
-# TF-02: plan pacing delivers a stream. ~238 min, gaps track the plan.
+# TF-02: plan pacing delivers a stream. About 240 min, gaps track the plan.
+# This is the one deliberately long run in the runbook.
 replicant run REP-001 --intensity low --anchor now --pace plan  --host "$COLLECTOR" --port "$PORT"
 
 # TF-05: speed compresses event times too, not just the schedule.
