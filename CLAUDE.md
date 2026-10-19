@@ -410,6 +410,9 @@ Output convention: command results go to stdout, operator-facing errors go to st
   completeness guard; the five newest entries are covered by their dedicated files.
   **Rule: a new technique needs a measured fidelity claim, or the completeness guard fails.**
   Its first run found REP-018's entry login joined no hop; it now carries `tunnelip` = hop 1.
+  Follow-up the same day: REP-018's star foil had no VPN record, so VPN presence separated it
+  on every seed; it enters by VPN now. **A foil parity check that compares fields but not
+  record families has not checked parity.**
   Four of its first five failures were the check misreading the catalog, not the engine: the
   catalog's clock is UTC+04:00, and `ipaddress.is_private` is true for the documentation
   ranges every synthetic external pool uses. Read the claim and the builder before calling a

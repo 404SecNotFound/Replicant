@@ -118,6 +118,17 @@ Review of 2026-10-07: a fourth adversarial pass over the whole repository at `ef
   that technique's cases; removing REP-030 from the registry failed the
   completeness guard.
 
+### Fixed (catalog foils, 2026-10-19): REP-018's star enters by VPN
+
+- The chain began with a VPN tunnel-up and the admin-star foil had no VPN
+  record, so "the stream contains a VPN login" separated them on 60 of 60
+  seed-presets, a feature the contract does not name (it names path shape and
+  identity transition). The star now enters by VPN too, from the chain's
+  external pool with a drawn address, and its `tunnelip` is the star's source.
+  The attack stream is byte-identical. Guards in `tests/test_foil_parity.py`
+  assert equal record families and the shared pool and join; both failed on
+  every preset against the unfixed builder.
+
 ### Fixed (catalog, 2026-10-19): REP-018's entry login joins the chain
 
 - The suite's first run found that REP-018's entry VPN login named no inside

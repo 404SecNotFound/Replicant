@@ -105,6 +105,7 @@ names the feature that leaked.
 | REP-013 | High preset spreads over 3389 but listed only T1021.002. | Label. | `T1021.001` added. | |
 | REP-008, REP-020 | T1583 is adversary-side Resource Development and not observable in victim telemetry. | Label. | Technique ids kept; each entry's references state that T1583 is the adversary-side anchor and the observable is the first-contact behaviour. | |
 | Header | Credential Access count said 1. | Label. | Now 2 (REP-007, REP-030). | |
+| REP-018 (follow-up, 2026-10-19) | The chain began with a VPN tunnel-up and the star had none, so "the stream contains a VPN login" separated them, a feature the contract does not name. This review's REP-018 row checked ports and bytes, not record families. | Measured: 60/60 seed-presets separable on VPN presence. Guard: `star_enters_by_vpn_like_the_chain` failed on every preset. | The admin star enters by VPN too: same identity, an entry address drawn from the chain's external pool (not a constant), `tunnelip` set to the star's source, so it joins the way the chain does (REP-018's own join landed the same day). The attack stream is byte-identical. | 0/60 separable on VPN presence; 56 distinct foil entry addresses over 60 plans. |
 
 Three checks were tightened after the first run because they were statistically
 fragile rather than wrong: REP-005 windows split by count not time, REP-012's
