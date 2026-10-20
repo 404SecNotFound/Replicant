@@ -118,6 +118,9 @@ below without rewriting what that earlier release actually did.
       WEB-07..15 and the manual browser cases are UI-07..08 in
       `tasks/uat-plan.md`; every Result cell remains empty until that UAT round
       is run and recorded.
+      Implementation note (2026-10-20): the automated half is executed. WEB-07..16
+      all passed against `161ae68`, recorded in their Result cells. UI-07..08 are
+      manual browser cases in the DJR-driven suite and stay open.
 
 ---
 

@@ -6,6 +6,13 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Documentation (UAT round 4, automated cases, 2026-10-20)
+
+- **WEB-07..16 are executed and recorded.** They had been authored and never run as UAT. All
+  ten passed against `161ae68`. WEB-08's method asks for a follow-up `/api/config` call its
+  named test does not make; that step was run directly and returned 401. The manual browser
+  cases UI-07..08 stay open for the owner.
+
 ### Fixed (web UI: Wire view byte rows, 2026-10-20)
 
 - **The Wire view's hex dump no longer scrolls sideways or clips its ASCII column.** It drew
