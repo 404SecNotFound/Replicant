@@ -818,6 +818,7 @@ class Orchestrator:
         on_event: EventCallback | None = None,
         run_id: str | None = None,
         *,
+        plan: ScenarioPlan | None = None,
         _reset_stop: bool = True,
     ) -> RunResult:
         # Generated once here so every surface shares one id: the CLI prints it,
@@ -844,7 +845,11 @@ class Orchestrator:
         if _reset_stop:
             self.reset()
         self.last_send_stats = None
-        plan = self.build_plan(request)
+        # A caller that already built this plan (the web start path prices the
+        # run first) passes it in; building is pure and seeded, so it is the
+        # same plan, and REP-004 high is 180,000 events to build twice.
+        if plan is None:
+            plan = self.build_plan(request)
 
         target, transport = self._describe_target(request, send)
         eps_cap = self._effective_eps_cap(request.rate_override)
@@ -1285,7 +1290,8 @@ class Orchestrator:
         for it twice.
         """
 
-        plan = plan or self.build_plan(request)
+        if plan is None:
+            plan = self.build_plan(request)
         return self._pacing_preview(
             plan.events,
             pace=request.pace,

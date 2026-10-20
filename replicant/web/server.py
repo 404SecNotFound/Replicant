@@ -108,7 +108,7 @@ from replicant.core.orchestrator import Orchestrator, PacingPreview, effective_i
 from replicant.core.pacing import MAX_SPEED, SPEED_WITHOUT_PLAN, Pace
 from replicant.obs import log as obs_log
 from replicant.profiles.base import VendorProfile
-from replicant.scenario.engine import implemented_technique_ids
+from replicant.scenario.engine import ScenarioPlan, implemented_technique_ids
 from replicant.transport.syslog import probe_collector
 from replicant.web.guards import (
     DEFAULT_EVIDENCE_KEEP,
@@ -1357,14 +1357,16 @@ def create_app(
         )
         return request, (not body.no_send and collector is not None)
 
-    def _preview(body: RunBody) -> tuple[RunRequest, bool, PacingPreview]:
+    def _preview(body: RunBody) -> tuple[RunRequest, bool, PacingPreview, ScenarioPlan]:
         request, sending = _run_request(body)
         try:
             with _plan_slot():
-                preview = _orchestrator_for(body.vendor).preview_pacing(request, sending=sending)
+                orch = _orchestrator_for(body.vendor)
+                plan = orch.build_plan(request)
+                preview = orch.preview_pacing(request, sending=sending, plan=plan)
         except (RuntimeError, NotImplementedError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return request, sending, preview
+        return request, sending, preview, plan
 
     def _validate_run_identity(technique_id: str, vendor: str | None) -> str:
         """Validate the cheap identity fields before reserving active ownership."""
@@ -1461,7 +1463,7 @@ def create_app(
         than logic. Takes the same body as POST /api/runs so the two cannot drift.
         """
 
-        _, _, preview = _preview(body)
+        _, _, preview, _ = _preview(body)
         return {
             "event_count": preview.event_count,
             "plan_span_s": preview.plan_span_s,
@@ -1492,15 +1494,17 @@ def create_app(
             raise _admission_conflict(exc) from exc
 
         try:
-            request, sending, preview = _preview(body)
+            request, sending, preview, plan = _preview(body)
             anchor = request.anchor_epoch or settings.anchor_epoch
             handle = manager.start(
                 request,
                 settings=_settings_for(vendor),
                 # The preview just built this plan; REP-004 high is 180,000 events
-                # and 1.6 seconds, so it is not worth building twice.
+                # and 1.6 seconds, so the worker emits it rather than building it
+                # again.
                 total=preview.event_count,
                 admission=admission,
+                plan=plan,
             )
         except RunInProgressError as exc:
             manager.fail_admission(admission, str(exc))
