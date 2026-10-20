@@ -15,6 +15,10 @@ Claims that have not been validated against a live vendor build or a real host a
   executed (49 passed at `8688792`). New UI-09..12 cover the Coverage tab, the Wire view,
   the frame's honest labels and the 390-wide layout; they are manual and open. Round 5
   holds their exit criteria and makes no Go/No-Go claim.
+- Same day: the plan's catalog counts still said 26. FR-1, FR-15, CORE-01, CORE-13,
+  WEB-03, TUI-01 and the Suite C prompt now say 31 techniques, 31 contracts and 93 Tier 0
+  presets, checked against the catalog, `tests/test_validation_contracts.py` and
+  `replicant list`. DEF-003 keeps its record with a dated note. No executed result changed.
 
 ### Changed (lab runbook, 2026-10-20): the web UI's place in the lab
 

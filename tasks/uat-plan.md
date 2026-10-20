@@ -25,6 +25,10 @@ Authored: 2026-07-19 · Revised: 2026-10-20
   previous text is recorded in the Suite D note. Adds WEB-17 (the new frontend guards,
   executed) and UI-09..12 (Coverage tab, Wire view, handling frame, narrow layout,
   manual and open). Round 5 below holds their exit criteria.
+  Same day, follow-up: the catalog counts still said 26, from an earlier revision. FR-1, FR-15, CORE-01,
+  CORE-13, WEB-03, TUI-01 and the Suite C prompt now say 31 techniques, 31 contracts and
+  93 Tier 0 presets, checked against `replicant/data/technique-catalog.yaml` and
+  `tests/test_validation_contracts.py`. No executed result changed.
 
 ## 1. Purpose & scope
 
@@ -146,7 +150,7 @@ for Round 4, which targets the open validation branch below.
 | SR-3 | No real attacks — writes log strings only (safety 3) | SAFE-03 | Claude |
 | SR-4 | Respect eps cap, default 2000 (safety 4) | SAFE-04, CORE-08, CHAIN-14, SIEM-07 | Both |
 | SR-5 | Every run writes a manifest (seed, technique, params, entities, target, counts, times) (safety 5) | SAFE-05, CORE-05, CHAIN-05, INST-16, SIEM-13 | Both |
-| FR-1 | 26 techniques (REP-001..024, REP-030, REP-043), each with a unique `ndr_uc`; expansion entries retain their evidence metadata | CORE-01 | Claude |
+| FR-1 | 31 techniques (REP-001..024, REP-028, REP-030, REP-043, REP-046, REP-052..054), each with a unique `ndr_uc`; expansion entries retain their evidence metadata | CORE-01 | Claude |
 | FR-2 | 3 vendors selectable on CLI, menu, web while idle; the web selection and native catalog metadata stay fixed during an active run | CORE-04, TUI-03, UI-03, UI-07, CHAIN-13 | Both |
 | FR-3 | 3 transports UDP/TCP/TLS + loopback test (phase 2) | CORE-03 | Claude |
 | FR-4 | CEF golden-line correctness per vendor (blueprint / *-cef-reference.md) | CORE-02 | Claude |
@@ -160,7 +164,7 @@ for Round 4, which targets the open validation branch below.
 | FR-12 | Advisory is coverage/correlation only — humans author detection design (CLAUDE.md phase 4 boundary) | CHAIN-09, CHAIN-10, TUI-08 | Both |
 | FR-13 | A browser launch token is exchanged by a clean server redirect before SPA execution; subsequent browser traffic is cookie-only while explicit API credentials remain independent | WEB-07..11, UI-08 | Both |
 | FR-14 | Vite preserves the browser-facing Host through bootstrap, API, and WebSocket proxying so the backend Origin comparison remains valid | WEB-12, UI-08 | Both |
-| FR-15 | All 26 techniques have machine-readable offline validation contracts; Tier 0 evaluates plans without I/O and Tier 1 observes loopback UDP/TCP delivery and parseability without claiming a rule alert | CORE-13, CORE-14, WEB-16 | Claude |
+| FR-15 | All 31 techniques have machine-readable offline validation contracts; Tier 0 evaluates plans without I/O and Tier 1 observes loopback UDP/TCP delivery and parseability without claiming a rule alert | CORE-13, CORE-14, WEB-16 | Claude |
 | FR-16 | Every validation writes a bounded eight-file evidence pack and a replay recipe that reproduces the canonical event-plan bytes | CORE-15 | Claude |
 | IN-1 | Installer fails closed and names the failing step on every error path (install design §7, exit codes §9) | INST-01, INST-02, INST-04, INST-17..19 | DJR |
 | IN-2 | `sudo` used solely for package installs; consent explicit; declining leaves the host unchanged (§6) | INST-11, INST-12, INST-13 | DJR |
@@ -184,7 +188,7 @@ Each case: run the command, capture output, record PASS/FAIL + evidence. Actual/
 
 | ID | Req | Objective | Command / method | Expected | Result |
 |----|-----|-----------|------------------|----------|--------|
-| CORE-01 | FR-1 | All 26 techniques listed with unique ids/ndr_uc | `replicant list` | REP-001..024, REP-030 and REP-043 shown; matches the catalog; no duplicate id or `ndr_uc` | |
+| CORE-01 | FR-1 | All 31 techniques listed with unique ids/ndr_uc | `replicant list` | REP-001..024, REP-028, REP-030, REP-043, REP-046, REP-052..054 shown; matches the catalog; no duplicate id or `ndr_uc` | |
 | CORE-02 | FR-4 | CEF golden lines byte-for-byte, all 3 vendors | `pytest -k golden` (fortigate/paloalto/checkpoint golden files) | All three eight-line oracles and their reference, fixture, and CI-path guards pass; record the selected-test count rather than reusing a historical total | |
 | CORE-03 | FR-3 | UDP/TCP/TLS + loopback + fail-closed framing | `pytest tests/test_transport_loopback.py` | All UDP, TCP, and TLS loopback, framing, refused-connection, and fail-closed cases pass; record the current selected-test count | |
 | CORE-04 | FR-2 | Each vendor renders correct CEF header to file | `replicant run REP-001 --vendor {fortigate,paloalto,checkpoint} --to-file <f> --no-send` x3 | Header vendor/product correct (Fortinet/Fortigate, Palo Alto Networks/PAN-OS, Check Point/…); no send attempted | |
@@ -196,7 +200,7 @@ Each case: run the command, capture output, record PASS/FAIL + evidence. Actual/
 | CORE-10 | QG-1 | Full suite green | `pytest` (note: the repo sets `addopts = "-q"`; do not pass `-q` again or `-qq` suppresses the summary line) | Suite passes and the actual count is recorded for this execution; no historical count is used as a gate | |
 | CORE-11 | QG-2 | Lint/format/type clean | `black --check .`; `ruff check .`; `mypy replicant` | All clean | |
 | CORE-12 | SR-5 | Write-ahead manifest lifecycle and failure evidence | `pytest tests/test_manifest_write_ahead.py tests/test_manifest_naming.py` | A durable `running` record precedes output; checkpoints preserve exact rendered progress; done, stopped, and error states finalize the same path; preflight failure emits nothing; same-second runs have distinct timestamp-and-token paths; a scenario emission error writes no advisory | |
-| CORE-13 | FR-15 | Contract and negative-control matrix | `pytest tests/test_validation_contracts.py tests/test_remaining_controls.py tests/test_controls.py` | Exactly 26 contracts load; all 78 presets pass Tier 0 without truncation; REP-002/003/005/010 controls preserve irrelevant distributions and separate on the intended axis across every intensity and five seeds; REP-011 is explicitly unsupported | |
+| CORE-13 | FR-15 | Contract and negative-control matrix | `pytest tests/test_validation_contracts.py tests/test_remaining_controls.py tests/test_controls.py` | Exactly 31 contracts load; all 93 presets (31 techniques x 3 intensities) pass Tier 0 without truncation; REP-002/003/005/010 controls preserve irrelevant distributions and separate on the intended axis across every intensity and five seeds; REP-011 is explicitly unsupported | |
 | CORE-14 | FR-15 | Real Tier 1 receiver and named failure path | `pytest tests/test_validation_ingest.py -k 'real_transport or dropped_receiver'` | UDP and TCP pass only after exact run-tagged counts and required fields are observed; deliberately dropping one record returns `fail_no_events`; detection remains `NOT RUN` | |
 | CORE-15 | FR-16 | Evidence and deterministic replay | `pytest tests/test_validation_ingest.py -k 'pack or replay or sample or result_json'`; run `replicant validate REP-001 --tier plan`, then `replicant replay <evidence-dir>` | The directory contains exactly the eight documented files; more than 10,000 observations are explicitly sampled; replay count and SHA-256 match; a no-collector report says so in its opening paragraph | |
 
@@ -218,7 +222,7 @@ predate this note and are not covered by it.
 | WEB-00 | QG-3 | Frontend builds | `(cd webui && npm run build)` | `tsc -b && vite build` succeed; packaged assets are produced under `replicant/webui_dist` | |
 | WEB-01 | FR-7 | API contract green | `pytest tests/test_web_api.py` | Every collected API contract case passes; record the current selected-test count | |
 | WEB-02 | FR-7 | Server launches on loopback with token | `replicant web --no-browser` | Prints `http://127.0.0.1:<port>/?token=…`; bound to 127.0.0.1 only | |
-| WEB-03 | FR-1/FR-7 | Catalog endpoint serves 26 techniques | `GET /api/health`, `GET /api/catalog` (with token) | health is public and healthy; authenticated catalog has 26 entries with unique ids and `ndr_uc` values | |
+| WEB-03 | FR-1/FR-7 | Catalog endpoint serves 31 techniques | `GET /api/health`, `GET /api/catalog` (with token) | health is public and healthy; authenticated catalog has 31 entries with unique ids and `ndr_uc` values | |
 | WEB-04 | FR-2/SR-4 | Config exposes vendors + real eps_cap | `GET /api/config` | `vendors=[fortigate,paloalto,checkpoint]`, `eps_cap=2000`, seed default | |
 | WEB-05 | FR-7 | Run lifecycle via API | `POST /api/runs` (to loopback/file), `GET /api/runs/{id}`, SSE `…/events`, `POST …/stop` | Run starts, streams line/progress/done, stop works, manifest written | |
 | WEB-06 | SR-1 | Host-header allowlist rejects non-localhost | Request with foreign Host header | Rejected by `_localhost_only` middleware | |
@@ -237,12 +241,12 @@ predate this note and are not covered by it.
 ## 6. Suite C — Manual Rich TUI menu (DJR-driven)
 
 Launch: `replicant menu`. The prompt derives its range from the catalog and
-currently shows `[1-26] technique  [a] scenario  [c] connection  [v] vendor  [s]
+currently shows `[1-31] technique  [a] scenario  [c] connection  [v] vendor  [s]
 seed  [q] quit`. The `[a]` key and TUI-07..09 were added in r2 (Phase 4).
 
 | ID | Req | Objective | Steps | Expected | Result |
 |----|-----|-----------|-------|----------|--------|
-| TUI-01 | FR-7 | Menu renders the current technique catalog | Launch menu | 26 techniques in a numbered table; prompt range matches the catalog length and the table is readable | |
+| TUI-01 | FR-7 | Menu renders the current technique catalog | Launch menu | 31 techniques in a numbered table; prompt range matches the catalog length and the table is readable | |
 | TUI-02 | FR-7 | Connection config `[c]` | Press `c`, enter host/port/transport | Collector set; no send until run | |
 | TUI-03 | FR-2 | Vendor picker `[v]` | Press `v`, choose each vendor | Selection echoed; orchestrator rebuilt | |
 | TUI-04 | FR-8 | Seed `[s]` + technique + intensity | Set seed, pick a technique, choose intensity | Run plan uses the chosen seed/intensity | |
@@ -442,7 +446,7 @@ Round 1 recon surfaced 5 issues. All five were re-verified against `main` @ `0af
 |----|-----|----------|-------|----------|---------------------|
 | DEF-001 | Trivial | Low | Stale test count in README | `README.md:224` | **FIXED.** README now reads `# 235 tests`, matching the suite. |
 | DEF-002 | Low | Medium | Web eps waveform cap hardcoded `2000` instead of `config.eps_cap` | `webui/src/components/RunPanel.tsx` | **FIXED.** `RunPanel` now takes an `epsCap: number` prop and passes `cap={epsCap}` (`:276`). No hardcoded literal remains. |
-| DEF-003 | Trivial | Low | All 11 techniques hardcoded `implemented=true` → `soon`/`not-runnable` UI states are dead code | `replicant/web/server.py` | **RESOLVED after the 2026-07-21 record.** The API now derives support from `implemented_technique_ids()` rather than a duplicated set literal. All current 26 entries are implemented, but the state follows the engine instead of being hardcoded in the web layer. |
+| DEF-003 | Trivial | Low | All 11 techniques hardcoded `implemented=true` → `soon`/`not-runnable` UI states are dead code | `replicant/web/server.py` | **RESOLVED after the 2026-07-21 record.** The API now derives support from `implemented_technique_ids()` rather than a duplicated set literal. All current 26 entries are implemented, but the state follows the engine instead of being hardcoded in the web layer. Note (2026-10-20): the catalog is 31 entries now, all implemented; the derivation above is what kept that true without an edit here. |
 | OBS-001 | Info | — | `/api/catalog` omitted `distributions`/`benign_baseline`/`cef_fields_*`/`references` | `replicant/web/server.py:109-114` | **RESOLVED** by PR #6. All four field groups are now served; the detail panel consumes them. |
 | OBS-002 | Info | n/a | No frontend test runner (no `test` script / vitest) | `webui/package.json` | **RESOLVED after the 2026-07-21 record.** Vitest is part of the package scripts and PR #101 engineering verification runs 219 frontend tests before the production build. |
 | DEF-004 | High | High | Installer distro mappings cannot reach the required Python 3.11 (or Node 18) on several current LTS releases | `scripts/install.sh` | **CONFIRMED on real Linux 2026-07-21, then FIXED.** No longer `[Unverified]`. Reproduced in `ubuntu:22.04`: the original script installed packages, re-checked, and died `still missing after install: python node` (exit 3) having mutated the host. Measured availability: Ubuntu 22.04 default `python3` 3.10.6 and `nodejs` 12.22.9; Rocky 9 default 3.9.18 and 16.20.2; Debian 12 already fine at 3.11.2 / 18.20.4. Fix resolves candidates by querying the package manager *before* consenting to sudo, and refuses with actionable guidance when nothing on offer qualifies. Re-verified: Ubuntu 22.04 → exit 3 with `pkg_delta=0`; Rocky 9 → exit 0, Python 3.12.13, verification green. |
