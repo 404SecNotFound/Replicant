@@ -122,6 +122,45 @@ COLLECTOR=10.20.0.50     # your lab collector IP
 PORT=514
 ```
 
+## Using the web UI during the lab  (added 2026-10-20)
+
+Every phase below is driven from the CLI, and stays that way: two of the switches
+the phases depend on do not exist in the web run form. The web UI (the operations
+console since 2026-10-19, `docs/webui-silver-red-design.md`) is still useful beside
+the CLI, as a reader and as a connectivity check.
+
+**What the web UI cannot do, so these phases must use the CLI:**
+
+- **Phase 1 (unmarked parsing).** A web run has no `--no-marker`. The marker
+  follows the destination, so a web run to a non-loopback collector always carries
+  `flexString1`, which is exactly what SIEM-02/03/04/10 must not see.
+- **Phase 4 (`--controls`).** A web run has no `--controls` and always emits both
+  streams, the attack and its benign foil. SIEM-08 and SIEM-09 need each stream
+  alone.
+- **The send slot is shared.** A web run and a CLI run that send to a collector
+  under the same `REPLICANT_CONFIG_DIR` cannot run at the same time; the second is
+  refused. Finish or stop one before starting the other.
+
+**Where it helps:**
+
+- **Phase 0.1, connectivity.** The **Collector** tab's *Send test log* runs the same
+  probe as `replicant connect --test` and prints the source, route and destination
+  beside its result. As with the CLI, a UDP send that reports no error still does
+  not prove arrival; only the LogRhythm search does.
+- **Phase 1.2 and Phase 3, reading what left.** After a web run, the run
+  workspace's **Wire** view lists the streamed events and dissects the selected
+  line into syslog prefix, CEF header and extension fields, with the profile's held
+  keys marked, and shows the same line as bytes. Use it to read the exact field
+  values and the `flexString1` run id of a marked run, then search LogRhythm for
+  that id. It only shows runs started from that browser, and it is parsed from the
+  emitted line, so it says what Replicant sent, never what LogRhythm received.
+- **Choosing what to test.** The **Coverage** tab's dossier for each technique
+  lists the held and varied fields on the selected profile and the benign baseline,
+  which is the field list a rule should key on and the foil it must not fire on.
+
+The banner on every screen reads `detection unverified`. That stays true until
+Phase 4.1 produces the first observed rule fire.
+
 ---
 
 ## Phase 0 — Connectivity and clock
