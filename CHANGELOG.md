@@ -6,6 +6,18 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Changed (lab runbook, 2026-10-20): the web UI's place in the lab
+
+- `tasks/lab-test-runbook.md` gains "Using the web UI during the lab". The phases stay
+  CLI-driven, and the section says why: a web run has no `--no-marker` (a web send to a
+  non-loopback collector is always marked, which Phase 1's unmarked parsing must not see)
+  and no `--controls` (it always emits the attack and its foil, which Phase 4 needs apart),
+  and a web run and a CLI run share one send slot per configuration directory. It names
+  where the operations console helps: the Collector tab's path-reporting connect test for
+  Phase 0.1, the Wire view for reading a marked run's exact fields and run id in Phases 1.2
+  and 3, and the Coverage dossier for the held fields and benign baseline a rule should key
+  on. No phase command changed.
+
 ### Fixed (web start path builds its plan once, 2026-10-20)
 
 - **A web run no longer builds its plan twice.** `POST /api/runs` built the plan to price its
