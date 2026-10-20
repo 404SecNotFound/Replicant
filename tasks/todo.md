@@ -7,10 +7,20 @@ heading. Reconciled against the tree on 2026-07-30, so a box now means what it s
 
 **Actually open, as of 2026-08-30. Three items, none of them blocking:**
 
-- **Flip repository visibility to public. DJR only**, never autonomous. (Publish prep, item 9)
+- ~~**Flip repository visibility to public. DJR only**, never autonomous. (Publish prep, item 9)~~
+  **Closed 2026-10-20: already done.** The GitHub API reports `404SecNotFound/Replicant` with
+  `"visibility": "public"`. This line was stale, not the decision.
 - **Rename the `technique.fortigate` binding** to a neutral name. Optional cleanup, still
   present at `replicant/core/models.py:98`. The values are already vendor-neutral; only the
   field name is not. (Phase 3)
+  **Implementation note (2026-10-20): not doing, and the premise was half wrong.** Only
+  `log_type` and `subtype` are vendor-neutral. `signature_id` is the FortiOS logid suffix
+  (`00013`); the PAN-OS and Check Point profiles ignore it and derive their own
+  (`profiles/paloalto.py` `detection_metadata`), and the web API already returns it beside a
+  separate `native_signature_id`. A neutral field name would mislabel a FortiGate value.
+  The honest refactor is a split (neutral family plus a FortiGate-only signature), which is
+  churn across the engine and every catalog entry for no operator-visible gain. The binding
+  now lives at `replicant/core/models.py:143`.
 - ~~**Off-hours/business-hours weighting** beyond REP-005, which already emits off-hours.
   Deferred, not scheduled. (Phase 2)~~ **Closed 2026-08-30 as not-doing.** The
   `business_hours_weight` helper this item pointed at was deleted in the catalog-review fixes:
@@ -25,6 +35,15 @@ heading. Reconciled against the tree on 2026-07-30, so a box now means what it s
 Everything else here is done. The v0.1.1 deferred list is fully closed, and there is no open
 engineering backlog: what remains on the project needs DJR at a terminal, a LogRhythm lab, or
 real vendor appliances. Live UAT status belongs in `tasks/uat-plan.md`, not here.
+
+**Owner decisions, 2026-10-20 (DJR):**
+
+- **Web Operations timeline for scenarios: not built, gate kept.** It stays deferred
+  (`tasks/uat-plan.md` CHAIN-16) until the first observed rule fire.
+- **REP-054 keeps its id.** It is not renumbered to REP-036; the catalog header records why the
+  mismatch exists.
+- **Roadmap item 8 phase 2 (reference detection specs) stays human-authored, by DJR, later.**
+  No drafted specs.
 
 ---
 
@@ -495,7 +514,7 @@ Goal: make Replicant fit to publish as a public GitHub repo with a tagged releas
 - [x] 6. **Quality gate green:** 235 tests, black, ruff, mypy (32 files), shellcheck, `bash -n`, frontend build.
 - [x] 7. Stale `pyproject.toml` description (still says "FortiGate CEF firewall telemetry generator"). **Fixed**; it now names all three vendors.
 - [x] 8. Release notes / tag for v0.1.0. **Done**, and superseded since: tags `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.3.1` all exist, and `v0.3.1` is the published Latest release. The `v0.2.0` release stays an **unpublished draft on purpose**, because its tree predates the vendor trademark notices.
-- [ ] 9. Flip repository visibility to public. **Requires DJR.** Not something to do without an explicit go. **Still open**; the repo is private, now on GitHub Pro.
+- [x] 9. Flip repository visibility to public. **Requires DJR.** Not something to do without an explicit go. ~~**Still open**; the repo is private, now on GitHub Pro.~~ Implementation note (2026-10-20): done by DJR; the GitHub API reports the repository as public.
 
 Deliberately NOT done: DEF-003 (dead `implemented` UI state, Trivial) and OBS-002 (no frontend test runner, Info). Neither blocks a v0.1.0 publish; both are recorded in the UAT plan for disposition.
 
@@ -540,7 +559,7 @@ Not done here, by design: no product code touched, so DEF-003, DEF-004 and OBS-0
 - [x] Palo Alto (PAN-OS) vendor profile — done. `docs/paloalto-cef-reference.md` oracle (7 golden lines, all [Unverified]); `replicant/profiles/paloalto.py` renders the neutral (log_type, subtype) categories -> PAN-OS CEF (TRAFFIC / THREAT / GLOBALPROTECT / SYSTEM), non-reversed integer severity.
 - [x] Check Point (Log Exporter) vendor profile — done. `docs/checkpoint-cef-reference.md` oracle (7 golden lines, all [Unverified], grounded in Check Point's R80.20 `CefFieldsMapping.xml`, SK122323, and Sekoia samples); `replicant/profiles/checkpoint.py` renders the same categories -> Check Point CEF. Faithful specifics: string CEF severity (Unknown/Low/Medium/High/Very-High, so `CefHeader.severity` widened to `int | str`), `rt` in epoch milliseconds, numeric `proto`, capitalized `act`, blade-driven Device Product (VPN-1 & FireWall-1 / SmartDefense / Mobile Access / Check Point), `cp_severity` mirror, `deviceDirection`.
 - [x] Menu + web vendor pickers — done. Rich menu `[v]` picker (`_pick_vendor`); web `/api/config` exposes vendor + vendors and a ConnectionCard `<Select>` sets the per-run/per-test vendor. Canonical id list centralized in `settings.VENDORS` (`fortigate` | `paloalto` | `checkpoint`).
-- [ ] Optional cleanup: rename `technique.fortigate` binding to a neutral name (values already neutral; not blocking; deferred).
+- [ ] Optional cleanup: rename `technique.fortigate` binding to a neutral name (values already neutral; not blocking; deferred). Closed 2026-10-20 as not-doing: `signature_id` is FortiOS-specific, see the note at the top of this file.
 
 Design note: adding a vendor = implement `VendorProfile` + a reference file with golden lines (blueprint s10). The `(log_type, subtype)` values the engine emits are neutral log categories; each profile maps them to its own log family and field layout. All three vendors' golden lines reuse the same synthetic entities for direct comparison.
 

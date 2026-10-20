@@ -15,7 +15,8 @@
 # record names takes the next id no record has used (REP-052). REP-053 merged
 # and changed two proposals, so it took a fresh id. REP-054 was built from
 # round 3's REP-036 and should have kept that id; recorded here, and
-# renumbering it is the owner's call.
+# renumbering it is the owner's call. Owner decision (2026-10-20): it keeps
+# REP-054.
 #
 # PURPOSE
 # This file is the single source of truth for the interactive TTP menu and the

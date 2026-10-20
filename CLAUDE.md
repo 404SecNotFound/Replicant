@@ -408,7 +408,7 @@ Output convention: command results go to stdout, operator-facing errors go to st
   organisation-wide network and another user's network all true of both logins, so per-user
   network novelty is the only separating feature. Two id facts: a build from a triaged proposal
   keeps that id, and REP-054 should have kept REP-036 (recorded in the catalog header;
-  renumbering is the owner's call).
+  renumbering was the owner's call, and on 2026-10-20 the owner kept REP-054).
 
 - Catalog-wide fidelity (2026-10-19): roadmap item 6 had shipped in v0.10.0 as four checks on
   three techniques under a title promising each technique. `tests/test_catalog_fidelity.py`
