@@ -35,6 +35,7 @@ from replicant.audit.manifest import new_run_id
 from replicant.config.settings import Settings
 from replicant.core.models import Catalog, EventRecord, RunRequest
 from replicant.core.orchestrator import Orchestrator, run_record_of
+from replicant.scenario.engine import ScenarioPlan
 
 MAX_STREAM_LINES = 2000
 # Replayed to a consumer that connects after a run has already finished, which
@@ -478,14 +479,16 @@ class RunManager:
         settings: Settings | None = None,
         total: int | None = None,
         admission: RunHandle | None = None,
+        plan: ScenarioPlan | None = None,
     ) -> RunHandle:
-        """Start a run. ``total`` skips a plan build the caller has already done.
+        """Start a run. ``total`` and ``plan`` skip work the caller has already done.
 
         Building the plan is pure CPU but not free: REP-004 at high intensity is
-        180,000 events and about 1.6 seconds. The endpoint now previews the run to
-        price its pacing before starting it, and that preview already knows the
-        count, so passing it through keeps a start at the two builds it always
-        cost rather than three.
+        180,000 events and about 1.6 seconds. The endpoint previews the run to
+        price its pacing before starting it, so it passes both the count and the
+        plan it built, and the worker emits that plan instead of building it
+        again. A start without them builds once for the count and once in the
+        worker, as before.
         """
 
         effective_settings = settings if settings is not None else self.settings
@@ -515,8 +518,10 @@ class RunManager:
             orchestrator.reset()
             resolved_total = total
             if resolved_total is None:
-                resolved_total = len(orchestrator.build_plan(request))
-            thread = threading.Thread(target=self._worker, args=(handle, request), daemon=True)
+                resolved_total = len(plan if plan is not None else orchestrator.build_plan(request))
+            thread = threading.Thread(
+                target=self._worker, args=(handle, request, plan), daemon=True
+            )
             with self._lock:
                 if self._runs.get(handle.run_id) is not handle or handle.status != "admitting":
                     raise RunAdmissionError(
@@ -551,7 +556,9 @@ class RunManager:
             self.fail_admission(handle, str(exc))
             raise
 
-    def _worker(self, handle: RunHandle, request: RunRequest) -> None:
+    def _worker(
+        self, handle: RunHandle, request: RunRequest, plan: ScenarioPlan | None = None
+    ) -> None:
         streamed = 0
         orchestrator = handle.orchestrator
         if orchestrator is None:  # pragma: no cover - start promotes before spawning
@@ -584,6 +591,7 @@ class RunManager:
                 on_progress=on_progress,
                 on_event=on_event,
                 run_id=handle.run_id,
+                plan=plan,
                 _reset_stop=False,
             )
             handle.manifest = result.manifest.model_dump()

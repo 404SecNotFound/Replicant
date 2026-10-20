@@ -6,6 +6,15 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Fixed (web start path builds its plan once, 2026-10-20)
+
+- **A web run no longer builds its plan twice.** `POST /api/runs` built the plan to price its
+  pacing, then the worker's Orchestrator built the same plan again before emitting it, about
+  1.6 seconds of wasted CPU for REP-004 at high intensity. The preview's plan is now handed to
+  the worker (`RunManager.start(plan=...)`, `Orchestrator.run(plan=...)`). Building is pure and
+  seeded, so the emitted events are unchanged; the manifest's planned count still matches the
+  priced count. The CLI and menu paths never built twice and are unchanged.
+
 ### Documentation (UAT round 4, automated cases, 2026-10-20)
 
 - **WEB-07..16 are executed and recorded.** They had been authored and never run as UAT. All

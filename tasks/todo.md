@@ -27,10 +27,14 @@ heading. Reconciled against the tree on 2026-07-30, so a box now means what it s
   it had never been called by a builder, and a helper kept alive only by a backlog line is dead
   code with an alibi. Four lines, in git history, trivially re-added if the feature is ever
   actually scheduled. `docs/blueprint.md` still mentions it as historical design.
-- **Plan-twice cost in the web start path.** `replicant/web/server.py` builds a
+- ~~**Plan-twice cost in the web start path.** `replicant/web/server.py` builds a
   preview plan for pacing and the worker's Orchestrator builds the execution
   plan. `RunManager.start(total=...)` already skips its own count-only build.
-  Minor, measurable only on large plans. (Safety hardening)
+  Minor, measurable only on large plans. (Safety hardening)~~ **Closed 2026-10-20.** The
+  start path passes the preview's plan to `RunManager.start(plan=...)` and the worker emits
+  it through `Orchestrator.run(plan=...)`, so a web start builds once.
+  `tests/test_web_single_plan_build.py` counts the builds; against the unfixed code it
+  counted 2 for both the default and a non-default vendor.
 
 Everything else here is done. The v0.1.1 deferred list is fully closed, and there is no open
 engineering backlog: what remains on the project needs DJR at a terminal, a LogRhythm lab, or

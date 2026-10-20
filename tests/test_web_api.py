@@ -633,7 +633,7 @@ def test_start_run_while_one_active_returns_409(client: TestClient, monkeypatch)
     from replicant.web import runner as runner_mod
 
     def busy(  # type: ignore[no-untyped-def]
-        self, request, settings=None, total=None, admission=None
+        self, request, settings=None, total=None, admission=None, plan=None
     ):
         raise runner_mod.RunInProgressError("run-abc", "REP-007")
 
