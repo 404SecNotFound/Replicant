@@ -6,6 +6,18 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Documentation (owner decisions, 2026-10-20)
+
+- **The repository is public, and the backlog said otherwise.** `tasks/todo.md` still listed
+  "flip repository visibility to public" as open; the GitHub API reports the repository as
+  public. Closed with a dated note.
+- **Three owner decisions recorded.** The web Operations timeline stays unbuilt behind the
+  launch gate; REP-054 keeps its id (no renumber to REP-036); reference detection specs past
+  REP-001 stay human-authored.
+- **The `technique.fortigate` rename is closed as not-doing.** The backlog called its values
+  vendor-neutral; `signature_id` is the FortiOS logid suffix, which the other two profiles
+  ignore, so a neutral name would mislabel it.
+
 ### Changed (web UI: operations console, 2026-10-19)
 
 - **The web UI reads as a security tool.** Handling banners at the top and bottom
