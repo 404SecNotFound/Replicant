@@ -17,7 +17,7 @@
 // the same line as bytes. Selecting a field lights its bytes. Everything shown
 // is parsed from the line itself; nothing here is inferred from the plan.
 
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   byteSpan,
@@ -29,6 +29,34 @@ import {
   type CefDissection,
   type Span,
 } from "@/lib/cef";
+
+// The byte view draws 16 bytes per row when a row fits its own box and 8 when it
+// does not. The box is narrower than the viewport (the wire shares the evidence
+// band with the readout), so a viewport breakpoint cannot decide this; it is
+// measured. `overflowedAt` is the widest box a 16-byte row has overflowed, so
+// only a wider box tries 16 again and the layout cannot flap between the two.
+function useBytesPerRow(box: RefObject<HTMLDivElement | null>, line: string | undefined): number {
+  const [wide, setWide] = useState(true);
+  const overflowedAt = useRef(0);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => {
+      if (wide && el.scrollWidth > el.clientWidth) {
+        overflowedAt.current = el.clientWidth;
+        setWide(false);
+      } else if (!wide && el.clientWidth > overflowedAt.current) {
+        setWide(true);
+      }
+    };
+    fit();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [box, wide, line]);
+  return wide ? 16 : 8;
+}
 
 interface WireViewProps {
   lines: string[];
@@ -80,6 +108,7 @@ const GROUP_LABELS: Record<Field["group"], string> = {
 export function WireView({ lines, running, revision, heldFields, bufferLimit, profile }: WireViewProps) {
   const [pinned, setPinned] = useState<string | null>(null);
   const [fieldId, setFieldId] = useState<string | null>(null);
+  const bytesBox = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const parsed = useRef(new Map<string, CefDissection | null>());
 
@@ -98,6 +127,7 @@ export function WireView({ lines, running, revision, heldFields, bufferLimit, pr
   const pinnedIndex = pinned === null ? -1 : lines.lastIndexOf(pinned);
   const following = pinnedIndex === -1;
   const selectedIndex = following ? lines.length - 1 : pinnedIndex;
+  const bytesPerRow = useBytesPerRow(bytesBox, lines[selectedIndex]);
 
   useEffect(() => {
     if (following && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -118,7 +148,7 @@ export function WireView({ lines, running, revision, heldFields, bufferLimit, pr
   const defaultField = fields.find((f) => f.note === "held") ?? fields.find((f) => f.group === "extension") ?? null;
   const field = fields.find((f) => f.id === fieldId) ?? defaultField;
   const highlight = field ? byteSpan(line, field) : null;
-  const rows = hexRows(line);
+  const rows = hexRows(line, bytesPerRow);
   const totalBytes = new TextEncoder().encode(line).length;
 
   return (
@@ -187,7 +217,7 @@ export function WireView({ lines, running, revision, heldFields, bufferLimit, pr
           })}
         </div>
 
-        <div aria-label="Bytes" role="group" className="scroll-thin max-h-80 min-w-0 overflow-auto px-3 py-2 font-mono text-micro leading-[1.75]">
+        <div ref={bytesBox} aria-label="Bytes" role="group" className="scroll-thin max-h-80 min-w-0 overflow-auto px-3 py-2 font-mono text-micro leading-[1.75]">
           {rows.map((row) => (
             <div key={row.offset} className="flex gap-4 whitespace-pre">
               <span className="text-muted-foreground">{row.offset.toString(16).padStart(4, "0")}</span>

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WireView } from "./WireView";
 
 const line = (n: number, dst = "203.0.113.47") =>
@@ -32,6 +32,45 @@ function litBytes(): string {
     .map((el) => el.textContent)
     .join("");
 }
+
+/** The offset column of the hex dump, one entry per row. */
+function rowOffsets(): string[] {
+  const bytes = screen.getByRole("group", { name: "Bytes" });
+  return Array.from(bytes.querySelectorAll(":scope > div > span:first-child")).map((el) => el.textContent ?? "");
+}
+
+/**
+ * jsdom does no layout, so the byte box's widths are modelled: each drawn byte
+ * column costs 24px plus 70px for the offset and padding. A ResizeObserver
+ * stand-in lets the test resize the box and announce it.
+ */
+function stubBox(width: number) {
+  let boxWidth = width;
+  const observers = new Set<() => void>();
+  const isBox = (el: Element) => el.getAttribute("aria-label") === "Bytes";
+  const perRow = (el: Element) => el.querySelector(":scope > div > span:nth-child(2)")?.childElementCount ?? 0;
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+    return isBox(this) ? boxWidth : 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
+    return isBox(this) ? Math.max(boxWidth, perRow(this) * 24 + 70) : 0;
+  });
+  vi.stubGlobal("ResizeObserver", class {
+    private readonly fn: () => void;
+    constructor(fn: () => void) { this.fn = fn; }
+    observe() { observers.add(this.fn); }
+    disconnect() { observers.delete(this.fn); }
+  });
+  return (next: number) => {
+    boxWidth = next;
+    observers.forEach((fn) => fn());
+  };
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("WireView", () => {
   it("lists every buffered event with its parsed time, endpoints and summary", () => {
@@ -80,5 +119,32 @@ describe("WireView", () => {
     expect(screen.getByText("Wire · fortigate")).toBeInTheDocument();
     render(<WireView lines={[]} running revision={0} heldFields={[]} bufferLimit={800} profile="fortigate" />);
     expect(screen.getByText("Waiting for the first event…")).toBeInTheDocument();
+  });
+
+  it("draws 16 bytes per row when they fit the byte box and 8 when they do not", () => {
+    // 16 columns need 454px in this model, 8 need 262px.
+    const resize = stubBox(500);
+    renderWire([line(0)]);
+    expect(rowOffsets().slice(0, 3)).toEqual(["0000", "0010", "0020"]);
+    act(() => resize(356));
+    expect(rowOffsets().slice(0, 3)).toEqual(["0000", "0008", "0010"]);
+    // The highlight is byte-addressed, so it survives the row width changing.
+    expect(litBytes()).toBe("src=10.20.30.139");
+    act(() => resize(600));
+    expect(rowOffsets().slice(0, 2)).toEqual(["0000", "0010"]);
+  });
+
+  it("starts at 8 bytes per row when the first box is already too narrow, as on a phone", () => {
+    stubBox(356);
+    renderWire([line(0)]);
+    expect(rowOffsets().slice(0, 2)).toEqual(["0000", "0008"]);
+  });
+
+  it("does not flap: a box that overflowed at 16 only tries 16 again once it is wider", () => {
+    const resize = stubBox(440);
+    renderWire([line(0)]);
+    expect(rowOffsets().slice(0, 2)).toEqual(["0000", "0008"]);
+    act(() => resize(430));
+    expect(rowOffsets().slice(0, 2)).toEqual(["0000", "0008"]);
   });
 });
