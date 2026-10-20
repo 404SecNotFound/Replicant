@@ -6,6 +6,16 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Changed (UAT plan revision 5, 2026-10-20): the operations console is under test
+
+- `tasks/uat-plan.md` r5. UI-01, UI-03 and UI-04 described the retired Factory shell
+  (a Connection card, a catalog rail, a Test button that "returned one line") and are
+  rewritten against the operations console; their old text is kept in the Suite D note.
+  New WEB-17 runs the dissector, Wire view, Coverage tab and catalog-view guards and is
+  executed (49 passed at `8688792`). New UI-09..12 cover the Coverage tab, the Wire view,
+  the frame's honest labels and the 390-wide layout; they are manual and open. Round 5
+  holds their exit criteria and makes no Go/No-Go claim.
+
 ### Changed (lab runbook, 2026-10-20): the web UI's place in the lab
 
 - `tasks/lab-test-runbook.md` gains "Using the web UI during the lab". The phases stay
