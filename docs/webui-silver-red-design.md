@@ -71,6 +71,16 @@ What changed, and the rules that now bind:
   selection follows the event, not its index, as the bounded buffer drops old
   lines. Held keys are shown only when the loaded technique and profile are
   the ones the stream was rendered with.
+  Implementation note (2026-10-20): the byte view draws 16 bytes per row when
+  a row fits its own box and 8 when it does not, measured with a
+  ResizeObserver. A viewport breakpoint was the first idea and would have been
+  wrong: the wire shares the evidence band with the readout, so at 1280 and
+  1440 its byte box is 365 and 445px wide, a 16-byte row needs about 461, and
+  the ASCII column was clipped on desktop as well as on a phone (it shows in
+  the 2026-10-19 `webui-run.jpg`). Measured after the change in Chromium at
+  390, 768, 1280, 1440 and 1920: no sideways scroll in the byte box or the
+  page; 16 bytes per row at 768 and 1920, 8 at the others. The highlight is
+  byte-addressed, so it is unaffected by the row width.
 - **Full technique reference** spans both columns below the run form. Inside
   the right column, opening it left the left column ending above an empty half
   screen.

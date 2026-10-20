@@ -6,6 +6,14 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Fixed (web UI: Wire view byte rows, 2026-10-20)
+
+- **The Wire view's hex dump no longer scrolls sideways or clips its ASCII column.** It drew
+  16 bytes per row in a box that is narrower than that row on a phone and also on desktop,
+  because the wire shares the evidence band with the readout (445px of the roughly 461 a row
+  needs at 1440 wide). It now measures its own box and drops to 8 bytes per row when 16 do
+  not fit, with hysteresis so it cannot flap. README screenshots regenerated.
+
 ### Documentation (owner decisions, 2026-10-20)
 
 - **The repository is public, and the backlog said otherwise.** `tasks/todo.md` still listed
