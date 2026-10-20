@@ -1,13 +1,14 @@
 # Replicant — User Acceptance Test (UAT) Plan
 
 Owner (QA lead): Claude Code (automated suites) + DJR/RZA (manual suites)
-Status: **Revision 4**. Round 1 automated scope executed and signed **GO**, with
+Status: **Revision 5**. Round 1 automated scope executed and signed **GO**, with
 manual Suites C/D still open; Round 2 (Phase 4
 scenarios + Linux installer) executed to **CONDITIONAL GO**, with manual and
 unprivileged-host cases still open; Round 3 (live SIEM
 ingestion) authored, blocked on a lab; Round 4 (PR #101 validation trust foundations)
-authored and not executed as a UAT round.
-Authored: 2026-07-19 · Revised: 2026-09-06
+authored and not executed as a UAT round; Round 5 (operations console web UI) authored,
+with its automated case executed and its manual cases open.
+Authored: 2026-07-19 · Revised: 2026-10-20
 
 **Revision history**
 - **r1 (2026-07-19)** — Phases 1, 1.5, 2, 3. Suites A–E. Executed; automated verdict GO; Suites C/D still pending DJR.
@@ -18,6 +19,12 @@ Authored: 2026-07-19 · Revised: 2026-09-06
   cookie-only SPA, session lifecycle, Vite proxy authority, and active-run vendor
   lock. These cases are authored only. Empty Result cells are deliberate and no
   manual pass is claimed.
+- **r5 (2026-10-20)** follows the web UI's operations-console revision (PR #123,
+  `docs/webui-silver-red-design.md` revision 2026-10-19). UI-01, UI-03 and UI-04
+  described the retired Factory shell and are rewritten against the current one; their
+  previous text is recorded in the Suite D note. Adds WEB-17 (the new frontend guards,
+  executed) and UI-09..12 (Coverage tab, Wire view, handling frame, narrow layout,
+  manual and open). Round 5 below holds their exit criteria.
 
 ## 1. Purpose & scope
 
@@ -145,7 +152,7 @@ for Round 4, which targets the open validation branch below.
 | FR-4 | CEF golden-line correctness per vendor (blueprint / *-cef-reference.md) | CORE-02 | Claude |
 | FR-5 | Menu/CLI parity — anything the menu does, `replicant run` does headless (CLAUDE.md architecture) | CORE-09, TUI-05 | Both |
 | FR-6 | Determinism — same seed+technique+params → same plan / byte-identical `--to-file` (CLAUDE.md standards) | CORE-05, CHAIN-06 | Claude |
-| FR-7 | Web UI over the same Orchestrator (phase 1.5) | WEB-01..16, UI-01..08 | Both |
+| FR-7 | Web UI over the same Orchestrator (phase 1.5) | WEB-01..17, UI-01..12 | Both |
 | FR-8 | Intensity presets low/medium/high + duration parsing (blueprint) | CORE-05, TUI-04, CHAIN-12 | Both |
 | FR-9 | Scenario catalog composes multi-stage chains; `list`/`show`/`run` all reachable headless (phase 4) | CHAIN-01..04 | Claude |
 | FR-10 | Normal completion and handled stops write a paired scenario manifest + advisory with matching stems; emission errors retain only the finalized error manifest (phase 4 design §7) | CHAIN-05, CHAIN-06, CORE-12 | Claude |
@@ -225,6 +232,7 @@ predate this note and are not covered by it.
 | WEB-14 | FR-2/FR-7 | Run admission and ownership never expose an unlocked or stale-owner gap | `pytest tests/test_web_active_run.py tests/test_run_stream_fanout.py`; `(cd webui && npm test -- src/App.test.tsx src/components/RunPanel.test.tsx)` | Admission locks vendor and tab navigation, reserves a client-generated idempotency key before preview, exposes the same owner through `reserved`, `admitting`, and `running`, distinguishes an unclaimed reservation from plan preparation, retries a lost reservation response safely, and resolves a lost start response from the admission record without a timed null heuristic. A fast terminal admission retains its final count and manifest. Definitive client errors leave ambiguous reconciliation, then cancel a known reservation or retain it as a visible owner if the session no longer permits cancellation. Initial owner discovery fails closed, and an evicted status handle reconciles through the active endpoint after restoration or a local SSE disconnect. Restored natural/Stop paths preserve the final manifest. Local SSE/dropped-SSE paths retain run A through transient failures, transfer directly to successor B without a null callback, preserve bootstrap ownership through React StrictMode replay, reject unmounted continuations, and cancel watchers on unmount. An early Stop survives worker scheduling, and every terminal producer publishes its SSE item before a drained stream may close || Pass (2026-10-20, `161ae68`, Claude): `test_web_active_run.py` + `test_run_stream_fanout.py` 37 passed; `App.test.tsx` + `RunPanel.test.tsx` 62 passed |
 | WEB-15 | FR-2/FR-7 | Restored-run vendor identity overrides the configured default | `pytest tests/test_web_active_run.py -k paloalto`; `(cd webui && npm test -- src/App.test.tsx src/components/RunPanel.test.tsx)` | Start, active, status, and 409 contracts carry the run owner's resolved vendor. Reloading a Palo Alto run with a FortiGate default selects and locks PAN-OS, loads only PAN-OS native metadata for the restored view, and transfers both ownership and vendor directly to any successor || Pass (2026-10-20, `161ae68`, Claude): `-k paloalto` 2 passed; `App.test.tsx` + `RunPanel.test.tsx` 62 passed |
 | WEB-16 | FR-7/FR-15/FR-16 | Validation contract, verdict vector, and evidence download | `pytest tests/test_web_api.py tests/test_web_docs.py`; `(cd webui && npm test -- src/components/TechniqueValidation.test.tsx)` | Authenticated contract and validation endpoints mirror the Orchestrator; the detail view shows contract fields, axes, limitations, and tier; `NOT RUN` is visually distinct from `PASS`; the evidence ZIP downloads only with authentication || Pass (2026-10-20, `161ae68`, Claude): `test_web_api.py` + `test_web_docs.py` 68 passed; `TechniqueValidation.test.tsx` 1 passed |
+| WEB-17 | FR-1/FR-7 | Operations-console guards: CEF dissection, Wire view and Coverage tab | `(cd webui && npm test -- src/lib/cef.test.ts src/components/WireView.test.tsx src/components/CoverageBoard.test.tsx src/lib/catalogView.test.ts)` | The dissector splits header and extension on all three vendor shapes with escapes and UTF-8 byte spans; the Wire view lights the selected field's bytes, marks held keys, pins an event by content as the buffer moves and names the stream's own profile; the Coverage tab draws tactic lanes in kill-chain order, names absent tactics, focuses a cell without loading it and filters by text and log type || Pass (2026-10-20, `8688792`, Claude, Node 22.22.0): `cef.test.ts` 8, `WireView.test.tsx` 8, `CoverageBoard.test.tsx` 5, `catalogView.test.ts` 28; 49 passed |
 
 ## 6. Suite C — Manual Rich TUI menu (DJR-driven)
 
@@ -248,6 +256,19 @@ seed  [q] quit`. The `[a]` key and TUI-07..09 were added in r2 (Phase 4).
 
 Open the URL printed by `replicant web`. Emitter view = left rail (Connection + Catalog) / right (Run panel); Terminal tab = embedded `replicant menu`. Implementation note (2026-10-19): navigation is a top command bar; the catalog is the Coverage tab (tactic swimlanes and a dossier) and the run workspace carries the Wire view after a run.
 
+Revision 5 note (2026-10-20): the shell is the operations console. A handling banner
+sits at the top and bottom of every screen; a top command bar carries the tabs (Run
+workspace, Coverage, Collector, Process logs, Documentation, and Terminal when enabled)
+and status cells for Profile, Egress and UTC; a status footer closes the page. The
+firewall profile radios are in the run form's Run settings, not in a Connection card.
+UI-01, UI-03 and UI-04 were rewritten for this shell. Their previous text, kept for the
+record: UI-01 "Factory emitter layout: dark-only Factory shell renders with Replicant
+header; Emitter, Docs, and Logs navigation plus Terminal when enabled; Connection and
+grouped Catalog rail; technique detail and run stage; no theme toggle is present";
+UI-03 "With no active run, change each vendor radio in the Connection card"; UI-04
+"Enter collector, click Test; one benign line rendered/returned". UI-09..12 are new and
+not yet executed.
+
 UI-07 and UI-08 are revision 4 cases and are not yet executed. For UI-08, use
 two terminals:
 
@@ -266,14 +287,18 @@ tools open from before navigation so the bootstrap response is retained.
 
 | ID | Req | Objective | Steps | Expected | Result |
 |----|-----|-----------|-------|----------|--------|
-| UI-01 | FR-7 | Factory emitter layout | Load page | Dark-only Factory shell renders with Replicant header; Emitter, Docs, and Logs navigation plus Terminal when enabled; Connection and grouped Catalog rail; technique detail and run stage; no theme toggle is present | |
+| UI-01 | FR-7 | Operations-console shell (r5) | Load page at 1440 wide | Dark-only console renders: handling banner top and bottom reading `Synthetic telemetry // lab use only // detection unverified`; REPLICANT mark and tabs Run workspace, Coverage, Collector, Process logs, Documentation, plus Terminal when enabled; Profile, Egress and UTC status cells; status footer ending `Emission is not evidence of SIEM receipt`; the run workspace opens with the technique, run settings and output form beside the signal preview; no theme toggle is present | |
 | UI-02 | FR-1 | Technique detail + selection | Click technique cells on the Coverage tab, then the dossier's load button (left rail before 2026-10-19) | First implemented technique is selected on load; selection preserves one armed id and updates the objective, ATT&CK chips, signal path, native rule fields, intensity presets, vendor sample CEF, and Run panel | |
-| UI-03 | FR-2 | Idle vendor selector and native catalog metadata | With no active run, change each vendor radio in the Connection card | Vendor switches, catalog/detail native match and field names refresh for that profile, selected technique id is preserved, and eps cap label shows real `config.eps_cap` | |
-| UI-04 | FR-7 | Connection test | Enter collector, click Test | One benign line rendered/returned | |
+| UI-03 | FR-2 | Idle vendor selector and native catalog metadata | With no active run, change each Firewall profile radio (FortiGate, PAN-OS, Check Point) in the run form's Run settings (r5) | Vendor switches, catalog/detail native match and field names refresh for that profile, selected technique id is preserved, and eps cap label shows real `config.eps_cap` | |
+| UI-04 | FR-7 | Connection test (r5) | On the Collector tab, enter a collector and click *Send test log*; repeat with a closed UDP port | The report prints the source address beside the destination (`source -> host:port`) with the interface and gateway, or `route not determined on this platform`; a summary and its limits follow; nothing says verified or delivered, and the closed UDP port is not reported as a confirmed arrival | |
 | UI-05 | FR-7/SR-4 | Run + eps SignalReadout | Start a run | Progress + live eps waveform; count/total advance; stop works. WATCH: does the waveform cap/scale match a non-default eps_cap? (see DEF-002) | |
 | UI-06 | FR-7 | Embedded terminal | Open Terminal tab | xterm connects to `replicant menu` over WS; interactive | |
 | UI-07 | FR-2/FR-7 | Vendor selector locks for local and restored active runs, then releases | Select a non-default vendor and start a long plan-paced run. Confirm the radios are disabled, then reload while it is still active. Stop the server-discovered run from the reloaded page and wait for terminal status | Before and after reload, every vendor radio is disabled and the visible reason names the active technique. The restored selector and native catalog match the run's vendor, not the configured default. No profile switch or catalog relabel occurs. Stop or natural completion clears the lock and the radios become usable again | |
 | UI-08 | FR-7/FR-13/FR-14 | Live Vite bootstrap, authenticated write, and terminal WebSocket | Use the two-terminal setup above. Open the tokenized Vite URL, inspect the first navigation, start a plan-paced no-send run, stop it, then open Terminal | First navigation is proxied to a clean `303` with the session cookie; the clean URL is served by Vite before SPA execution. Later API, SSE, and WebSocket requests carry no launch token, authenticated POST and Stop avoid 401/403, and the terminal connects without an Origin rejection | |
+| UI-09 | FR-1/FR-7 | Coverage tab | Open Coverage. Filter by a phrase (e.g. `port scan`), toggle a log type, clear both. Click a cell, then the dossier's *Load into run workspace*. Repeat at 390 wide | The headline count matches `GET /api/catalog`; tactic lanes run in kill-chain order and a multi-tactic technique appears in each of its lanes; tactics no entry reaches are named, not drawn empty; filters narrow the lanes and an empty result says so; a cell click changes the dossier and stays on the tab; the dossier shows objective, mapping, held and varied fields for the selected profile, benign baseline and any parser-only note, and its button loads the technique into the run workspace; "Rule fire" reads `Not visible to Replicant`; at 390 wide a cell tap brings the dossier into view | |
+| UI-10 | FR-7 | Wire view | Start a no-send run (e.g. REP-004 medium). When it ends, click an earlier row, then a field in the dissection, then *Follow live*. Switch the draft's Firewall profile | Readout, manifest and Wire view sit above the form; the Wire header names the stream's profile and keeps it after the draft switch; rows show time, source, destination and name; the dissection lists the CEF header and extension with the profile's held keys marked `held`; the selected field's bytes light in the hex and ASCII columns with its byte range stated; a clicked row stays selected while the buffer moves and *Follow live* returns to the latest event; the hex rows stay inside their box | |
+| UI-11 | FR-7/SR-4 | Honest labels in the console frame | With no collector, read the Egress cell, footer and run readout; then configure a collector and read them again | Egress reads `No collector`, then the configured `host:port/transport`; the footer says runs default to no send, then that receipt is unconfirmed; the cap shown in the footer is `config.eps_cap`; a no-send run's readout says uncapped; no surface claims delivery or a fired rule | |
+| UI-12 | FR-7 | Narrow layout | At 390 wide, open each tab from the Menu disclosure; run a no-send technique and scroll the Wire view | The Menu disclosure lists every tab; no tab scrolls the page sideways; the Wire event list, dissection and hex dump scroll inside their own boxes | |
 
 ## 8. Suite E — Safety rules (Claude-driven, explicit)
 
@@ -486,6 +511,21 @@ does not validate the remaining unprivileged, interactive, or manual TUI cases.
 been recorded, so this revision makes no Round 4 Go/No-Go claim.
 
 **Sign-off:** QA lead (Claude) records automated results; DJR signs the manual + overall Go/No-Go.
+
+### Round 5: operations console web UI (authored 2026-10-20)
+
+- [x] WEB-17 executes on `main` and its Result cell carries the test counts.
+  Executed 2026-10-20 at `8688792`: 49 passed.
+- [ ] UI-01, UI-03 and UI-04 pass against the operations-console shell.
+- [ ] UI-09 proves the Coverage tab reports the served catalog, names the absent
+  tactics, and loads a technique only from the dossier.
+- [ ] UI-10 proves the Wire view reads the emitted line, lights the selected field's
+  bytes, and keeps the stream's own profile after a draft change.
+- [ ] UI-11 and UI-12 pass, with no label claiming delivery or detection and no
+  sideways page scroll at 390 wide.
+
+**Status:** the automated case is executed; the manual cases are authored and open, so
+this revision makes no Round 5 Go/No-Go claim.
 
 ## 15. Execution log
 
