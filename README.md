@@ -169,7 +169,7 @@ replicant connect --host 10.20.0.50 --port 514 --transport udp --test
 replicant run REP-001 --intensity medium --duration 30m --seed 1337
 ```
 
-`connect --test` sends one benign line and prints what that did and did not establish, the same report the web connection card shows: a verdict, the source -> destination path with its interface and next hop, what the result proves and what it does not. It exits 1 when the collector refused or could not be reached. A UDP verdict is never stronger than `sent_unconfirmed`, because UDP has no acknowledgement; confirm receipt on the collector. Every live run prints the same path line on stderr before it sends, so a mistyped collector octet that routes via a gateway is visible before the first datagram.
+`connect --test` sends one benign line and prints what that did and did not establish, the same report the web UI's Collector tab shows from *Send test log*: a verdict, the source -> destination path with its interface and next hop, what the result proves and what it does not. It exits 1 when the collector refused or could not be reached. A UDP verdict is never stronger than `sent_unconfirmed`, because UDP has no acknowledgement; confirm receipt on the collector. Every live run prints the same path line on stderr before it sends, so a mistyped collector octet that routes via a gateway is visible before the first datagram.
 
 Preview a technique to a file with no network egress:
 
@@ -394,14 +394,17 @@ The launch token is printed on startup, persists in `~/.config/replicant/web-tok
 
 Restrict where web callers may connect-test and send with `--collector-allow 10.0.20.0/24:514` (CIDR plus optional port, repeatable, IPv6 as `[2001:db8::/32]:6514`); unset, any destination is allowed and the server logs a warning. Behind a reverse proxy, name it with `--forwarded-allow-ips` so its `X-Forwarded-For` is trusted; by default no forwarded header is. A TLS collector's CA bundle for the web UI goes in the config directory's `ca/` folder and is named by file name. Validation evidence packs are kept to the newest `--evidence-keep` (default 20).
 
+The console has six tabs in a top command bar: **Run workspace** (choose a technique, shape the run, and read its evidence and Wire view), **Coverage** (the catalog as ATT&CK swimlanes with a dossier per technique), **Collector** (set the syslog destination and send a test log that reports its network path), **Process logs**, **Documentation**, and **Terminal** when enabled. Status cells beside the tabs show the selected profile, the egress destination (`No collector` until one is set) and a UTC clock, and a footer repeats the rate cap and that emission is not evidence of SIEM receipt.
+
 The Terminal tab is a real pseudo-terminal running the same `replicant menu` over a websocket, so the interactive menu is available inside the browser. Because it is a real PTY, it is **off by default** whenever anything but this machine can reach the UI: a non-loopback bind, a non-loopback `--allowed-host` (a reverse proxy), or `--collector-allow`. `--enable-terminal` turns it back on. The terminal child runs with a minimal environment and `REPLICANT_WEB_CONFINED=1`, under which the menu writes output files only to the run-output directory (`<manifest dir parent>/out`, by file name, symlinks refused), accepts a TLS CA bundle only as a file in `<config dir>/ca/` named by file name, and does not save collector profiles. The CLI and the Rich menu cover everything the tab does, so leaving it off costs nothing in the common case.
 
-At 31 techniques the Coverage board lays the catalog out as ATT&CK tactic swimlanes in kill-chain order, one cell per technique; a technique mapped to several tactics appears under each, and the tactics no firewall log can express are named rather than drawn empty. Selecting a cell opens its dossier (objective, mapping, held and varied fields, benign baseline) without leaving the board; the dossier loads it into the run workspace. Above it, one filter box matches technique id, name, use case id, ATT&CK technique id, objective, and reviewed search aliases. For example, `one server many services` finds the vertical scan, and `first seen by this workstation` finds host-specific novelty. Matching is a local, case-insensitive phrase search; it does not call an AI service. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `utm:ips`).
+At 31 techniques the Coverage board lays the catalog out as ATT&CK tactic swimlanes in kill-chain order, one cell per technique; a technique mapped to several tactics appears under each, and the tactics no firewall log can express are named rather than drawn empty. Selecting a cell opens its dossier (objective, mapping, held and varied fields, benign baseline) without leaving the board; the dossier loads it into the run workspace. Above it, one filter box matches technique id, name, use case id, ATT&CK technique id, objective, and reviewed search aliases. For example, `one server many services` finds the vertical scan, and `first seen by this workstation` finds host-specific novelty. Matching is a local, case-insensitive phrase search; it does not call an AI service. Toggles narrow by log type (`traffic:forward`, `dns:dns-query`, `dns:dns-response`, `event:vpn`, `event:system`, `utm:ips`). The board reports catalog facts only; its "Rule fire" cell reads `Not visible to Replicant`, because whether a rule fired is something only the SIEM can see.
 
 <img src="docs/images/webui-techniques.jpg" alt="The Coverage board: ATT&CK tactic swimlanes of technique cells, a filter box and log-type toggles, and the dossier for the technique in focus" width="900" />
 
-Each technique detail also exposes the resolved validation contract and
-selected-profile native fields. Tier 0 and Tier 1 can be run from that panel;
+The run workspace's **Full technique reference**, a disclosure below the run form,
+exposes the resolved validation contract and selected-profile native fields.
+Tier 0 and Tier 1 can be run from that panel;
 the verdict vector keeps `NOT RUN` visually distinct from `PASS`, repeats the
 tier limitations, and links to the authenticated evidence ZIP.
 
@@ -463,7 +466,7 @@ A run streams live CEF while it emits, plots the emission rate, and updates a ma
 
 The Terminal tab, when enabled, runs the Rich menu inside the browser:
 
-<img src="docs/images/webui-terminal.jpg" alt="The embedded Terminal view running the Rich menu, with all 26 techniques and the technique, scenario, connection, vendor, seed, and quit prompts" width="900" />
+<img src="docs/images/webui-terminal.jpg" alt="The embedded Terminal view running the Rich menu, with all 31 techniques and the technique, scenario, connection, vendor, seed, and quit prompts" width="900" />
 
 The UI is an operations console: near-black surfaces separated by hairlines, silver text, saturated red reserved for the primary action, selection and live signal, and a banner at the top and bottom of every screen stating that the telemetry is synthetic and detection is unverified. Geist carries prose; JetBrains Mono carries technical values and field labels. The run workspace separates technique selection, settings, and output, with an adjacent signal preview; after a run, its evidence and the Wire view sit above the form. Navigation and profile changes retain draft settings and completed-run evidence. The design contract is [the silver-and-red design](docs/webui-silver-red-design.md).
 
