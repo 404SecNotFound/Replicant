@@ -84,7 +84,7 @@ Output convention: command results go to stdout, operator-facing errors go to st
   1. `benign_baseline` is a property to **generate**, not just document. A plan that emits only the malicious pattern lets any detection score perfectly. Bilot et al. (USENIX Sec 2025) is the argument; see the CHANGELOG.
   2. A technique that cannot be expressed honestly is not added. REP-016 was catalogued but left unbuildable until `dns:dns-response` existed, because a DGA entry with no NXDOMAIN in it is worse than no entry.
 
-- v0.3.0 (web UI access and navigation, complete): the UI serves on fixed port **9787** and can bind an address the rest of the segment reaches, with a persistent token in `~/.config/replicant/web-token`, an httpOnly `SameSite=Strict` session cookie, a Host allowlist that follows the bind address, and the embedded terminal off by default once the bind is not loopback (2026-09-26: it now follows reachability, so a loopback bind behind a proxy via `--allowed-host`, or with `--collector-allow`, is off by default too). The left rail is grouped by ATT&CK tactic with a filter box and log-type toggles, a Docs tab renders the vendor CEF references, and the event-time anchor is a visible control in the run form. `scripts/replicant-web.service` is verified under a real systemd by a CI job (`systemd-unit`), not by inspection. Spec and decisions: `tasks/webui-access-and-nav-spec.md`.
+- v0.3.0 (web UI access and navigation, complete): the UI serves on fixed port **9787** and can bind an address the rest of the segment reaches, with a persistent token in `~/.config/replicant/web-token`, an httpOnly `SameSite=Strict` session cookie, a Host allowlist that follows the bind address, and the embedded terminal off by default once the bind is not loopback (2026-09-26: it now follows reachability, so a loopback bind behind a proxy via `--allowed-host`, or with `--collector-allow`, is off by default too). The left rail is grouped by ATT&CK tactic with a filter box and log-type toggles (replaced on 2026-10-19 by the Coverage tab's tactic swimlanes, same filter and toggles), a Docs tab renders the vendor CEF references, and the event-time anchor is a visible control in the run form. `scripts/replicant-web.service` is verified under a real systemd by a CI job (`systemd-unit`), not by inspection. Spec and decisions: `tasks/webui-access-and-nav-spec.md`.
 
   Three things this established, worth keeping:
   1. **A control whose output cannot change is decoration.** The spec's vendor filter was dropped because all 24 techniques apply to all 3 vendors, so it could never exclude an entry. Same call as REP-016.
@@ -93,7 +93,7 @@ Output convention: command results go to stdout, operator-facing errors go to st
 
 - v0.3.1 (packaging): the 0.3.0 wheel installed but could not run. Runtime files now live inside the package and `replicant/resources.py` is the only thing that knows where they are. Anything resolving a repository-relative path is a defect. Guarded by `tests/test_packaging.py` and a `wheel` CI job.
 
-- Light theme and responsive layout (complete; the light theme was later REMOVED by the Factory redesign below). The responsive half survives: below `lg` the fixed-viewport shell becomes a scrolling page and the rail becomes a disclosure.
+- Light theme and responsive layout (complete; the light theme was later REMOVED by the Factory redesign below). The responsive half survives: below `lg` the fixed-viewport shell becomes a scrolling page and the rail becomes a disclosure (since 2026-10-19, the top command bar's tabs become the Menu disclosure; there is no rail).
 
   Two conventions worth keeping:
   1. **Measure contrast on the rendered page, not on the token table.** The tokens were verified; their *usage* was not, and the audit found four defects in the shipped **dark** theme, including `--text-4` used as body text at 2.78:1 against its own documented rule.
@@ -125,6 +125,42 @@ Output convention: command results go to stdout, operator-facing errors go to st
   banners, a top command bar, the Coverage board (ATT&CK swimlanes) and the Wire view (CEF
   dissection and bytes, parsed from the emitted line in `webui/src/lib/cef.ts`). The
   mocked Operations timeline was not built: web scenario surface stays deferred (CHAIN-16).
+  Implementation note (2026-10-22): rule 2 above and the weight half of rule 1 no longer
+  bind; the silver-and-red contract below replaced them (red now marks the primary action
+  and the active tab). The voice half of rule 1 and rules 3 and 4 still bind.
+
+- Web UI, current contract (silver and red since 2026-09-08, operations console since
+  2026-10-19): `docs/webui-silver-red-design.md`, including its dated revision section; the
+  Factory and reskin docs are history. A handling banner at the top and bottom of every
+  screen reads `Synthetic telemetry // lab use only // detection unverified`; a top command
+  bar holds the tabs (Run workspace, Coverage, Collector, Process logs, Documentation,
+  Terminal when enabled) and Profile, Egress and UTC status cells; a footer closes the page.
+
+  Rules that bind future UI changes:
+  1. **Red is a role, not a decoration.** It marks the primary action, the selection and
+     active tab, and live signal, nothing else. Warnings and errors are `#efbc92` with
+     explanatory text.
+  2. **The banner states facts.** It borrows the shape of a classification banner and must
+     never carry a real classification marking or claim a detection.
+  3. **Show what the line says, not what the plan meant.** The Wire view parses the emitted
+     line (`webui/src/lib/cef.ts`) and never infers from the plan; the Coverage tab's "Rule
+     fire" cell says the fire is not visible to Replicant, because it is not.
+  4. **Name an empty category instead of drawing it.** Tactics no catalog entry reaches are
+     listed by name on the Coverage tab, not shown as empty lanes.
+  5. **Field labels take the mono caps voice** (`.u-label`: JetBrains Mono, 11px, capitals);
+     sentences stay in Geist.
+  6. **A column that ends early leaves a hole.** Run evidence and the full technique
+     reference span both columns of the run workspace; check the layout with the longest
+     content open, not the default state.
+
+  Verification for any UI change: `tsc` and vitest; a contrast audit of every rendered text
+  node against its effective background, with a planted low-contrast element proving the
+  audit can fail; no horizontal page overflow at 1440 and 390 wide; then regenerate the README
+  screenshots with `scripts/capture-webui-screenshots.py` (`REPLICANT_CHROME` and
+  `REPLICANT_CHROME_ARGS` point it at a Linux Chromium, `--no-sandbox` as root) and look at
+  each one before committing. CI's path filter skips `tasks/**`, Markdown other than README,
+  and `docs/**` except the reference docs tests parse (`.github/workflows/ci.yml`), so a
+  screenshot-only or prose-only PR runs no CI by design.
 
 - Plan-timed pacing (complete): the emit loop honours the plan's own per-event times.
   `--pace {burst,plan}` and `--speed N`, defaulting to plan when sending to a collector

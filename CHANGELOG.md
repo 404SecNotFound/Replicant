@@ -15,6 +15,11 @@ Claims that have not been validated against a live vendor build or a real host a
   to Replicant`; the validation panel is located in the run workspace's *Full technique
   reference*; and the Terminal screenshot's alt text says 31 techniques, not 26. The
   historical progress entries are unchanged.
+- `CLAUDE.md` gains the current web UI contract (silver and red, operations console) with
+  six binding rules and the verification method for UI changes. The Factory section's rule
+  2 and the weight half of rule 1 are marked superseded, since the current contract puts
+  red on the primary action and the active tab. Two present-tense rail mentions gain dated
+  notes.
 
 ### Changed (UAT plan revision 5, 2026-10-20): the operations console is under test
 
