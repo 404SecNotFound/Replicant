@@ -6,6 +6,21 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Changed (README, 2026-10-22): the web UI section matches the operations console
+
+- The README's web UI section gains a tour of the six tabs and the status cells and
+  footer. Five stale spots are fixed: `connect --test`'s report is now said to match the
+  Collector tab's *Send test log* (there is no connection card); the Coverage paragraph's
+  log-type list adds `event:system` and states that its "Rule fire" cell reads `Not visible
+  to Replicant`; the validation panel is located in the run workspace's *Full technique
+  reference*; and the Terminal screenshot's alt text says 31 techniques, not 26. The
+  historical progress entries are unchanged.
+- `CLAUDE.md` gains the current web UI contract (silver and red, operations console) with
+  six binding rules and the verification method for UI changes. The Factory section's rule
+  2 and the weight half of rule 1 are marked superseded, since the current contract puts
+  red on the primary action and the active tab. Two present-tense rail mentions gain dated
+  notes.
+
 ### Changed (UAT plan revision 5, 2026-10-20): the operations console is under test
 
 - `tasks/uat-plan.md` r5. UI-01, UI-03 and UI-04 described the retired Factory shell
