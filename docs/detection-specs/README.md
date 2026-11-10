@@ -44,12 +44,12 @@ additive `logical_*` and `native_*` fields instead.
 
 ## Machine-readable contracts and phasing
 
-All 27 techniques now have a machine-readable validation contract in
+All 31 techniques now have a machine-readable validation contract in
 `replicant/data/detection-contracts.yaml`. Those contracts define what the
 offline evaluator can measure; they are not detection rules and do not replace
 these human-authored references.
 
-Authoring 27 full rule specs up front, against a live SIEM path that has never
+Authoring 31 full rule specs up front, against a live SIEM path that has never
 been observed end to end, would be effort ahead of proof. They land in the order
 the roadmap sets:
 
@@ -62,5 +62,16 @@ the roadmap sets:
 | Use case | Rule | Technique | Spec |
 |---|---|---|---|
 | UC-001 | NDR-C2-001 | REP-001 Periodic C2 callback | [REP-001.md](REP-001.md) |
+| UC-010 | NDR-ATO-010 | REP-011 VPN geovelocity anomaly | [REP-011.md](REP-011.md) (draft) |
+| UC-015 | NDR-C2-015 | REP-016 DGA NXDOMAIN cluster | [REP-016.md](REP-016.md) (draft) |
+| UC-019 | NDR-C2-019 | REP-020 First contact with a newly registered domain | [REP-020.md](REP-020.md) (draft) |
 
 Rows are added as specs are authored; the table is not the full catalog.
+
+Implementation note, 2026-10-19. The counts above said 27; the catalog and the
+contracts file hold 31. The three phase 2 specs were machine-drafted from the
+catalog and from measured plans, and each carries a `Status` row saying so. They
+are drafts for the owner to rewrite or sign, not the human-authored references
+this README describes, until the `Status` row says otherwise. Each states its
+judgment calls and what the technique cannot yet exercise. The REP-020 draft
+records that the technique cannot be cleanly run in a lab today.

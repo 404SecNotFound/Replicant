@@ -95,6 +95,83 @@ def test_rep001_spec_cites_its_catalog_presets() -> None:
         assert str(port) in spec, port
 
 
+def test_rep011_spec_cites_its_catalog_presets() -> None:
+    """The gap between logins is window / logins, and the spec's distance table
+    is derived from it; a preset change the spec does not follow turns this red."""
+
+    technique = CATALOG.by_id("REP-011")
+    spec = (SPECS / "REP-011.md").read_text(encoding="utf-8")
+    for intensity in ("low", "medium", "high"):
+        preset = technique.params[intensity]
+        gap = preset["window_min"] * 60 // preset["logins"]
+        assert f"{gap} s (window_min {preset['window_min']})" in spec, (intensity, gap)
+
+
+def test_rep016_spec_cites_its_catalog_presets() -> None:
+    technique = CATALOG.by_id("REP-016")
+    spec = (SPECS / "REP-016.md").read_text(encoding="utf-8")
+    for intensity in ("low", "medium", "high"):
+        preset = technique.params[intensity]
+        per, epochs = preset["domains_per_epoch"], preset["epochs"]
+        assert f"{per} x {epochs} = {per * epochs}" in spec, intensity
+        assert f"| {preset['nx_ratio']}" in spec, intensity
+        lo, hi = preset["label_len"]
+        assert f"{lo} to {hi}" in spec, intensity
+
+
+def test_rep020_spec_cites_its_catalog_presets() -> None:
+    technique = CATALOG.by_id("REP-020")
+    spec = (SPECS / "REP-020.md").read_text(encoding="utf-8")
+    for intensity in ("low", "medium", "high"):
+        preset = technique.params[intensity]
+        row = f"| {intensity} | {preset['baseline_domains']} | {preset['hosts']} | " f"about"
+        assert row in spec, intensity
+        assert f"(window_min {preset['window_min']}) | {preset['novel_domains']} |" in spec
+
+
+# -- the drafts' findings are claims about the engine, so they are measured -------
+
+
+def _plan(tid: str, intensity: str, seed: int):  # type: ignore[no-untyped-def]
+    from replicant.entities.model import EntityModel
+    from replicant.scenario.engine import ScenarioEngine
+
+    return ScenarioEngine().plan(
+        CATALOG.by_id(tid), intensity, EntityModel.build(), seed, anchor_epoch=1_800_000_000
+    )
+
+
+@pytest.mark.parametrize("intensity", ["low", "medium", "high"])
+def test_rep020_spec_lab_problem_still_holds(intensity: str) -> None:
+    """The REP-020 draft says every history name is queried once by one host,
+    first contact follows within seconds, and no known name is queried after the
+    history. If the engine changes any of that, this goes red and the spec's lab
+    section must be rewritten rather than left describing a problem that is gone."""
+
+    for seed in range(1, 21):
+        plan = _plan("REP-020", intensity, seed)
+        events = sorted(plan.events, key=lambda e: e.eventtime)
+        n = int(plan.effective_params["baseline_domains"])
+        history, window = events[:n], events[n:]
+        names = [e.extra["qname"] for e in history]
+        assert len(set(names)) == len(names), "a history name is queried twice"
+        assert not {e.extra["qname"] for e in window} & set(names), "a known name re-queried"
+        gap = window[0].eventtime - history[-1].eventtime
+        assert 0 <= gap <= 18, (intensity, seed, gap)
+
+
+@pytest.mark.parametrize("intensity", ["low", "medium", "high"])
+def test_rep016_spec_trickle_description_still_holds(intensity: str) -> None:
+    """The REP-016 draft describes the benign trickle as 12 NXDOMAIN records of
+    wpad and isatap at every preset, with no successful lookup."""
+
+    for seed in range(1, 21):
+        trickle = [e for e in _plan("REP-016", intensity, seed).events if e.control != "positive"]
+        assert len(trickle) == 12, (intensity, seed, len(trickle))
+        assert {e.extra["rcode"] for e in trickle} == {"NXDOMAIN"}
+        assert {e.extra["qname"].split(".")[0] for e in trickle} == {"wpad", "isatap"}
+
+
 def test_spec_index_matches_the_catalog() -> None:
     index = (SPECS / "README.md").read_text(encoding="utf-8")
     for spec_path in SPEC_FILES:
