@@ -1583,11 +1583,12 @@ class ScenarioEngine:
         # Co-located in the same window, so time of day is not a free discriminator.
         if not truncated and entities.benign_external:
             foil_start = len(events)
-            # Drawn from the attack's own pool so pool membership is not a free
-            # reputation feature. A scenario that pins the pool to the attack
-            # source leaves no other address there, and then the benign pool
-            # is the only choice (REP-001's foil destination does the same).
-            nat_pool = [c for c in entities.adversary_external if c != src]
+            # Drawn from the attack's own network so pool membership is not a
+            # free reputation feature. A scenario pins the pool to the attack
+            # source and keeps the rest of the network in adversary_network, so
+            # the NAT still comes from the same /24. Only a hand-built model with
+            # a one-address pool falls back to the benign pool.
+            nat_pool = [c for c in entities.adversary_wide if c != src]
             nat = str(rng.choice(nat_pool or entities.benign_external))
             # Sized from the attack's login VOLUME, not its user count: in brute
             # mode `users` is 1, so a NAT sized from it fronted four users and
@@ -1847,7 +1848,12 @@ class ScenarioEngine:
         # One host talking to a small stable set of external peers, then to new ones.
         src = str(rng.choice(entities.internal_hosts))
         benign = entities.benign_external
-        adversary = entities.adversary_external
+        # Under scenario pinning the stage's first-seen contact must be the
+        # scenario's adversary, so it is held out of the history draw and placed
+        # first among the novel destinations; everything else is drawn as in a
+        # standalone run, from the adversary's whole network.
+        through_line = entities.pinned_adversary
+        adversary = [ip for ip in entities.adversary_wide if ip != through_line]
         if len(benign) >= known_count and len(adversary) >= known_count:
             # The history and the first-seen destinations share both external
             # networks, so absence from this host's own history is the only mark
@@ -1867,17 +1873,15 @@ class ScenarioEngine:
             known = [known[int(i)] for i in rng.permutation(len(known))]
             history = set(known)
             candidates = [ip for ip in dict.fromkeys([*benign, *adversary]) if ip not in history]
-            novel = [
-                candidates[i]
-                for i in unique_ints(rng, 0, len(candidates) - 1, min(novel_dst, len(candidates)))
-            ]
+            held = [through_line] if through_line else []
+            wanted = max(min(novel_dst, len(candidates) + len(held)) - len(held), 0)
+            novel = held + [candidates[i] for i in unique_ints(rng, 0, len(candidates) - 1, wanted)]
         else:
-            # A scenario pins adversary_external to its one adversary
-            # (composer._pin_entities), and SCEN-002 uses this entry as its "new
-            # destination" stage. Too small a pool cannot hold the mixed draw, so
-            # a pinned run keeps the history in the benign pool and sends the
-            # first-seen contact to the adversary: the scenario's through-line
-            # depends on it, and the catalog states this limit.
+            # An entity model built by hand with a pool too small for the mixed
+            # draw: the history stays in the benign pool and the first-seen
+            # contacts go to the adversary pool. A scenario no longer lands here,
+            # because pinning keeps the whole pool in adversary_network.
+            adversary = entities.adversary_external
             known = [
                 benign[i]
                 for i in unique_ints(rng, 0, len(benign) - 1, min(known_count, len(benign)))
@@ -3925,7 +3929,7 @@ class ScenarioEngine:
         duration_override_s: int | None,
     ) -> _BuilderResult:
         failures = int(preset["failures"])
-        source_count = min(int(preset["sources"]), len(entities.adversary_external))
+        source_count = min(int(preset["sources"]), len(entities.adversary_wide))
         user_count = int(preset["users"])
         window_s = (
             duration_override_s
@@ -3942,7 +3946,7 @@ class ScenarioEngine:
         source_count = max(1, min(source_count, failures))
         user_count = max(1, min(user_count, failures))
 
-        adversary_pool = entities.adversary_external
+        adversary_pool = entities.adversary_wide
         benign_pool = entities.benign_external
         if len(adversary_pool) > 1 and benign_pool:
             # Both streams span both external /24s by construction, so pool
@@ -3957,11 +3961,19 @@ class ScenarioEngine:
             foil_adv = [adversary_pool[i] for i in from_adv[(source_count + 1) // 2 :]]
             foil_ben = [benign_pool[i] for i in from_ben[: (source_count + 1) // 2]]
             attack_ben = [benign_pool[i] for i in from_ben[(source_count + 1) // 2 :]]
+            through_line = entities.pinned_adversary
+            if through_line and through_line not in attack_adv:
+                # A scenario's adversary must be one of the attack's sources. It
+                # takes the first adversary-pool slot, and if the foil had drawn
+                # it the displaced address goes there, so the sets stay disjoint.
+                displaced, attack_adv[0] = attack_adv[0], through_line
+                foil_adv = [displaced if ip == through_line else ip for ip in foil_adv]
             attack_sources = _interleave(attack_adv, attack_ben)
             benign_sources = _interleave(foil_ben, foil_adv)
         else:
-            # A scenario pinned the adversary pool to one address: the foil
+            # A hand-built model with a one-address adversary pool: the foil
             # cannot share it, so the benign pool is its only source.
+            adversary_pool = entities.adversary_external
             attack_indices = unique_ints(rng, 0, len(adversary_pool) - 1, source_count)
             attack_sources = [adversary_pool[index] for index in attack_indices]
             benign_indices = unique_ints(rng, 0, len(benign_pool) - 1, source_count)

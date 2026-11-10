@@ -111,7 +111,15 @@ def _pin_entities(base: EntityModel, seed: int) -> tuple[EntityModel, str, str]:
     rng = np.random.default_rng(seed)
     victim = str(rng.choice(base.internal_hosts))
     adversary = str(rng.choice(base.adversary_external))
-    pinned = replace(base, internal_hosts=[victim], adversary_external=[adversary])
+    # adversary_network keeps the whole pool so a stage's foil or history can still
+    # draw a second address from the adversary's network; only the through-line is
+    # narrowed (2026-11 review, the pinned-run pool split).
+    pinned = replace(
+        base,
+        internal_hosts=[victim],
+        adversary_external=[adversary],
+        adversary_network=list(base.adversary_external),
+    )
     return pinned, victim, adversary
 
 

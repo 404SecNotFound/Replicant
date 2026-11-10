@@ -61,6 +61,23 @@ new benign stream and the spec's 0.25 threshold. The REP-016 entropy test in
 0.07 bits under its 3.5 limit; it now covers every preset with the boundary at 4.0 (foil
 3.05 to 3.43, cluster 4.98 to 5.00, 24 seeds).
 
+### Fixed (scenario pinning, 2026-11-10): the pool rule now holds inside a chain
+
+- The entries above disclosed that a scenario-pinned run kept the old pool split. It no
+  longer does. `composer._pin_entities` still narrows `adversary_external` to the chain's
+  one adversary, and now keeps the whole pool in `EntityModel.adversary_network`. REP-008,
+  REP-007 and REP-030 read it through `adversary_wide`.
+- **REP-008 in SCEN-002.** The pinned adversary is held out of the history and is the
+  first first-seen destination. The history spans both external networks and the stage
+  emits the preset's full `novel_dst` (3 at medium, where a pinned run emitted 1).
+- **REP-007 in SCEN-003.** The NAT foil's source comes from the adversary's network.
+- **REP-030.** In no shipped chain. Under pinning both streams draw from both networks
+  and the pinned adversary is one of the attack's sources.
+- Standalone runs are unchanged. **Seeded output changes for SCEN-002 and SCEN-003.**
+- Guards: nine pinned cases in `tests/test_foil_parity.py`, run on the composer's own
+  pinned model over seeds 1 to 20 at three presets. Nine of nine failed on the unfixed
+  code.
+
 ### Added (scenario advisory, 2026-11-10): the failed-login to login credential join
 
 - The advisory reports `credential_pivot_stage_indices`: stages with a successful VPN

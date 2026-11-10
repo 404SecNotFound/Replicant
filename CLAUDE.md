@@ -477,7 +477,10 @@ Output convention: command results go to stdout, operator-facing errors go to st
   2. **Pool membership is a feature.** A foil drawn from a different address pool hands a
      lab rule a free match. Draw the foil from the attack's pool, or disclose the pool in
      the entry. Under scenario pinning the pools hold one address, so pinned runs keep the
-     split and the entry says so.
+     split and the entry says so. Implementation note (2026-11-10, same PR): pinned runs no
+     longer keep it. The composer keeps the whole adversary pool in
+     `EntityModel.adversary_network`, and a builder that needs a second address from the
+     adversary's network reads `adversary_wide`.
   3. **Do not fan the full suite out to parallel workers.** Six worktree agents each ran it
      on four cores, runs passed the ten minute command limit and one agent's `pkill` ended
      another's run. Workers run their own tests; the lead runs the suite once, after merge.

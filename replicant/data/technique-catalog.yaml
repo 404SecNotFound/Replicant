@@ -73,8 +73,9 @@
 # match on the network. REP-007, REP-030, REP-046 and REP-053 draw both streams
 # from the same pool, and REP-008's history and novel destinations share both
 # external networks. REP-012, REP-014 and REP-023 keep the adversary and benign
-# destination pools and say so in benign_baseline. A scenario pins each pool to
-# one address, so a pinned run keeps the split; the affected entries state it.
+# destination pools and say so in benign_baseline. A scenario pins the adversary
+# pool to one address and keeps the rest of that network for foils and history,
+# so REP-007, REP-008 and REP-030 hold the same rule inside a chain.
 #
 # EXPANSION (roadmap 2026-09 item 16)
 # The next technique is gated on the tactic-gap tally, not on which paper had
@@ -298,7 +299,7 @@ techniques:
       spray: "many unique duser, few attempts each"
       brute: "one duser, many attempts, optional success at end"
       source_type: "event:vpn ssl-login-fail or event:system login failed (selectable)"
-    benign_baseline: "normal auth failures are sparse and self-correct. A NAT or CGNAT egress fronting many users is emitted as a benign foil: per-source login counts spike benignly, so a per-source spray threshold fires on it. The honest discriminator is the fail RATIO and the presence of successes across distinct users, not the raw per-source login count. The NAT source is drawn from the same external pool as the attacking source, so pool membership is not a free reputation feature (a scenario that pins the pool to one address falls back to the benign pool for the NAT source)"
+    benign_baseline: "normal auth failures are sparse and self-correct. A NAT or CGNAT egress fronting many users is emitted as a benign foil: per-source login counts spike benignly, so a per-source spray threshold fires on it. The honest discriminator is the fail RATIO and the presence of successes across distinct users, not the raw per-source login count. The NAT source is drawn from the same external pool as the attacking source, so pool membership is not a free reputation feature (a scenario pins the pool to its one adversary and the NAT source still comes from the rest of that network)"
     emits_foil: true
     references: ["UC-006 User normalisation prereq", "fortigate-cef-reference: T1110"]
     safety_notes: "usernames drawn from a synthetic directory pool"
@@ -325,7 +326,7 @@ techniques:
       medium: { baseline_days: 14, novel_dst: 3 }
       high:   { baseline_days: 30, novel_dst: 5 }
     distributions:
-      approach: "engine first emits a baseline of known dst per host, then introduces first-seen external dst. The five known destinations are drawn from both external networks (three from one /24, two from the other), and the first-seen destinations from the union of both networks minus the known set, so history and novel destinations share the same external networks and absence from this host's own history is the only mark of novelty. Limit: a scenario run pins the adversary pool to its one adversary address, which cannot hold this mixed draw, so in a scenario (SCEN-002) the history stays in the benign network and the first-seen destination is the pinned adversary in the other /24, and a subnet match separates that stage without any history"
+      approach: "engine first emits a baseline of known dst per host, then introduces first-seen external dst. The five known destinations are drawn from both external networks (three from one /24, two from the other), and the first-seen destinations from the union of both networks minus the known set, so history and novel destinations share the same external networks and absence from this host's own history is the only mark of novelty. In a scenario (SCEN-002) the pinned adversary is held out of the history and is the stage's first first-seen destination; the history and the other first-seen destinations are drawn as in a standalone run, from both networks, so a subnet match does not find the stage's novel contacts"
       baseline_time: "compressed. baseline_days sets the history's volume (one contact per known destination per simulated day), not its span: the whole baseline sits in the hour before first contact, so plan pacing and --duration stay bounded. A novelty rule with a multi-day lookback sees one hour of history"
     benign_baseline: "host talks to a stable set of external destinations spread across the same external networks the first-seen destinations come from, so no network or /24 is reserved for novel contacts"
     references: ["UC-007 Whitelist Profile", "fortigate-cef-reference: T1583", "T1583 is the adversary-side anchor (infrastructure acquired before contact) and is not observable in victim telemetry; the observable is the first-contact behaviour"]
@@ -874,7 +875,7 @@ techniques:
       failures: "one failed VPN login per synthetic user, distributed evenly across many documentation-range sources; five failures per source in shipped presets"
       timing: "evenly sparse across a multi-hour window so per-source burst thresholds remain quiet"
       aggregation: "the detection surface is the portal-wide source-user failure graph and failure ratio"
-    benign_baseline: "the same number of failed source-user edges from a second source and user population, with every failure followed by a successful self-correction. Each stream draws about half its sources from each of the two external pools, and the two source sets are disjoint, so pool membership is not a free reputation feature (a scenario that pins the adversary pool to one address keeps the benign pool for the foil)"
+    benign_baseline: "the same number of failed source-user edges from a second source and user population, with every failure followed by a successful self-correction. Each stream draws about half its sources from each of the two external pools, and the two source sets are disjoint, so pool membership is not a free reputation feature (a scenario pins the adversary pool to one address; that address is one of the attack's sources and both streams still draw from both networks)"
     emits_foil: true
     transferability_note: "The Araña source study uses web authentication logs. Replicant transfers the distributed source-user failure shape to verified event:vpn fields; it does not reproduce the study's service-specific features or claimed detector results."
     references:

@@ -820,3 +820,81 @@ def test_rep020_novel_names_share_the_baseline_parent_pool(intensity: str) -> No
             f"{tag}: novel label lengths {[len(x) for x in novel_labels]} fall outside the "
             f"baseline range {min(lengths)}..{max(lengths)}"
         )
+
+
+# -- scenario pinning: the same pool rules hold inside a chain ------------------
+#
+# A scenario narrows adversary_external to its one adversary. REP-008, REP-007
+# and REP-030 used to fall back to the old pool split when that happened, so
+# SCEN-002's "new destination" stage was separable by /24 and SCEN-003's spray
+# foil came from the other network (2026-11 review, disclosed then, fixed now).
+# The composer keeps the whole pool in adversary_network, and these run the
+# builders on the composer's own pinned model.
+
+
+def _pinned(seed: int) -> tuple[EntityModel, str]:
+    from replicant.scenario.composer import _pin_entities
+
+    pinned, _victim, adversary = _pin_entities(ENTITIES, seed)
+    return pinned, adversary
+
+
+def _pinned_streams(technique_id: str, intensity: str, seed: int) -> tuple[Streams, str]:
+    technique = CATALOG.by_id(technique_id)
+    entities, adversary = _pinned(seed)
+    plan = ENGINE.plan(technique, intensity, entities, seed)
+    streams = Streams(
+        technique=technique,
+        intensity=intensity,
+        seed=seed,
+        preset=plan.effective_params,
+        positive=[e for e in plan.events if e.control == "positive"],
+        negative=[e for e in plan.events if e.control == "negative"],
+    )
+    return streams, adversary
+
+
+@pytest.mark.parametrize("intensity", INTENSITIES)
+def test_pinned_rep008_first_contact_is_the_adversary_and_no_subnet_finds_it(
+    intensity: str,
+) -> None:
+    technique = CATALOG.by_id("REP-008")
+    novel_networks: Counter[str] = Counter()
+    novel_count = 0
+    for seed in SEEDS:
+        entities, adversary = _pinned(seed)
+        plan = ENGINE.plan(technique, intensity, entities, seed)
+        novel_count = int(plan.effective_params["novel_dst"])
+        destinations = [str(e.dst) for e in plan.events]
+        baseline, novel = destinations[:-novel_count], destinations[-novel_count:]
+        tag = f"pinned REP-008 {intensity} seed {seed}"
+        assert adversary in novel, f"{tag}: the scenario's adversary is not a first contact"
+        assert adversary not in baseline, f"{tag}: the scenario's adversary is in the history"
+        assert not set(novel) & set(baseline), f"{tag}: a novel destination is in the history"
+        assert len(set(novel)) == len(novel) == novel_count, f"{tag}: {novel}"
+        baseline_networks = {_net24(d) for d in baseline}
+        assert len(baseline_networks) > 1, f"{tag}: the history sits in one /24"
+        assert {_net24(d) for d in novel} <= baseline_networks, (
+            f"{tag}: novel /24s {sorted({_net24(d) for d in novel})} are absent from the "
+            f"history's {sorted(baseline_networks)}"
+        )
+        novel_networks.update(_net24(d) for d in novel)
+    if novel_count > 1:
+        assert len(novel_networks) > 1, (
+            f"pinned REP-008 {intensity}: every novel destination over {len(SEEDS)} seeds is "
+            f"in {sorted(novel_networks)}, so the /24 still predicts novelty"
+        )
+
+
+@pytest.mark.parametrize("intensity", INTENSITIES)
+@pytest.mark.parametrize("technique_id", ["REP-007", "REP-030"])
+def test_pinned_spray_foil_sources_share_the_attack_networks(
+    technique_id: str, intensity: str
+) -> None:
+    for seed in SEEDS:
+        streams, adversary = _pinned_streams(technique_id, intensity, seed)
+        assert streams.negative, f"{streams.tag}: the pinned run emits no foil"
+        foil_sources_share_the_attack_pool(streams)
+        assert adversary in {
+            e.src for e in streams.positive
+        }, f"pinned {streams.tag}: the scenario's adversary is not an attack source"

@@ -129,6 +129,27 @@ class EntityModel:
     mgmt_hosts: list[str] = field(default_factory=list)
     # Infrastructure servers. Defaulted for the same reason as scanner_external.
     server_hosts: list[str] = field(default_factory=list)
+    # The whole adversary pool, kept when a scenario narrows adversary_external
+    # to its one adversary (composer._pin_entities). Empty outside a scenario.
+    # Builders that need a second address from the adversary's network (a foil
+    # source, a history destination) read adversary_wide, so pinning the
+    # through-line does not also pin which /24 the foil lives in.
+    adversary_network: list[str] = field(default_factory=list)
+
+    @property
+    def adversary_wide(self) -> list[str]:
+        """The adversary's whole network: the unpinned pool when a scenario kept
+        one, otherwise adversary_external itself."""
+
+        return self.adversary_network or self.adversary_external
+
+    @property
+    def pinned_adversary(self) -> str | None:
+        """The scenario's one adversary when the pool is pinned, else None."""
+
+        if self.adversary_network and len(self.adversary_external) == 1:
+            return self.adversary_external[0]
+        return None
 
     @classmethod
     def build(cls, config: EntityConfig | None = None) -> EntityModel:

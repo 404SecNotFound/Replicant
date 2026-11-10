@@ -22,6 +22,11 @@ updated in the same change. Its `min_nx_ratio` moved from 0.8 to 0.25, because t
 shares the attack's host and a default run puts that host's NXDOMAIN share at 0.48 to
 0.54 (seeds 1 to 20, all three presets). The threshold is the owner's to confirm.
 
+Implementation note (2026-11-10, pinned runs). The owner asked for the pinned-run limit
+to be fixed. The composer now keeps the whole adversary pool beside the pinned address,
+so REP-008, REP-007 and REP-030 hold the pool rule inside a chain. The second outcome
+recorded above (SCEN-002's REP-008 stage separable by subnet) no longer holds.
+
 Scope. All 31 techniques and the 4 scenarios at `575036b`.
 
 ## Method
