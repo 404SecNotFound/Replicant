@@ -54,6 +54,12 @@ offline, on the plan. No rule fire has been observed and the launch gate is unch
 Guards: `tests/test_foil_parity.py` gains rows for REP-014, REP-016, REP-022 and REP-030,
 a pool check on REP-007, and a REP-008 network check. One existing test changed:
 `test_rep022_chain_is_buried_in_unrelated_alert_noise` pinned the single-control count.
+Two more changed after the merge with main. `tests/test_detection_specs.py` pinned the old
+REP-016 trickle (12 records, all NXDOMAIN) and went red as designed; it now measures the
+new benign stream and the spec's 0.25 threshold. The REP-016 entropy test in
+`tests/test_statistical_fidelity.py` covered the medium preset only, with the low preset
+0.07 bits under its 3.5 limit; it now covers every preset with the boundary at 4.0 (foil
+3.05 to 3.43, cluster 4.98 to 5.00, 24 seeds).
 
 ### Added (scenario advisory, 2026-11-10): the failed-login to login credential join
 

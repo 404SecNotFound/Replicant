@@ -126,18 +126,25 @@ def test_dga_and_tunnel_labels_have_a_near_uniform_char_distribution() -> None:
 
 
 def test_rep016_benign_foil_is_lower_entropy_than_the_dga_cluster() -> None:
-    """The benign NXDOMAIN trickle must look like typos and stale records, not
+    """The benign stream must look like service names and stale records, not
     like the DGA. A lower-entropy foil is realistic and is what makes an entropy
-    detector's separation honest rather than free."""
+    detector's separation honest rather than free.
 
-    for seed in SEEDS:
-        malicious = shannon_entropy(
-            "".join(_labels(_events("REP-016", "medium", seed, "positive")))
-        )
-        foil_labels = _labels(_events("REP-016", "medium", seed, "negative"))
-        assert foil_labels, ("REP-016 emits no benign foil", seed)
-        foil = shannon_entropy("".join(foil_labels))
-        assert foil < 3.5 < malicious, (seed, foil, malicious)
+    Every preset, because the low preset is the tightest: over seeds 1 to 20
+    plus SEEDS the foil measured 3.05 to 3.43 bits per character there (3.09 to
+    3.34 at medium and high) against the cluster's 4.98 to 5.00. The boundary
+    sits near the middle of that gap. At 3.5 it left the low preset 0.07 bits
+    of room and only medium was checked."""
+
+    for intensity in ("low", "medium", "high"):
+        for seed in SEEDS:
+            malicious = shannon_entropy(
+                "".join(_labels(_events("REP-016", intensity, seed, "positive")))
+            )
+            foil_labels = _labels(_events("REP-016", intensity, seed, "negative"))
+            assert foil_labels, ("REP-016 emits no benign foil", intensity, seed)
+            foil = shannon_entropy("".join(foil_labels))
+            assert foil < 4.0 < malicious, (intensity, seed, foil, malicious)
 
 
 def test_rep016_nxdomain_ratio_matches_its_preset() -> None:
