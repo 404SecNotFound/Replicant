@@ -141,6 +141,22 @@ def build_advisory(
         if s.top_dst == composed.victim and any(v > s.index for v in victim_stages)
     ]
     staging_events = sum(s.top_dst_count for s in composed.stages if s.index in staging_stages)
+    # A lateral path is read from a stage's traffic legs (composer._lateral_path).
+    # Two joins around it, both measured. The entry join: an earlier stage's VPN
+    # logins were assigned the address the path starts at. The handoff join: a
+    # later stage's dominant source is the host the path ended on. Each maps the
+    # joined stage to the stage it joins to.
+    path_stages = [s for s in composed.stages if s.path]
+    lateral_entries: dict[int, int] = {}
+    for stage in path_stages:
+        for earlier in composed.stages:
+            if earlier.index < stage.index and earlier.top_tunnelip == stage.path[0]:
+                lateral_entries.setdefault(stage.index, earlier.index)
+    lateral_handoffs: dict[int, int] = {}
+    for stage in composed.stages:
+        for earlier in path_stages:
+            if earlier.index < stage.index and stage.top_src == earlier.path[-1]:
+                lateral_handoffs.setdefault(stage.index, earlier.index)
     has_c2 = any(t.startswith(_C2_TACTIC) for t in covered)
     has_exfil = any(t.startswith(_EXFIL_TACTIC) for t in covered)
 
@@ -155,6 +171,9 @@ def build_advisory(
         "vpn_pivot_stage_indices": pivot_stages,
         "staging_pivot_stage_indices": staging_stages,
         "credential_pivot_stage_indices": credential_stages,
+        "lateral_path_stage_indices": [s.index for s in path_stages],
+        "lateral_entry_stage_indices": sorted(lateral_entries),
+        "lateral_handoff_stage_indices": sorted(lateral_handoffs),
         "truncated_stage_indices": [s.index for s in composed.stages if s.truncated],
     }
 
@@ -178,6 +197,12 @@ def build_advisory(
             f"- victim host `{composed.victim}`: dominant src in "
             f"{'stages' if len(victim_stages) > 1 else 'stage'} "
             f"{_stage_list(victim_stages)} ({victim_events} events)"
+        )
+    elif any(s.path[0] == composed.victim for s in path_stages):
+        started = [s.index for s in path_stages if s.path[0] == composed.victim]
+        lines.append(
+            f"- victim host `{composed.victim}`: first host of the lateral path in "
+            f"{'stages' if len(started) > 1 else 'stage'} {_stage_list(started)}"
         )
     else:
         lines.append(
@@ -223,10 +248,16 @@ def build_advisory(
         if stage.aligned_days:
             window += f" (+{stage.aligned_days}d aligned)"
         count = f"{stage.event_count}{' (truncated)' if stage.truncated else ''}"
+        # A stage that acts from a lateral path's last host is keyed on that
+        # source; the generic rule would name its busiest destination instead.
+        key = (
+            f"src={stage.top_src}"
+            if stage.index in lateral_handoffs
+            else _stage_key(stage, composed.victim, composed.adversary)
+        )
         lines.append(
             f"| {stage.index} | {label} | {stage.technique_id} | {tactics} | "
-            f"{stage.ndr_uc} | {stage.start_offset} | {window} | "
-            f"{_stage_key(stage, composed.victim, composed.adversary)} | {count} |"
+            f"{stage.ndr_uc} | {stage.start_offset} | {window} | {key} | {count} |"
         )
     lines.append("")
 
@@ -268,6 +299,11 @@ def build_advisory(
                 f"`src={composed.victim}` is the host-keyed source in "
                 f"{_stage_list(victim_stages)}."
             )
+        elif pivot_stages and lateral_entries:
+            claims.append(
+                f"- the credential-keyed stages ({names}) correlate on `duser`, not on `src`; "
+                "the VPN assignment is the pivot into the lateral path described below."
+            )
         else:
             claims.append(
                 f"- the credential-keyed stages ({names}) correlate on `duser`, not on `src`; "
@@ -300,6 +336,44 @@ def build_advisory(
             "collected the data becomes the host that sends it. The phase transition on one "
             "address is the join, not either stage's volume on its own."
         )
+    for stage in path_stages:
+        claims.append(
+            f"- stage {stage.index} ({stage.technique_id}) is a lateral path of "
+            f"{len(stage.path)} hosts, `{stage.path[0]}` to `{stage.path[-1]}`: each leg's "
+            "source is the previous leg's destination. The path is read from the emitted "
+            "traffic legs."
+        )
+        if stage.index in lateral_entries:
+            entry = next(s for s in composed.stages if s.index == lateral_entries[stage.index])
+            shared = sorted(set(stage.success_users) & set(entry.success_users))
+            users = (
+                f"`duser={shared[0]}` logged in by VPN in both stages, an overlap of "
+                "usernames that does not say which login in the earlier stage it was"
+                if shared
+                else "no VPN user of this stage logged in in that one, so no username joins them"
+            )
+            claims.append(
+                f"- stage {entry.index} assigned `tunnelip={stage.path[0]}` in "
+                f"{entry.top_tunnelip_count} VPN logins and stage {stage.index}'s path starts "
+                f"at `{stage.path[0]}`: the VPN assignment is the join into the path. It is a "
+                f"join on the address, shared by those logins, and it does not single one of "
+                f"them out; {users}."
+            )
+        later_stages = [s for s in composed.stages if s.index > stage.index]
+        handed_to = [i for i, source in lateral_handoffs.items() if source == stage.index]
+        if handed_to:
+            claims.append(
+                f"- `src={stage.path[-1]}` is the dominant source in "
+                f"{'stages' if len(handed_to) > 1 else 'stage'} "
+                f"{_stage_list(sorted(handed_to))} and "
+                f"the last host of stage {stage.index}'s path: the host the lateral movement "
+                "arrived on is the host that acts next."
+            )
+        elif later_stages:
+            claims.append(
+                f"- no later stage's dominant source is `{stage.path[-1]}`, the last host of "
+                f"stage {stage.index}'s path, so nothing here joins the path to what follows."
+            )
     if has_c2 and has_exfil and len(adversary_stages) > 1:
         claims.append(
             f"- this chain covers both {_C2_TACTIC} and {_EXFIL_TACTIC} and they share "

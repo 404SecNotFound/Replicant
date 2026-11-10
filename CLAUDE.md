@@ -481,6 +481,15 @@ Output convention: command results go to stdout, operator-facing errors go to st
      longer keep it. The composer keeps the whole adversary pool in
      `EntityModel.adversary_network`, and a builder that needs a second address from the
      adversary's network reads `adversary_wide`.
+
+  Implementation note (2026-11-10, same PR): SCEN-005 is built, by the owner's decision
+  (D10), so Phase 4's curated chains are now five. It is REP-046, then REP-018, then
+  REP-052 from the host REP-018's path ended on. Two things it established. **A builder
+  that needs several hosts from a pool the composer pins must read the wide pool**
+  (`internal_wide`, `adversary_wide`); REP-018 could not be planned in a chain at all
+  before this, and nothing had tried. **A join between stages is a stage attribute the
+  composer applies and the advisory measures** (`source_host: previous-path-end`,
+  `lateral_handoff_stage_indices`), never a sentence in the scenario description.
   3. **Do not fan the full suite out to parallel workers.** Six worktree agents each ran it
      on four cores, runs passed the ten minute command limit and one agent's `pkill` ended
      another's run. Workers run their own tests; the lead runs the suite once, after merge.

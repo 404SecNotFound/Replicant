@@ -214,6 +214,10 @@ replicant scenario run SCEN-003 --controls both --to-file ./out/s3.log --no-send
 
 # staging fan-in onto one workstation, then bulk exfil from that same host overnight
 replicant scenario run SCEN-004 --seed 1337 --to-file ./out/s4.log --no-send
+
+# unfamiliar VPN source, a login chain across workstations, then an SMB write fan-out
+# from the host the chain ended on
+replicant scenario run SCEN-005 --seed 1337 --to-file ./out/s5.log --no-send
 ```
 
 On normal completion or a handled stop, every scenario run writes an advisory

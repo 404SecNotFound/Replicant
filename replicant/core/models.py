@@ -442,6 +442,13 @@ class ScenarioStage(BaseModel):
     # does not fire; the value also marks the stage as pinned for the duration-overrun note.
     # Opt-in, because a warm-up baseline (REP-008) legitimately precedes its anchor.
     align: Literal["anchor", "next-off-hours"] = "anchor"
+    # Which workstation the stage's host-keyed builder is pinned to. "victim" is
+    # the scenario's pinned victim. "previous-path-end" is the last host of the
+    # most recent earlier stage that emitted a lateral path (REP-018), so the
+    # stage after lateral movement acts from the host the path ended on rather
+    # than from the host it started on. Composing fails if no earlier stage
+    # emitted a path.
+    source_host: Literal["victim", "previous-path-end"] = "victim"
 
 
 class Scenario(BaseModel):

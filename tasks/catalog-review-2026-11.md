@@ -27,6 +27,12 @@ to be fixed. The composer now keeps the whole adversary pool beside the pinned a
 so REP-008, REP-007 and REP-030 hold the pool rule inside a chain. The second outcome
 recorded above (SCEN-002's REP-008 stage separable by subnet) no longer holds.
 
+Implementation note (2026-11-10, D10). The owner said to build the fifth scenario. It is
+SCEN-005, as sketched in section 6. Both joins the sketch named are measured by the
+advisory. One differs from the sketch's wording. The join from REP-046 to REP-018 is the
+VPN-assigned address, which every REP-046 login carries under pinning, so it does not
+single out the unfamiliar login. The CHANGELOG entry of the same date has the detail.
+
 Scope. All 31 techniques and the 4 scenarios at `575036b`.
 
 ## Method

@@ -61,6 +61,33 @@ new benign stream and the spec's 0.25 threshold. The REP-016 entropy test in
 0.07 bits under its 3.5 limit; it now covers every preset with the boundary at 4.0 (foil
 3.05 to 3.43, cluster 4.98 to 5.00, 24 seeds).
 
+### Added (scenarios, 2026-11-10): SCEN-005, unfamiliar VPN source to lateral movement to SMB write fan-out
+
+- **SCEN-005.** REP-046 (unfamiliar VPN source), then REP-018 (login chain), then REP-052
+  (SMB write fan-out). It adds Lateral Movement and Impact to the curated chains. No
+  technique was added and no vendor profile changed.
+- **REP-018 now plans under scenario pinning.** It raised `entity pool is exhausted`
+  before, because pinning left one workstation and a path needs several. The composer
+  keeps the whole workstation pool in `EntityModel.internal_network`, and under pinning
+  the path starts at the victim. Standalone REP-018 output is unchanged.
+- **Stage option `source_host: previous-path-end`.** The stage's workstation is the last
+  host of the most recent earlier stage that emitted a lateral path. SCEN-005's fan-out
+  uses it, so the fan-out leaves from where the lateral movement arrived. Composing fails
+  if no earlier stage emitted a path. The default, `victim`, is the previous behaviour.
+- **The advisory measures the lateral path and both joins around it**:
+  `lateral_path_stage_indices`, `lateral_entry_stage_indices` (the path starts at an
+  address an earlier stage's VPN logins were assigned) and `lateral_handoff_stage_indices`
+  (a later stage's dominant source is the path's last host). The path is read from the
+  emitted traffic legs. The four existing chains report none.
+- Limits, also stated in the advisory text. The entry join is an address every VPN login
+  in the first stage shares under pinning, so it does not single out the unfamiliar
+  login. No username is carried between the first two stages by construction.
+- Guards: `tests/test_scen005_lateral_chain.py`, seeds 1 to 20. Positive controls: the
+  guards went red with the handoff removed, with the victim-first rule removed, and with
+  the workstation pool not kept.
+- Web scenario support stays deferred (CHAIN-16). The Rich menu `[a]` and
+  `replicant scenario list|show|run` pick the new chain up from the catalog.
+
 ### Fixed (scenario pinning, 2026-11-10): the pool rule now holds inside a chain
 
 - The entries above disclosed that a scenario-pinned run kept the old pool split. It no

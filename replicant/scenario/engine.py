@@ -2930,8 +2930,21 @@ class ScenarioEngine:
             else int(preset["window_min"]) * 60
         )
 
-        pool = entities.internal_hosts
-        hops = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(path_len, len(pool)))]
+        # A scenario pins the workstation pool to its one victim and keeps the
+        # rest in internal_network. A path needs more than one workstation, so
+        # the hops come from the whole pool, and under pinning the victim is hop
+        # 1: the address the entry VPN login is assigned, which is what joins
+        # this stage to a VPN stage before it. Until 2026-11-10 a pinned run had
+        # a one-host pool and could not be planned at all.
+        pool = entities.internal_wide
+        first_hop = entities.pinned_victim
+        if first_hop is None:
+            hops = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(path_len, len(pool)))]
+        else:
+            rest = [host for host in pool if host != first_hop]
+            wanted = min(path_len - 1, len(rest))
+            later = unique_ints(rng, 0, len(rest) - 1, wanted) if wanted else []
+            hops = [first_hop] + [rest[i] for i in later]
         user_pool = entities.users
         # A path of N hosts can carry at most N distinct causal identities: one
         # on entry and one at each later hop. Cap overrides to that physical

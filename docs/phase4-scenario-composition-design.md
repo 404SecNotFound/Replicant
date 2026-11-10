@@ -244,6 +244,29 @@ than a recurring source. The advisory measures it as `staging_pivot_stage_indice
 only claims it when a later stage carries the victim as source; the fan-in alone claims
 nothing. `tests/test_rep054_staging_fanin.py` guards both halves.
 
+Implementation note (2026-11-10): SCEN-005 (unfamiliar VPN source, login chain, SMB write
+fan-out) is the fifth curated chain, built from existing entries by the owner's decision
+(2026-11 catalog review, D10). It needed two composer changes.
+
+- **Pinning keeps the pools it narrows.** `_pin_entities` still narrows `internal_hosts`
+  to the victim and `adversary_external` to the adversary, and now keeps the whole pools
+  in `EntityModel.internal_network` and `adversary_network`. REP-018 could not be planned
+  under pinning before this, because a path needs more than one workstation. Under pinning
+  its path starts at the victim.
+- **A stage can take its host from the previous lateral path.** `source_host:
+  previous-path-end` on a stage pins that stage's workstation to the last host of the most
+  recent earlier stage that emitted a path. Composing fails if there is none. The path is
+  read from the stage's emitted traffic legs (`composer._lateral_path`), not from the
+  technique's parameters.
+
+The advisory measures both joins and reports them as `lateral_path_stage_indices`,
+`lateral_entry_stage_indices` and `lateral_handoff_stage_indices`. Two limits, stated in
+the advisory text itself. The entry join is the VPN-assigned address, which every VPN
+login in the first stage carries under pinning, so it does not single out the unfamiliar
+login. No username is carried from the first stage to the second by construction; the
+advisory reports an overlap when one occurs and says it is an overlap. The victim field
+of the composed plan stays the path's first host. Guards: `tests/test_scen005_lateral_chain.py`.
+
 Implementation note (2026-11-10): the advisory measures a third join,
 `credential_pivot_stage_indices`. A stage is listed when it holds a successful VPN login
 for a user that an earlier stage failed logins for. SCEN-003 reports its REP-011 stage,

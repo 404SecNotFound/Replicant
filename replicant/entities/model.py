@@ -135,6 +135,25 @@ class EntityModel:
     # source, a history destination) read adversary_wide, so pinning the
     # through-line does not also pin which /24 the foil lives in.
     adversary_network: list[str] = field(default_factory=list)
+    # The whole workstation pool, kept the same way when a scenario narrows
+    # internal_hosts to its one victim. A lateral path needs more than one
+    # workstation, so REP-018 reads internal_wide and starts at pinned_victim.
+    internal_network: list[str] = field(default_factory=list)
+
+    @property
+    def internal_wide(self) -> list[str]:
+        """The whole workstation pool: the unpinned pool when a scenario kept
+        one, otherwise internal_hosts itself."""
+
+        return self.internal_network or self.internal_hosts
+
+    @property
+    def pinned_victim(self) -> str | None:
+        """The scenario's one victim when the pool is pinned, else None."""
+
+        if self.internal_network and len(self.internal_hosts) == 1:
+            return self.internal_hosts[0]
+        return None
 
     @property
     def adversary_wide(self) -> list[str]:
