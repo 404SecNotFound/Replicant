@@ -674,6 +674,23 @@ def implemented_technique_ids() -> frozenset[str]:
     return frozenset(_BUILDER_METHOD_NAMES)
 
 
+# REP-016 benign foil names: low-entropy service labels the host resolves, and a
+# small fixed set of stale or mistyped labels it keeps failing on.
+_FOIL_RESOLVED_LABELS = (
+    "www",
+    "mail",
+    "api",
+    "cdn",
+    "updates",
+    "portal",
+    "login",
+    "files",
+    "static",
+    "docs",
+)
+_FOIL_STALE_LABELS = ("wpad", "isatap", "printsrv", "oldfiles", "intranet2")
+
+
 class ScenarioEngine:
     """Deterministic technique-to-event planner. No I/O."""
 
@@ -2742,33 +2759,57 @@ class ScenarioEngine:
                 break
 
         foil_start = len(events)
-        # Benign NXDOMAIN trickle: typos and stale records. Without it, a rule
-        # that alerts on any NXDOMAIN at all would look perfect. Capped at the
-        # plan window so the trickle cannot outlive the epochs (or a duration
-        # override) it is meant to blend into.
+        # Benign foil: the same host's ordinary resolver traffic over the whole
+        # plan window. A real host resolves most names and fails occasionally,
+        # so the foil is mostly NOERROR for a small set of repeating service
+        # names with a low NXDOMAIN ratio over a few repeating stale names. A
+        # foil that failed every lookup would out-score the attack on a ratio
+        # rule. All foil randomness is drawn after the cluster is built, so the
+        # positive stream does not depend on it.
         benign_parent = str(rng.choice(entities.parents))
-        window_s = epochs * epoch_s
-        for index in range(min(12, max(self.max_events - len(events), 0))):
-            events.append(
-                self._dns_response_record(
-                    rng,
-                    src,
-                    entities.resolver,
-                    f"{'wpad' if index % 2 else 'isatap'}.{benign_parent}",
-                    "NXDOMAIN",
-                    anchor + min(index * max(epoch_s // 2, 1), window_s),
-                    session,
+        window_s = max(epochs * epoch_s, 1)
+        foil_n = min(len(events), max(self.max_events - len(events), 0))
+        if foil_n:
+            foil_nx_ratio = float(rng.uniform(0.02, 0.08))
+            foil_fail_n = min(max(1, round(foil_n * foil_nx_ratio)), foil_n)
+            fail_slots = {int(i) for i in rng.permutation(foil_n)[:foil_fail_n]}
+            ok_names = [f"{label}.{benign_parent}" for label in _FOIL_RESOLVED_LABELS]
+            # Lookups are dominated by a few names, as a host's are.
+            ok_weights = [1.0 / (rank + 1) ** 1.5 for rank in range(len(ok_names))]
+            ok_p = [w / sum(ok_weights) for w in ok_weights]
+            stale_names = [f"{label}.{benign_parent}" for label in _FOIL_STALE_LABELS]
+            ok_ips = list(entities.benign_external)
+            # Integer seconds inside [0, window_s): never past the plan window.
+            times = sorted(int(t) for t in rng.integers(0, window_s, foil_n))
+            for index, when in enumerate(times):
+                failed = index in fail_slots
+                events.append(
+                    self._dns_response_record(
+                        rng,
+                        src,
+                        entities.resolver,
+                        (
+                            str(rng.choice(stale_names))
+                            if failed
+                            else str(rng.choice(ok_names, p=ok_p))
+                        ),
+                        "NXDOMAIN" if failed else "NOERROR",
+                        anchor + when,
+                        session,
+                        None if failed else str(rng.choice(ok_ips)),
+                    )
                 )
-            )
-            session += 1
+                session += 1
 
         self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{epochs} epoch(s) of {domains_per_epoch} distinct generated domains, "
             f"{nx_ratio:.0%} answered NXDOMAIN and {resolved_total} resolved (the "
-            "registered rendezvous domain). A benign NXDOMAIN trickle is included so "
-            "thresholding on NXDOMAIN alone does not look sufficient."
+            "registered rendezvous domain). The same host's ordinary resolver traffic "
+            "is included over the same window: mostly NOERROR for a few repeating "
+            "names, with a low NXDOMAIN ratio over a few repeating stale names, so "
+            "neither NXDOMAIN presence nor query volume separates it."
         )
         return events, note, truncated
 

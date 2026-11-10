@@ -552,7 +552,7 @@ techniques:
     ndr_rule: "NDR-C2-015"
     ndr_uc: "UC-015"
     objective: >-
-      Prove a DGA rule keys on clustered NXDOMAIN responses and is not defeated by the steady benign NXDOMAIN trickle from typos and stale records.
+      Prove a DGA rule keys on clustered NXDOMAIN responses and is not defeated by a host that resolves ordinary names and fails a few stale ones repeatedly.
     attack:
       tactics: ["TA0011 Command and Control"]
       techniques: ["T1568.002", "T1071.004"]
@@ -571,7 +571,8 @@ techniques:
       qname: "many DISTINCT second-level labels with an algorithmic character distribution. This is the inverse of REP-004, which puts many subdomains under one parent"
       rcode: "NXDOMAIN for nx_ratio of responses; NOERROR for the small remainder, representing the one registered rendezvous domain the operator actually stood up"
       epochs: "the domain set regenerates each epoch, mirroring a time-seeded generator"
-    benign_baseline: "normal hosts produce a low steady NXDOMAIN rate from typos and stale records. A benign NXDOMAIN trickle is emitted so the detection cannot simply threshold on any NXDOMAIN at all"
+    benign_baseline: >-
+      the same host also emits its ordinary resolver traffic over the whole plan window: about as many dns-response records as the cluster, mostly NOERROR for a set of ten repeating service names (www, mail, api and similar) under one synthetic documentation parent, each answered from the benign external pool. A small NXDOMAIN trickle is inside it, drawn per run at 2 to 8 percent of responses over a fixed set of five repeating stale names (wpad, isatap and three others). The foil's NXDOMAIN ratio therefore stays at or below 0.10 against the cluster's 0.95 to 0.99, and its failed names are at most 5 distinct against hundreds to thousands, so NXDOMAIN ratio and distinct failed-name clustering separate the two streams, and raw query volume and the presence of NXDOMAIN do not
     emits_foil: true
     transferability: "parser-only"
     transferability_note: >-

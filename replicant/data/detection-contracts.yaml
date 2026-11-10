@@ -114,7 +114,7 @@ contracts:
     observation_window: {parameters: [epochs], description: "Response outcomes and generated-name clusters are measured across all epochs."}
     measurable_axes:
       - {id: response_code, description: "DNS response records expose the resolution outcome.", metric: field_presence, field: FTNTFGTrcode}
-    negative: {mode: standalone, reason: "A benign NXDOMAIN trickle overlaps the response family without the DGA cluster shape.", separable_by: [nxdomain_ratio, label_cluster_shape]}
+    negative: {mode: standalone, reason: "The same host's ordinary resolver traffic overlaps the response family at similar volume, mostly NOERROR with a low NXDOMAIN ratio over a few repeating names, without the DGA cluster shape.", separable_by: [nxdomain_ratio, label_cluster_shape]}
 
   - technique_id: REP-017
     observation_window: {parameters: [baseline_min, switch_at_min], description: "Resolver traffic history precedes the switch to HTTPS flows."}
