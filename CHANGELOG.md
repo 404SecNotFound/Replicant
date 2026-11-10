@@ -203,6 +203,32 @@ Review of 2026-10-07: a fourth adversarial pass over the whole repository at `ef
 - The systemd unit's comments said the catalog and frontend load by
   repository-relative path. They ship inside the package since v0.3.1.
 
+### Added (detection specs, 2026-10-19): phase 2 drafts for REP-011, REP-016, REP-020
+
+- **Three reference detection specs, drafted for owner review** (roadmap item 8,
+  phase 2, the parser-only techniques). Each carries a `Status` row saying it is
+  machine-drafted and not final until the owner rewrites or signs it, lists its
+  judgment calls, and states sharply what a green result does not prove. Every
+  threshold is tied to a measured plan (20 seeds at each preset) or a catalog
+  preset, and the spec guards now check each draft's cited presets.
+- **REP-011** needs a lab-supplied distance table for its four fictional country
+  tags. The spec derives the distance each preset needs to exceed 900 km/h from
+  the measured gap between logins.
+- **REP-016** keys on distinct failing names, NXDOMAIN share and mean label
+  entropy. Finding recorded in the draft, not fixed here. The benign trickle is
+  12 NXDOMAIN-only records at every preset, so its NXDOMAIN share is 1.0, and the
+  share clause does not separate it from the attack.
+- **REP-020** cannot be cleanly run in a lab today, and the draft says so. Every
+  history name is itself queried once by one host, first contact follows within
+  2 to 18 seconds, and no known name is queried afterwards. A SIEM that has not
+  seen the history fires on all of it, and a plain time cutoff scores as well as
+  novelty logic. Two new tests pin both findings to the engine, so a fix turns
+  them red and forces the spec to be rewritten.
+- Positive controls. A wrong preset in each draft failed its citation guard; a
+  13-record trickle failed the REP-016 finding guard on every preset; a re-queried
+  known name failed the REP-020 finding guard.
+- `docs/detection-specs/README.md` counted 27 techniques; it now says 31.
+
 ### Changed (lab runbook, 2026-10-19): `tasks/lab-test-runbook.md` matches the code again
 
 - **The parsing phases would have run marked.** Since v0.10.0 a non-loopback
