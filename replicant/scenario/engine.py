@@ -301,6 +301,7 @@ _IPS_STAGES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
         (("HTTP.Large.Outbound.Transfer", "18443"),),
     ),
 )
+_IPS_STAGE_INDEX: dict[str, int] = {name: index for index, (name, _, _) in enumerate(_IPS_STAGES)}
 
 
 # Fleet-mode callbacks are displaced from their slot by at most this fraction of
@@ -3411,58 +3412,178 @@ class ScenarioEngine:
                 break
             elapsed += int(rng.integers(gap_lo, gap_hi + 1))
 
+        # Everything below draws from the rng AFTER the chain, so the positive
+        # stream for a given seed is what it was before the controls changed.
+        chain = list(events)
+        chain_pair = frozenset((chain_src, chain_dst))
+        used_stages = sorted({_IPS_STAGE_INDEX[str(e.extra["stage"])] for e in chain})
+        last_stage = stages - 1
+
+        # The second negative control's pair: a different external source and a
+        # different internal target. Under scenario pinning adversary_external
+        # may hold the chain's source alone, so fall back to the scanner and then
+        # the benign pools; the chain's pair is never reused.
+        control_src = ""
+        for pool in (
+            entities.adversary_external,
+            entities.scanner_external,
+            entities.benign_external,
+        ):
+            candidates = [a for a in pool if a != chain_src]
+            if candidates:
+                control_src = str(candidates[int(rng.integers(0, len(candidates)))])
+                break
+        target_candidates = [t for t in entities.internal_targets if t != chain_dst]
+        control_dst = (
+            str(target_candidates[int(rng.integers(0, len(target_candidates)))])
+            if target_candidates
+            else ""
+        )
+        control_pair = frozenset((control_src, control_dst))
+        reserved_pairs = (chain_pair, control_pair)
+
+        def _ips_alert(
+            stage_index: int,
+            attack: str,
+            attackid: str,
+            ext: str,
+            internal: str,
+            eventtime: int,
+            request: str,
+            session_id: int,
+        ) -> EventRecord:
+            """One alert carrying the chain's own fields for ``stage_index``.
+
+            The exfil stage is raised on the flow leaving the internal host, as
+            in the chain: the pair reversed, direction outgoing.
+            """
+
+            stage_name, ips_severity, _ = _IPS_STAGES[stage_index]
+            outbound = stage_name == "exfil"
+            flow_src, flow_dst = (internal, ext) if outbound else (ext, internal)
+            return EventRecord(
+                log_type="utm",
+                subtype="ips",
+                action="reset" if stage_index < last_stage else "block",
+                level=_IPS_LEVEL_BY_SEVERITY[ips_severity],
+                eventtime=eventtime,
+                src=flow_src,
+                spt=int(rng.integers(1024, 65535)),
+                dst=flow_dst,
+                dpt=443,
+                proto=6,
+                session_id=session_id,
+                extra={
+                    "eventtype": "signature",
+                    "ips_severity": ips_severity,
+                    "service": "HTTPS",
+                    "policyid": "7",
+                    "attack": attack,
+                    "attackid": attackid,
+                    "hostname": flow_dst,
+                    "request": request,
+                    "direction": "outgoing" if outbound else "incoming",
+                    "profile": "default",
+                    "cnt": "1",
+                    "msg": f"applications3A {attack}",
+                },
+            )
+
         foil_start = len(events)
-        # Unrelated alert noise on other entity pairs, spread across the whole
-        # window. A rule that fires on any N alerts in a window fires on this.
+        # Negative control 1: alert noise on other entity pairs, spread across
+        # the whole window. Each noise alert takes the severity, level, action
+        # and direction of one stage the chain uses, and that stage's own
+        # signature about half the time, so severity, signature name and action
+        # do not pick the chain out. Coverage is by construction: every used
+        # stage appears with each of its own signatures and once with a generic
+        # draw before the rest are drawn at random, and the order is shuffled.
+        assignments: list[tuple[int, int | None]] = []
+        for stage_index in used_stages:
+            for sig_index in range(len(_IPS_STAGES[stage_index][2])):
+                assignments.append((stage_index, sig_index))
+        for stage_index in used_stages:
+            assignments.append((stage_index, None))
+        assignments = assignments[:noise_alerts]
+        while len(assignments) < noise_alerts:
+            stage_index = used_stages[int(rng.integers(0, len(used_stages)))]
+            own = _IPS_STAGES[stage_index][2]
+            pick: int | None = int(rng.integers(0, len(own))) if rng.random() < 0.5 else None
+            assignments.append((stage_index, pick))
+        order = [int(slot) for slot in rng.permutation(len(assignments))] if assignments else []
         window = max(elapsed, 1)
-        for index in range(noise_alerts):
+        target_pool = entities.internal_targets
+        for index, slot in enumerate(order):
             if len(events) >= self.max_events:
                 truncated = True
                 break
-            attack, attackid = _IPS_SIGNATURES[int(rng.integers(0, len(_IPS_SIGNATURES)))]
-            target_pool = entities.internal_targets
+            stage_index, pick = assignments[slot]
+            if pick is None:
+                attack, attackid = _IPS_SIGNATURES[int(rng.integers(0, len(_IPS_SIGNATURES)))]
+            else:
+                attack, attackid = _IPS_STAGES[stage_index][2][pick]
+            noise_src = str(rng.choice(entities.adversary_external))
             noise_dst = str(rng.choice(target_pool))
-            if noise_dst == chain_dst:  # keep the noise off the chain's pair
-                noise_dst = target_pool[(target_pool.index(noise_dst) + 1) % len(target_pool)]
+            # Keep the noise off the chain's pair and the replay control's pair.
+            for _ in range(len(target_pool)):
+                if frozenset((noise_src, noise_dst)) not in reserved_pairs:
+                    break
+                noise_dst = str(target_pool[(target_pool.index(noise_dst) + 1) % len(target_pool)])
             events.append(
-                EventRecord(
-                    log_type="utm",
-                    subtype="ips",
-                    action="reset",
-                    # The same level a low-severity chain alert carries, so the
-                    # header severity cannot pick recon hits out of the noise.
-                    level=_IPS_LEVEL_BY_SEVERITY["low"],
-                    eventtime=anchor + int(index * window / max(noise_alerts, 1)),
-                    src=str(rng.choice(entities.adversary_external)),
-                    spt=int(rng.integers(1024, 65535)),
-                    dst=noise_dst,
-                    dpt=443,
-                    proto=6,
-                    session_id=session,
-                    extra={
-                        "eventtype": "signature",
-                        "ips_severity": "low",
-                        "service": "HTTPS",
-                        "policyid": "7",
-                        "attack": attack,
-                        "attackid": attackid,
-                        "hostname": noise_dst,
-                        "request": _IPS_REQUESTS[index % len(_IPS_REQUESTS)],
-                        "direction": "incoming",
-                        "profile": "default",
-                        "cnt": "1",
-                        "msg": f"applications3A {attack}",
-                    },
+                _ips_alert(
+                    stage_index,
+                    attack,
+                    attackid,
+                    noise_src,
+                    noise_dst,
+                    anchor + int(index * window / max(noise_alerts, 1)),
+                    _IPS_REQUESTS[index % len(_IPS_REQUESTS)],
+                    session,
                 )
             )
             session += 1
 
+        # Negative control 2: the chain's own alerts (same names, ids,
+        # severities, levels, actions and requests) replayed on one other pair
+        # with the stage blocks in reverse order. The times are the chain's
+        # mirrored across its own span, so each block keeps its internal spacing
+        # and the gaps between blocks, and the control covers the chain's span.
+        # Order on one pair is then the only thing that separates the chain.
+        if control_src and control_dst and chain:
+            blocks: dict[int, list[EventRecord]] = defaultdict(list)
+            for event in chain:
+                blocks[_IPS_STAGE_INDEX[str(event.extra["stage"])]].append(event)
+            replay = [
+                event for stage_index in reversed(used_stages) for event in blocks[stage_index]
+            ]
+            first, last = chain[0].eventtime, chain[-1].eventtime
+            mirrored = sorted(first + last - event.eventtime for event in chain)
+            shift = int(rng.integers(1, 6))
+            for event, when in zip(replay, mirrored, strict=True):
+                if len(events) >= self.max_events:
+                    truncated = True
+                    break
+                events.append(
+                    _ips_alert(
+                        _IPS_STAGE_INDEX[str(event.extra["stage"])],
+                        str(event.extra["attack"]),
+                        str(event.extra["attackid"]),
+                        control_src,
+                        control_dst,
+                        when + shift,
+                        str(event.extra["request"]),
+                        session,
+                    )
+                )
+                session += 1
+
         self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
-            f"{stages}-stage ordered chain on one src/dst pair, interleaved with "
-            f"{noise_alerts} unrelated alerts. Stage order and the shared entity pair "
-            "are the correlation signal; the noise is what makes it non-trivial."
+            f"{stages}-stage ordered chain on one src/dst pair. Two negative controls: "
+            f"{noise_alerts} alerts on other pairs carrying the chain's own severities, "
+            "actions and signature names, and the chain's alerts replayed on one other "
+            "pair in reversed stage order. Kill-chain order on one pair is the only "
+            "separating feature."
         )
         return events, note, truncated
 

@@ -528,15 +528,15 @@ def rep014_foil_port_sessions_and_scale_match(s: Streams) -> None:
     )
     foil_sessions = len({e.session_id for e in s.negative})
     miner_sessions = len({e.session_id for e in s.positive})
-    assert foil_sessions == miner_sessions, (
-        f"{s.tag}: {foil_sessions} foil session(s) against {miner_sessions} pool session(s)"
-    )
-    assert len(s.negative) >= 0.5 * len(s.positive), (
-        f"{s.tag}: foil {len(s.negative)} records against {len(s.positive)}"
-    )
-    assert _span(s.negative) >= 0.8 * _span(s.positive), (
-        f"{s.tag}: foil spans {_span(s.negative)} s against {_span(s.positive)} s"
-    )
+    assert (
+        foil_sessions == miner_sessions
+    ), f"{s.tag}: {foil_sessions} foil session(s) against {miner_sessions} pool session(s)"
+    assert len(s.negative) >= 0.5 * len(
+        s.positive
+    ), f"{s.tag}: foil {len(s.negative)} records against {len(s.positive)}"
+    assert _span(s.negative) >= 0.8 * _span(
+        s.positive
+    ), f"{s.tag}: foil spans {_span(s.negative)} s against {_span(s.positive)} s"
 
 
 def rep014_bytes_still_separate(s: Streams) -> None:
@@ -552,23 +552,23 @@ def _nx_ratio(events: list[EventRecord]) -> float:
 def rep016_foil_host_mostly_resolves(s: Streams) -> None:
     foil = _nx_ratio(s.negative)
     attack = _nx_ratio(s.positive)
-    assert foil <= 0.10 < attack, (
-        f"{s.tag}: foil NXDOMAIN ratio {foil:.2f} against the cluster's {attack:.2f}"
-    )
+    assert (
+        foil <= 0.10 < attack
+    ), f"{s.tag}: foil NXDOMAIN ratio {foil:.2f} against the cluster's {attack:.2f}"
 
 
 def rep016_foil_volume_scales_without_a_name_cluster(s: Streams) -> None:
-    assert len(s.negative) >= 0.5 * len(s.positive), (
-        f"{s.tag}: foil {len(s.negative)} responses against {len(s.positive)}"
-    )
+    assert len(s.negative) >= 0.5 * len(
+        s.positive
+    ), f"{s.tag}: foil {len(s.negative)} responses against {len(s.positive)}"
 
     def failed_names(events: list[EventRecord]) -> set[str]:
         return {str(e.extra["qname"]) for e in events if e.extra.get("rcode") == "NXDOMAIN"}
 
     foil, attack = failed_names(s.negative), failed_names(s.positive)
-    assert foil and len(foil) <= 0.1 * len(attack), (
-        f"{s.tag}: {len(foil)} distinct failed names in the foil against {len(attack)}"
-    )
+    assert foil and len(foil) <= 0.1 * len(
+        attack
+    ), f"{s.tag}: {len(foil)} distinct failed names in the foil against {len(attack)}"
 
 
 _SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
@@ -623,9 +623,9 @@ def rep022_same_alerts_out_of_order_on_another_pair(s: Streams) -> None:
     control = _severity_sequence(scrambled)
     assert chain == sorted(chain), f"{s.tag}: the chain itself is out of order"
     assert control != sorted(control), f"{s.tag}: the control pair is in kill-chain order"
-    assert abs(_span(scrambled) - _span(s.positive)) <= 0.2 * _span(s.positive) + 60, (
-        f"{s.tag}: control spans {_span(scrambled)} s against the chain's {_span(s.positive)} s"
-    )
+    assert (
+        abs(_span(scrambled) - _span(s.positive)) <= 0.2 * _span(s.positive) + 60
+    ), f"{s.tag}: control spans {_span(scrambled)} s against the chain's {_span(s.positive)} s"
 
 
 # -- the table ------------------------------------------------------------------

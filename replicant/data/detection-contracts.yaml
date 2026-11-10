@@ -150,7 +150,7 @@ contracts:
     observation_window: {parameters: [stage_gap_s], description: "Labeled alert stages are correlated in event-time order."}
     measurable_axes:
       - {id: alert_timeline, description: "The alert chain spans multiple event times.", metric: temporal_span}
-    negative: {mode: standalone, reason: "Unrelated alert noise overlaps the same family without the ordered joined chain.", separable_by: [stage_order_and_join]}
+    negative: {mode: standalone, reason: "Alert noise on other pairs carries the chain's severities, actions and signature names, and the chain's own alerts replay on another pair in reversed stage order; only kill-chain order on one pair separates them.", separable_by: [stage_order_and_join]}
 
   - technique_id: REP-023
     observation_window: {parameters: [interval_s], description: "Flow-only sessions are measured over the generated callback span."}
