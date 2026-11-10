@@ -2450,6 +2450,9 @@ class ScenarioEngine:
         events: list[EventRecord] = []
         session = int(rng.integers(10_000, 60_000))
         truncated = False
+        # The foil mirrors the miner record for record, so each stream gets half
+        # the ceiling. A miner that took the whole ceiling would leave no foil.
+        stream_cap = max(1, self.max_events // 2)
         for pool_session in range(sessions):
             start = anchor + pool_session * session_s
             for share in range(shares):
@@ -2471,7 +2474,7 @@ class ScenarioEngine:
                         (share + 1) * share_interval_s,  # duration grows within the session
                     )
                 )
-                if len(events) >= self.max_events:
+                if len(events) >= stream_cap:
                     truncated = True
                     break
             session += 1
@@ -2479,37 +2482,43 @@ class ScenarioEngine:
                 break
 
         foil_start = len(events)
-        # Benign long-lived session: comparable duration profile, bursty bytes.
-        # MineShark had to auto-filter over 99.3% of its alarms, which is the
-        # argument for including this. The foil must reach the same order of
-        # magnitude as the miner session: a foil that dies after a few minutes
-        # while the miner holds for hours is separable on duration alone, which
-        # is exactly the shortcut the foil exists to deny.
+        # Benign long-lived sessions with the miner's structure: same source and
+        # destination port, same number of back-to-back sessions (own ids), same
+        # records per session on the same share-interval grid over the same span,
+        # same growing per-record duration. Only the byte profile differs: wide
+        # and bursty here, small and steady for the miner. Every other feature a
+        # rule could read is shared, so bytes are the one discriminator, which is
+        # what the catalog names. MineShark had to auto-filter over 99.3% of its
+        # alarms, which is the argument for including this. Foil randomness is
+        # drawn after the miner is complete so the miner stream does not move.
         benign_dst = str(rng.choice(entities.benign_external))
-        benign_steps = max(1, min(12, shares))
-        step_span_s = max(session_s // benign_steps, share_interval_s)
-        for step in range(benign_steps):
-            if len(events) >= self.max_events:
-                break
-            events.append(
-                self._steady_accept(
-                    rng,
-                    src,
-                    benign_dst,
-                    443,
-                    anchor + step * step_span_s,
-                    session,
-                    int(rng.integers(200, 90_000)),  # bursty, unlike the miner
-                    int(rng.integers(200, 400_000)),
-                    (step + 1) * step_span_s,
+        foil_session = session
+        for pool_session in range(sessions):
+            start = anchor + pool_session * session_s
+            for share in range(shares):
+                if len(events) - foil_start >= foil_start:
+                    break
+                events.append(
+                    self._steady_accept(
+                        rng,
+                        src,
+                        benign_dst,
+                        dpt,
+                        start + share * share_interval_s,
+                        foil_session,
+                        int(rng.integers(200, 90_000)),  # bursty, unlike the miner
+                        int(rng.integers(200, 400_000)),
+                        (share + 1) * share_interval_s,
+                    )
                 )
-            )
+            foil_session += 1
         self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{sessions} pool session(s) of {session_s // 60} min, one exchange every "
-            f"{share_interval_s}s on port {dpt}. A bursty long-lived benign session is "
-            "included as a false-positive control."
+            f"{share_interval_s}s on port {dpt}. A benign long-lived control with the "
+            "same port, session count, span and cadence but bursty bytes is included "
+            "as a false-positive control."
         )
         return events, note, truncated
 

@@ -102,7 +102,7 @@ contracts:
     observation_window: {parameters: [session_min], description: "Long-lived traffic is measured across the selected session duration."}
     measurable_axes:
       - {id: sessions, description: "The positive stream contains the selected session count.", metric: event_count, parameter: sessions}
-    negative: {mode: standalone, reason: "Bursty benign long sessions overlap ports, duration, and volume.", separable_by: [steady_share_cadence_and_context]}
+    negative: {mode: standalone, reason: "Benign long sessions share the miner's port, session count, span, record count, and cadence; only the byte profile (bursty against small, steady, near 1:1) separates them.", separable_by: [steady_share_cadence_and_context]}
 
   - technique_id: REP-015
     observation_window: {parameters: [duration_h], description: "Low-throughput DNS cardinality is accumulated across the selected hours."}

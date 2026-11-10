@@ -737,7 +737,6 @@ def _parent(qname: str) -> str:
     return qname.split(".", 1)[1]
 
 
-@pytest.mark.parametrize("intensity", INTENSITIES)
 # -- REP-008: the same bar for the per-host novelty entry ------------------------
 #
 # Every baseline destination sat in one /24 and every first-seen destination in
@@ -775,6 +774,7 @@ def test_rep008_novel_destinations_share_the_baseline_networks(intensity: str) -
     )
 
 
+@pytest.mark.parametrize("intensity", INTENSITIES)
 def test_rep020_novel_names_share_the_baseline_parent_pool(intensity: str) -> None:
     for seed in SEEDS:
         baseline, novel, preset = _rep020_names(intensity, seed)

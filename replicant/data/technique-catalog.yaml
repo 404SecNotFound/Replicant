@@ -510,7 +510,7 @@ techniques:
       duration: "single sessions lasting hours, far above the per-host session duration norm"
       byte_ratio: "in:out close to 1:1, both small and steady. No large transfer at any point, which is what separates it from exfiltration"
       dpt_choices: [3333, 4444, 5555, 7777, 14444, 443]
-    benign_baseline: "a long-lived business session is emitted alongside, bursty in bytes rather than metronomic. MineShark had to auto-filter over 99.3% of false alarms, which is why this baseline is required"
+    benign_baseline: "long-lived business sessions are emitted alongside on the miner's destination port, with the miner's session count, span, records per session and share-interval cadence. Only the byte profile differs: wide and bursty rather than small, steady and near 1:1. MineShark had to auto-filter over 99.3% of false alarms, which is why this baseline is required"
     emits_foil: true
     references: ["MineShark NDSS 2025", "MineHunter ACSAC 2021", "CJ-Sniffer RAID 2022"]
     safety_notes: "pool destinations are synthetic documentation-range IPs. Never substitute a real mining pool hostname or address, even as a label"
