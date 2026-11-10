@@ -1813,14 +1813,45 @@ class ScenarioEngine:
         # One host talking to a small stable set of external peers, then to new ones.
         src = str(rng.choice(entities.internal_hosts))
         benign = entities.benign_external
-        known = [
-            benign[i] for i in unique_ints(rng, 0, len(benign) - 1, min(known_count, len(benign)))
-        ]
         adversary = entities.adversary_external
-        novel = [
-            adversary[i]
-            for i in unique_ints(rng, 0, len(adversary) - 1, min(novel_dst, len(adversary)))
-        ]
+        if len(benign) >= known_count and len(adversary) >= known_count:
+            # The history and the first-seen destinations share both external
+            # networks, so absence from this host's own history is the only mark
+            # of novelty. The known set used to come wholly from the benign pool
+            # and every novel destination from the adversary pool, so a /24 match
+            # found the novel contacts without any history (2026-11 review, F3;
+            # REP-020 had the same defect on DNS parents). The history draws 3
+            # from one pool and 2 from the other, and the novel destinations come
+            # from the union of both pools minus the history, so either /24 can
+            # hold a novel destination and neither predicts one.
+            majority = 3
+            first, second = (benign, adversary) if rng.integers(0, 2) == 0 else (adversary, benign)
+            known = [first[i] for i in unique_ints(rng, 0, len(first) - 1, majority)]
+            known += [
+                second[i] for i in unique_ints(rng, 0, len(second) - 1, known_count - majority)
+            ]
+            known = [known[int(i)] for i in rng.permutation(len(known))]
+            history = set(known)
+            candidates = [ip for ip in dict.fromkeys([*benign, *adversary]) if ip not in history]
+            novel = [
+                candidates[i]
+                for i in unique_ints(rng, 0, len(candidates) - 1, min(novel_dst, len(candidates)))
+            ]
+        else:
+            # A scenario pins adversary_external to its one adversary
+            # (composer._pin_entities), and SCEN-002 uses this entry as its "new
+            # destination" stage. Too small a pool cannot hold the mixed draw, so
+            # a pinned run keeps the history in the benign pool and sends the
+            # first-seen contact to the adversary: the scenario's through-line
+            # depends on it, and the catalog states this limit.
+            known = [
+                benign[i]
+                for i in unique_ints(rng, 0, len(benign) - 1, min(known_count, len(benign)))
+            ]
+            novel = [
+                adversary[i]
+                for i in unique_ints(rng, 0, len(adversary) - 1, min(novel_dst, len(adversary)))
+            ]
 
         # Compressed history: one hit per known destination per baseline day.
         baseline_events = len(known) * baseline_days
