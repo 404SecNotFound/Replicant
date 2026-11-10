@@ -68,6 +68,12 @@ class StageResult:
     # stage to the host-keyed stages that follow it.
     top_tunnelip: str | None = None
     top_tunnelip_count: int = 0
+    # Users that appear in this stage's positive VPN authentication events: the
+    # targets of a failed login (`ssl-login-fail`) and the users that logged in
+    # (`tunnel-up`). The advisory joins them across stages to measure whether a
+    # sprayed user is the one that later logs in. Sorted for determinism.
+    failed_users: tuple[str, ...] = ()
+    success_users: tuple[str, ...] = ()
 
 
 def _dominant(values: list[str]) -> tuple[str | None, int]:
@@ -194,6 +200,12 @@ def _compose_pass(
         top_tunnelip, top_tunnelip_count = _dominant(
             [e.extra["tunnelip"] for e in stage_events if "tunnelip" in e.extra]
         )
+        failed_users = tuple(
+            sorted({e.duser for e in stage_events if e.action == "ssl-login-fail" and e.duser})
+        )
+        success_users = tuple(
+            sorted({e.duser for e in stage_events if e.action == "tunnel-up" and e.duser})
+        )
         stages.append(
             StageResult(
                 index=i,
@@ -218,6 +230,8 @@ def _compose_pass(
                 top_user_count=top_user_count,
                 top_tunnelip=top_tunnelip,
                 top_tunnelip_count=top_tunnelip_count,
+                failed_users=failed_users,
+                success_users=success_users,
             )
         )
     tagged.sort(key=lambda item: (item[0], item[1]))

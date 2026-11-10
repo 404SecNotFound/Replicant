@@ -114,6 +114,21 @@ def build_advisory(
     # host-keyed stage the victim dominates. Measured, not assumed: the stage
     # has to carry the assignment and it has to equal the pinned victim.
     pivot_stages = [s.index for s in user_stages if s.top_tunnelip == composed.victim]
+    # A credential join: a stage with a successful VPN login for a user that a
+    # strictly earlier stage failed logins for. Measured from the composed
+    # positive events, not assumed from the scenario text. Maps the login stage
+    # to (spray stage index, joined users).
+    credential_joins: dict[int, tuple[int, list[str]]] = {}
+    for stage in composed.stages:
+        for earlier in composed.stages:
+            if earlier.index >= stage.index:
+                continue
+            joined = sorted(set(stage.success_users) & set(earlier.failed_users))
+            if joined and stage.index not in credential_joins:
+                credential_joins[stage.index] = (earlier.index, joined)
+    credential_stages = sorted(credential_joins)
+    has_vpn_failures = any(s.failed_users for s in composed.stages)
+    has_vpn_logins = any(s.success_users for s in composed.stages)
     # A staging stage is one the victim dominates as DESTINATION. When a later
     # stage has the victim as dominant source, the host that collected the data
     # has become the host that sends it, which is the phase transition a
@@ -139,6 +154,7 @@ def build_advisory(
         "adversary_stage_indices": adversary_stages,
         "vpn_pivot_stage_indices": pivot_stages,
         "staging_pivot_stage_indices": staging_stages,
+        "credential_pivot_stage_indices": credential_stages,
         "truncated_stage_indices": [s.index for s in composed.stages if s.truncated],
     }
 
@@ -258,6 +274,22 @@ def build_advisory(
                 "joining them to the host-keyed stages needs the VPN assignment as the pivot, "
                 "and no stage here carries one that matches the victim."
             )
+    for login_index in credential_stages:
+        spray_index, joined = credential_joins[login_index]
+        login = next(s for s in composed.stages if s.index == login_index)
+        user = login.top_user if login.top_user in joined else joined[0]
+        claims.append(
+            f"- stage {login_index} logged in successfully as `duser={user}`, a user that was "
+            f"the target of failed VPN logins in stage {spray_index}; the shared `duser` is the "
+            "credential join between those stages. This is a measured overlap of usernames "
+            "in the emitted events, not evidence of how the credential was obtained."
+        )
+    if not credential_stages and has_vpn_failures and has_vpn_logins:
+        claims.append(
+            "- this chain has VPN authentication failures and a successful VPN login, but no "
+            "credential join was measured: no user with a successful login was the target of "
+            "a failed login in an earlier stage."
+        )
     if staging_stages:
         later = [v for v in victim_stages if v > staging_stages[0]]
         claims.append(
