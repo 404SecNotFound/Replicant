@@ -460,6 +460,30 @@ Output convention: command results go to stdout, operator-facing errors go to st
   ranges every synthetic external pool uses. Read the claim and the builder before calling a
   failure a defect.
 
+- 2026-11 catalog review (complete): all 31 entries and the 4 scenarios, record in
+  `tasks/catalog-review-2026-11.md`. Five foils were separable on a feature the catalog does
+  not name: REP-022 on severity alone (and nothing tested order), REP-014 on a 12 record
+  ceiling and a hard-coded port, REP-008 on the novel destinations' /24, REP-016 on a foil
+  that failed every lookup, REP-007 and REP-030 on the source pool. All fixed, with rows in
+  `tests/test_foil_parity.py`. REP-012, REP-014 and REP-023 keep the adversary and benign
+  destination pools and disclose them. The advisory measures a third join,
+  `credential_pivot_stage_indices` (SCEN-003's spray to login). No technique was added, by
+  the owner's decision; the gate is unchanged.
+
+  Three conventions this established:
+  1. **A separability scan over every emitted field finds what a per-feature table misses.**
+     The parity table had rows for 11 of 26 foil techniques, and both entries with no row
+     anywhere had findings. A foil technique needs a parity row, not only a fidelity claim.
+  2. **Pool membership is a feature.** A foil drawn from a different address pool hands a
+     lab rule a free match. Draw the foil from the attack's pool, or disclose the pool in
+     the entry. Under scenario pinning the pools hold one address, so pinned runs keep the
+     split and the entry says so.
+  3. **Do not fan the full suite out to parallel workers.** Six worktree agents each ran it
+     on four cores, runs passed the ten minute command limit and one agent's `pkill` ended
+     another's run. Workers run their own tests; the lead runs the suite once, after merge.
+     A worktree is also created from the default branch, not the working branch, so a
+     worker must merge the working branch first.
+
 Next up, not started: a live-vendor pass to replace the `[Unverified]` markers on the Palo Alto and Check Point references with confirmed output, which needs real appliances. The React web UI itself shipped in Phase 1.5; there is no separate later phase for it.
 
 **The LogRhythm lab test has still never observed a rule fire.** Implementation note

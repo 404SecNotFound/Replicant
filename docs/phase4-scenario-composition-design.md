@@ -243,3 +243,11 @@ curated chain. It is the first whose join is a phase transition on the victim ad
 than a recurring source. The advisory measures it as `staging_pivot_stage_indices` and
 only claims it when a later stage carries the victim as source; the fan-in alone claims
 nothing. `tests/test_rep054_staging_fanin.py` guards both halves.
+
+Implementation note (2026-11-10): the advisory measures a third join,
+`credential_pivot_stage_indices`. A stage is listed when it holds a successful VPN login
+for a user that an earlier stage failed logins for. SCEN-003 reports its REP-011 stage,
+because the user who logs in is among the users the REP-007 stage sprayed. The other three
+chains report an empty list. The join is username overlap in the emitted events and claims
+nothing about how a credential was obtained. `tests/test_scenario_advisory.py` guards it,
+including a case that removes the join and expects it reported absent.

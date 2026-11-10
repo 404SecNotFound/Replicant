@@ -4,6 +4,17 @@ Status. Review only. Nothing in the engine, the catalog or the tests was changed
 Every item under "Decisions" needs the owner's call before any build. The launch
 gate is unchanged. No rule fire has been observed in the lab LogRhythm.
 
+Implementation note (2026-11-10, same day). The owner accepted every recommendation in
+section 7. D1, D2, D3, D5 and D6 are built. D4 is built as recommended (the same-pool
+rule on REP-007 and REP-030, disclosure on REP-012, REP-014 and REP-023). D8 is done.
+D7 is deferred. D9 is no, so no technique was added. D10 was left as the owner's call and
+is not built. The sections below are the review as written before the fixes and describe
+the unfixed engine. The CHANGELOG entry of the same date records what changed.
+Two outcomes differ from the proposal text. F3's fix does not reach scenario-pinned runs,
+so SCEN-002's REP-008 stage is still separable by subnet, and the catalog says so. F3's
+"side effect to check" did not arise, because that stage's top destination was already a
+benign one.
+
 Scope. All 31 techniques and the 4 scenarios at `575036b`.
 
 ## Method

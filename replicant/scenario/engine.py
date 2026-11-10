@@ -691,6 +691,18 @@ _FOIL_RESOLVED_LABELS = (
 _FOIL_STALE_LABELS = ("wpad", "isatap", "printsrv", "oldfiles", "intranet2")
 
 
+def _interleave(first: list[str], second: list[str]) -> list[str]:
+    """Alternate two lists, first element first, keeping any longer tail."""
+
+    merged: list[str] = []
+    for index in range(max(len(first), len(second))):
+        if index < len(first):
+            merged.append(first[index])
+        if index < len(second):
+            merged.append(second[index])
+    return merged
+
+
 class ScenarioEngine:
     """Deterministic technique-to-event planner. No I/O."""
 
@@ -1571,7 +1583,12 @@ class ScenarioEngine:
         # Co-located in the same window, so time of day is not a free discriminator.
         if not truncated and entities.benign_external:
             foil_start = len(events)
-            nat = str(rng.choice(entities.benign_external))
+            # Drawn from the attack's own pool so pool membership is not a free
+            # reputation feature. A scenario that pins the pool to the attack
+            # source leaves no other address there, and then the benign pool
+            # is the only choice (REP-001's foil destination does the same).
+            nat_pool = [c for c in entities.adversary_external if c != src]
+            nat = str(rng.choice(nat_pool or entities.benign_external))
             # Sized from the attack's login VOLUME, not its user count: in brute
             # mode `users` is 1, so a NAT sized from it fronted four users and
             # emitted 4 to 8 events against 400, and per-source count separated
@@ -3925,10 +3942,30 @@ class ScenarioEngine:
         source_count = max(1, min(source_count, failures))
         user_count = max(1, min(user_count, failures))
 
-        attack_indices = unique_ints(rng, 0, len(entities.adversary_external) - 1, source_count)
-        attack_sources = [entities.adversary_external[index] for index in attack_indices]
-        benign_indices = unique_ints(rng, 0, len(entities.benign_external) - 1, source_count)
-        benign_sources = [entities.benign_external[index] for index in benign_indices]
+        adversary_pool = entities.adversary_external
+        benign_pool = entities.benign_external
+        if len(adversary_pool) > 1 and benign_pool:
+            # Both streams span both external /24s by construction, so pool
+            # membership is not a free reputation feature: each stream takes
+            # about half its sources from each pool, and the two source sets
+            # are disjoint. Per-source failure counts are unchanged, because
+            # the loop below cycles a stream's sources evenly.
+            source_count = min(source_count, len(benign_pool))
+            from_adv = unique_ints(rng, 0, len(adversary_pool) - 1, source_count)
+            from_ben = unique_ints(rng, 0, len(benign_pool) - 1, source_count)
+            attack_adv = [adversary_pool[i] for i in from_adv[: (source_count + 1) // 2]]
+            foil_adv = [adversary_pool[i] for i in from_adv[(source_count + 1) // 2 :]]
+            foil_ben = [benign_pool[i] for i in from_ben[: (source_count + 1) // 2]]
+            attack_ben = [benign_pool[i] for i in from_ben[(source_count + 1) // 2 :]]
+            attack_sources = _interleave(attack_adv, attack_ben)
+            benign_sources = _interleave(foil_ben, foil_adv)
+        else:
+            # A scenario pinned the adversary pool to one address: the foil
+            # cannot share it, so the benign pool is its only source.
+            attack_indices = unique_ints(rng, 0, len(adversary_pool) - 1, source_count)
+            attack_sources = [adversary_pool[index] for index in attack_indices]
+            benign_indices = unique_ints(rng, 0, len(benign_pool) - 1, source_count)
+            benign_sources = [benign_pool[index] for index in benign_indices]
         users = synthetic_usernames(user_count * 2, entities.users)
         attack_users = users[:user_count]
         benign_users = users[user_count:]

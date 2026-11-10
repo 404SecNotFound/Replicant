@@ -517,6 +517,20 @@ def foil_sources_share_the_attack_pool(s: Streams) -> None:
     assert not shared, f"{s.tag}: {sorted(shared)[:3]} is both an attack and a foil source"
 
 
+def destination_pool_split_is_disclosed(s: Streams) -> None:
+    """REP-012, REP-014, REP-023 keep separate destination pools; the entry must say so."""
+
+    attack = {_net24(e.dst) for e in s.positive}
+    foil = {_net24(e.dst) for e in s.negative}
+    if attack & foil:
+        return
+    text = s.technique.benign_baseline or ""
+    assert "lab convention" in text and "destination network" in text, (
+        f"{s.tag}: foil destinations in {sorted(foil)} and attack in {sorted(attack)}, and "
+        "benign_baseline does not disclose the pool split"
+    )
+
+
 def _span(events: list[EventRecord]) -> int:
     return max(e.eventtime for e in events) - min(e.eventtime for e in events)
 
@@ -655,6 +669,7 @@ CHECKS: dict[str, list[Check]] = {
         _ceiling_in_catalog("REP-010", BENIGN_DENIES_PER_MIN, "denies per minute"),
     ],
     "REP-012": [
+        destination_pool_split_is_disclosed,
         rep012_foil_bytes_in_beacon_envelope,
         rep012_foil_duration_in_beacon_envelope,
         rep012_foil_interval_matches_beacon,
@@ -665,7 +680,11 @@ CHECKS: dict[str, list[Check]] = {
         rep013_foil_per_source_volume_scales_with_fanout,
         rep013_source_growth_preserved,
     ],
-    "REP-014": [rep014_foil_port_sessions_and_scale_match, rep014_bytes_still_separate],
+    "REP-014": [
+        destination_pool_split_is_disclosed,
+        rep014_foil_port_sessions_and_scale_match,
+        rep014_bytes_still_separate,
+    ],
     "REP-016": [
         rep016_foil_host_mostly_resolves,
         rep016_foil_volume_scales_without_a_name_cluster,
@@ -687,6 +706,7 @@ CHECKS: dict[str, list[Check]] = {
         rep022_same_alerts_out_of_order_on_another_pair,
     ],
     "REP-023": [
+        destination_pool_split_is_disclosed,
         rep023_foil_timing_irregular,
         rep023_foil_port_and_count_match,
         rep023_catalog_states_discriminators,
