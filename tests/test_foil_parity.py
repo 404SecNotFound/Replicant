@@ -62,7 +62,13 @@ ALLOWED_PARENTS = frozenset(ENTITIES.parents)
 
 # REP-004 plans 72k to 192k events per preset and takes seconds per seed, and
 # nothing here measures its duration, so the sweep prices it at one minute.
-OVERRIDES: dict[str, dict[str, Any]] = {"REP-004": {"duration_min": 1}}
+# REP-014 plans up to 25920 records per stream at the high preset; a 30 minute
+# session keeps every preset's port, session count and share interval and
+# prices the sweep at a few hundred records.
+OVERRIDES: dict[str, dict[str, Any]] = {
+    "REP-004": {"duration_min": 1},
+    "REP-014": {"session_min": 30},
+}
 
 
 @dataclass(frozen=True)
@@ -491,6 +497,137 @@ def rep024_foil_pair_count_scales(s: Streams) -> None:
     assert foil >= 0.5 * attack, f"{s.tag}: {foil} foil pairs against {attack} relay pairs"
 
 
+# -- 2026-11 review: pool membership, REP-014, REP-016, REP-022 -----------------
+#
+# REP-053 and REP-046 state that a foil drawn from a different address pool hands
+# a rule a free reputation feature. The same holds for the two credential
+# entries, where the source is the only thing a spray rule aggregates on.
+
+
+def _net24(address: str | None) -> str:
+    assert address is not None
+    return address.rsplit(".", 1)[0]
+
+
+def foil_sources_share_the_attack_pool(s: Streams) -> None:
+    attack = {_net24(e.src) for e in s.positive}
+    foil = {_net24(e.src) for e in s.negative}
+    assert foil == attack, f"{s.tag}: foil sources in {sorted(foil)}, attack in {sorted(attack)}"
+    shared = {e.src for e in s.positive} & {e.src for e in s.negative}
+    assert not shared, f"{s.tag}: {sorted(shared)[:3]} is both an attack and a foil source"
+
+
+def _span(events: list[EventRecord]) -> int:
+    return max(e.eventtime for e in events) - min(e.eventtime for e in events)
+
+
+def rep014_foil_port_sessions_and_scale_match(s: Streams) -> None:
+    assert {e.dpt for e in s.negative} == {e.dpt for e in s.positive}, (
+        f"{s.tag}: foil ports {sorted({e.dpt for e in s.negative})} against miner "
+        f"{sorted({e.dpt for e in s.positive})}"
+    )
+    foil_sessions = len({e.session_id for e in s.negative})
+    miner_sessions = len({e.session_id for e in s.positive})
+    assert foil_sessions == miner_sessions, (
+        f"{s.tag}: {foil_sessions} foil session(s) against {miner_sessions} pool session(s)"
+    )
+    assert len(s.negative) >= 0.5 * len(s.positive), (
+        f"{s.tag}: foil {len(s.negative)} records against {len(s.positive)}"
+    )
+    assert _span(s.negative) >= 0.8 * _span(s.positive), (
+        f"{s.tag}: foil spans {_span(s.negative)} s against {_span(s.positive)} s"
+    )
+
+
+def rep014_bytes_still_separate(s: Streams) -> None:
+    miner = _cv(e.out_bytes or 0 for e in s.positive)
+    foil = _cv(e.out_bytes or 0 for e in s.negative)
+    assert miner < 0.3 < foil, f"{s.tag}: out-bytes CV miner {miner:.2f}, foil {foil:.2f}"
+
+
+def _nx_ratio(events: list[EventRecord]) -> float:
+    return sum(1 for e in events if e.extra.get("rcode") == "NXDOMAIN") / len(events)
+
+
+def rep016_foil_host_mostly_resolves(s: Streams) -> None:
+    foil = _nx_ratio(s.negative)
+    attack = _nx_ratio(s.positive)
+    assert foil <= 0.10 < attack, (
+        f"{s.tag}: foil NXDOMAIN ratio {foil:.2f} against the cluster's {attack:.2f}"
+    )
+
+
+def rep016_foil_volume_scales_without_a_name_cluster(s: Streams) -> None:
+    assert len(s.negative) >= 0.5 * len(s.positive), (
+        f"{s.tag}: foil {len(s.negative)} responses against {len(s.positive)}"
+    )
+
+    def failed_names(events: list[EventRecord]) -> set[str]:
+        return {str(e.extra["qname"]) for e in events if e.extra.get("rcode") == "NXDOMAIN"}
+
+    foil, attack = failed_names(s.negative), failed_names(s.positive)
+    assert foil and len(foil) <= 0.1 * len(attack), (
+        f"{s.tag}: {len(foil)} distinct failed names in the foil against {len(attack)}"
+    )
+
+
+_SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+
+def _pair(e: EventRecord) -> frozenset[str | None]:
+    return frozenset((e.src, e.dst))
+
+
+def _severity_sequence(events: list[EventRecord]) -> list[int]:
+    ordered = sorted(events, key=lambda e: e.eventtime)
+    return [_SEVERITY_RANK[e.extra["ips_severity"]] for e in ordered]
+
+
+def _rep022_scrambled(s: Streams) -> list[EventRecord]:
+    """The negative pair carrying as many alerts as the chain, if there is one."""
+
+    by_pair: dict[frozenset[str | None], list[EventRecord]] = defaultdict(list)
+    for event in s.negative:
+        by_pair[_pair(event)].append(event)
+    largest = max(by_pair.values(), key=len)
+    return largest if len(largest) == len(s.positive) else []
+
+
+def rep022_noise_matches_the_chain_on_severity_action_and_names(s: Streams) -> None:
+    scrambled = {id(e) for e in _rep022_scrambled(s)}
+    noise = [e for e in s.negative if id(e) not in scrambled]
+    for label, key in (
+        ("severities", lambda e: e.extra["ips_severity"]),
+        ("actions", lambda e: e.action),
+        ("levels", lambda e: e.level),
+        ("directions", lambda e: e.extra["direction"]),
+    ):
+        chain = {key(e) for e in s.positive}
+        got = {key(e) for e in noise}
+        assert got == chain, f"{s.tag}: noise {label} {sorted(got)} against chain {sorted(chain)}"
+    missing = {e.extra["attack"] for e in s.positive} - {e.extra["attack"] for e in noise}
+    assert not missing, f"{s.tag}: chain signatures never seen in the noise: {sorted(missing)}"
+
+
+def rep022_same_alerts_out_of_order_on_another_pair(s: Streams) -> None:
+    scrambled = _rep022_scrambled(s)
+    assert scrambled, f"{s.tag}: no negative pair carries the chain's {len(s.positive)} alerts"
+    assert len({_pair(e) for e in s.positive}) == 1
+    assert _pair(scrambled[0]) != _pair(s.positive[0])
+
+    def content(events: list[EventRecord]) -> Counter[tuple[str, str, str]]:
+        return Counter((e.extra["attack"], e.extra["ips_severity"], e.action) for e in events)
+
+    assert content(scrambled) == content(s.positive), f"{s.tag}: control alerts differ in content"
+    chain = _severity_sequence(s.positive)
+    control = _severity_sequence(scrambled)
+    assert chain == sorted(chain), f"{s.tag}: the chain itself is out of order"
+    assert control != sorted(control), f"{s.tag}: the control pair is in kill-chain order"
+    assert abs(_span(scrambled) - _span(s.positive)) <= 0.2 * _span(s.positive) + 60, (
+        f"{s.tag}: control spans {_span(scrambled)} s against the chain's {_span(s.positive)} s"
+    )
+
+
 # -- the table ------------------------------------------------------------------
 
 COMMON: list[Check] = [both_streams_present, foil_families_within_attack_families]
@@ -511,7 +648,7 @@ CHECKS: dict[str, list[Check]] = {
         rep005_no_window_is_an_exact_grid,
         rep005_history_stays_below_current,
     ],
-    "REP-007": [rep007_foil_volume_comparable],
+    "REP-007": [rep007_foil_volume_comparable, foil_sources_share_the_attack_pool],
     "REP-010": [
         rep010_foil_source_denies_under_benign_ceiling,
         rep010_attack_still_bursts,
@@ -528,6 +665,11 @@ CHECKS: dict[str, list[Check]] = {
         rep013_foil_per_source_volume_scales_with_fanout,
         rep013_source_growth_preserved,
     ],
+    "REP-014": [rep014_foil_port_sessions_and_scale_match, rep014_bytes_still_separate],
+    "REP-016": [
+        rep016_foil_host_mostly_resolves,
+        rep016_foil_volume_scales_without_a_name_cluster,
+    ],
     "REP-018": [
         rep018_star_ports_match_chain_ports,
         rep018_star_bytes_overlap_chain_bytes,
@@ -540,12 +682,17 @@ CHECKS: dict[str, list[Check]] = {
         rep019_foil_gaps_random,
         rep019_foil_count_scales,
     ],
+    "REP-022": [
+        rep022_noise_matches_the_chain_on_severity_action_and_names,
+        rep022_same_alerts_out_of_order_on_another_pair,
+    ],
     "REP-023": [
         rep023_foil_timing_irregular,
         rep023_foil_port_and_count_match,
         rep023_catalog_states_discriminators,
     ],
     "REP-024": [rep024_foil_pairs_not_byte_identical, rep024_foil_pair_count_scales],
+    "REP-030": [foil_sources_share_the_attack_pool],
 }
 
 FOIL_TECHNIQUES = [t for t in CATALOG.techniques if t.emits_foil]
@@ -591,6 +738,43 @@ def _parent(qname: str) -> str:
 
 
 @pytest.mark.parametrize("intensity", INTENSITIES)
+# -- REP-008: the same bar for the per-host novelty entry ------------------------
+#
+# Every baseline destination sat in one /24 and every first-seen destination in
+# another, so a subnet match found the "novel" contacts with no history at all
+# (60 of 60 seed-presets, 2026-11 review). REP-020's DNS parents had the same
+# defect.
+
+
+def _rep008_split(intensity: str, seed: int) -> tuple[list[str], list[str]]:
+    technique = CATALOG.by_id("REP-008")
+    plan = ENGINE.plan(technique, intensity, ENTITIES, seed)
+    novel_count = int(plan.effective_params["novel_dst"])
+    destinations = [str(e.dst) for e in plan.events]
+    return destinations[:-novel_count], destinations[-novel_count:]
+
+
+@pytest.mark.parametrize("intensity", INTENSITIES)
+def test_rep008_novel_destinations_share_the_baseline_networks(intensity: str) -> None:
+    novel_networks: Counter[str] = Counter()
+    for seed in SEEDS:
+        baseline, novel = _rep008_split(intensity, seed)
+        tag = f"REP-008 {intensity} seed {seed}"
+        assert not set(novel) & set(baseline), f"{tag}: a novel destination is in the history"
+        assert len(set(novel)) == len(novel), f"{tag}: novel destinations repeat"
+        baseline_networks = {_net24(d) for d in baseline}
+        assert len(baseline_networks) > 1, f"{tag}: the history sits in one /24"
+        assert {_net24(d) for d in novel} <= baseline_networks, (
+            f"{tag}: novel /24s {sorted({_net24(d) for d in novel})} are absent from the "
+            f"history's {sorted(baseline_networks)}"
+        )
+        novel_networks.update(_net24(d) for d in novel)
+    assert len(novel_networks) > 1, (
+        f"REP-008 {intensity}: every novel destination over {len(SEEDS)} seeds is in "
+        f"{sorted(novel_networks)}, so the /24 still predicts novelty"
+    )
+
+
 def test_rep020_novel_names_share_the_baseline_parent_pool(intensity: str) -> None:
     for seed in SEEDS:
         baseline, novel, preset = _rep020_names(intensity, seed)
