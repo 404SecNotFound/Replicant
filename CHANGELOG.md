@@ -36,6 +36,10 @@ offline, on the plan. No rule fire has been observed and the launch gate is unch
   names. The foil is now the same host's ordinary resolver traffic at the cluster's
   volume, mostly NOERROR, with a 2 to 8 percent NXDOMAIN trickle over five repeating
   names. The entry's objective sentence is reworded to match.
+  `docs/detection-specs/REP-016.md` is updated with it: the draft spec's own finding on the
+  trickle is marked resolved, its figures are measured again, and `min_nx_ratio` moves from
+  0.8 to 0.25, because the foil shares the attack's host and a default run puts that host's
+  NXDOMAIN share at 0.48 to 0.54. The threshold is a draft judgment for the owner to confirm.
 - **REP-007, REP-030.** Attack sources came from one external pool and foil sources from
   the other. REP-007's NAT foil now comes from the attack's pool. REP-030's two streams
   each draw half their sources from each pool, with disjoint sets, so REP-030's attack

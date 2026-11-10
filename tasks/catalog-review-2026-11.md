@@ -15,6 +15,13 @@ so SCEN-002's REP-008 stage is still separable by subnet, and the catalog says s
 "side effect to check" did not arise, because that stage's top destination was already a
 benign one.
 
+Implementation note (2026-11-10, rebase). The branch was rebased onto main after
+`docs/detection-specs/REP-016.md` landed there. That draft spec described the unfixed
+REP-016 foil and raised it as a finding. F5's fix answers the finding, and the spec is
+updated in the same change. Its `min_nx_ratio` moved from 0.8 to 0.25, because the foil
+shares the attack's host and a default run puts that host's NXDOMAIN share at 0.48 to
+0.54 (seeds 1 to 20, all three presets). The threshold is the owner's to confirm.
+
 Scope. All 31 techniques and the 4 scenarios at `575036b`.
 
 ## Method
