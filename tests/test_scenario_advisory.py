@@ -161,3 +161,51 @@ def test_advisory_reports_the_actual_window_and_alignment() -> None:
         SCEN.by_id("SCEN-001"), replace(composed, stages=shifted_stages), TECH
     )
     assert "(+1d aligned)" in shifted_text
+
+
+# -- credential pivot: a sprayed user who later logs in successfully ----------------
+
+_NO_JOIN = "no credential join was measured"
+
+
+def _scen003(seed: int) -> tuple[ComposedPlan, str, dict[str, Any]]:
+    scenario = SCEN.by_id("SCEN-003")
+    composed = compose(scenario, TECH.by_id, ScenarioEngine(), seed, ANCHOR, EntityModel.build())
+    text, coverage = build_advisory(scenario, composed, TECH)
+    return composed, text, coverage
+
+
+@pytest.mark.parametrize("seed", range(1, 11))
+def test_scen003_reports_the_spray_to_login_credential_join(seed: int) -> None:
+    composed, text, coverage = _scen003(seed)
+    login = next(s for s in composed.stages if s.technique_id == "REP-011")
+    spray = next(s for s in composed.stages if s.technique_id == "REP-007")
+    assert coverage["credential_pivot_stage_indices"] == [login.index]
+    section = _correlation_section(text)
+    assert f"stage {login.index} logged in successfully as `duser={login.top_user}`" in section
+    assert f"the target of failed VPN logins in stage {spray.index}" in section
+    assert _NO_JOIN not in section
+
+
+@pytest.mark.parametrize("scenario_id", ["SCEN-001", "SCEN-002", "SCEN-004"])
+def test_other_scenarios_report_no_credential_pivot(scenario_id: str) -> None:
+    (text, coverage), _ = _cached(scenario_id)
+    assert coverage["credential_pivot_stage_indices"] == []
+    assert "the target of failed VPN logins" not in text
+
+
+def test_credential_pivot_measurement_can_fail() -> None:
+    """Positive control: a login user who was never sprayed must not report a join."""
+
+    scenario = SCEN.by_id("SCEN-003")
+    composed, _, coverage = _scen003(1)
+    assert coverage["credential_pivot_stage_indices"]
+    login = next(s for s in composed.stages if s.technique_id == "REP-011")
+    stages = [
+        replace(s, success_users=("never_sprayed",)) if s.index == login.index else s
+        for s in composed.stages
+    ]
+    mutated = replace(composed, stages=stages)
+    text, cov = build_advisory(scenario, mutated, TECH)
+    assert cov["credential_pivot_stage_indices"] == []
+    assert _NO_JOIN in _correlation_section(text)

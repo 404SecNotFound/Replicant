@@ -161,15 +161,30 @@ def test_rep020_spec_lab_problem_still_holds(intensity: str) -> None:
 
 
 @pytest.mark.parametrize("intensity", ["low", "medium", "high"])
-def test_rep016_spec_trickle_description_still_holds(intensity: str) -> None:
-    """The REP-016 draft describes the benign trickle as 12 NXDOMAIN records of
-    wpad and isatap at every preset, with no successful lookup."""
+def test_rep016_spec_benign_stream_description_still_holds(intensity: str) -> None:
+    """The REP-016 draft describes the benign stream as the same host's resolver
+    traffic at the attack's volume, with an NXDOMAIN share of 0.02 to 0.08 over
+    at most 5 repeating names, and places min_nx_ratio = 0.25 between that and
+    the host's share on a default run (0.48 to 0.54). If the engine changes any
+    of that, this goes red and the spec's threshold section must be rewritten.
 
+    It did exactly that once: the first draft described a 12 record, all
+    NXDOMAIN trickle, and the 2026-11 catalog review replaced it."""
+
+    spec = (SPECS / "REP-016.md").read_text(encoding="utf-8")
+    assert "min_nx_ratio    := 0.25" in spec
     for seed in range(1, 21):
-        trickle = [e for e in _plan("REP-016", intensity, seed).events if e.control != "positive"]
-        assert len(trickle) == 12, (intensity, seed, len(trickle))
-        assert {e.extra["rcode"] for e in trickle} == {"NXDOMAIN"}
-        assert {e.extra["qname"].split(".")[0] for e in trickle} == {"wpad", "isatap"}
+        events = _plan("REP-016", intensity, seed).events
+        attack = [e for e in events if e.control == "positive"]
+        benign = [e for e in events if e.control != "positive"]
+        assert len(benign) == len(attack), (intensity, seed, len(benign))
+        assert {e.src for e in benign} == {e.src for e in attack}, (intensity, seed)
+        failed = [e for e in benign if e.extra["rcode"] == "NXDOMAIN"]
+        assert 0.02 <= len(failed) / len(benign) <= 0.08, (intensity, seed, len(failed))
+        labels = {e.extra["qname"].split(".")[0] for e in failed}
+        assert {"wpad", "isatap"} & labels and len(labels) <= 5, (intensity, seed, labels)
+        host_share = sum(e.extra["rcode"] == "NXDOMAIN" for e in events) / len(events)
+        assert 0.48 <= host_share <= 0.54, (intensity, seed, host_share)
 
 
 def test_spec_index_matches_the_catalog() -> None:

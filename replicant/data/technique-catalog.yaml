@@ -68,6 +68,15 @@
 # safety. "high" is still synthetic text to one collector. Duration and rate are
 # always operator-overridable from the menu or CLI flags.
 #
+# FOIL POOLS (2026-11 review)
+# A foil drawn from a different address pool than the attack hands a rule a free
+# match on the network. REP-007, REP-030, REP-046 and REP-053 draw both streams
+# from the same pool, and REP-008's history and novel destinations share both
+# external networks. REP-012, REP-014 and REP-023 keep the adversary and benign
+# destination pools and say so in benign_baseline. A scenario pins the adversary
+# pool to one address and keeps the rest of that network for foils and history,
+# so REP-007, REP-008 and REP-030 hold the same rule inside a chain.
+#
 # EXPANSION (roadmap 2026-09 item 16)
 # The next technique is gated on the tactic-gap tally, not on which paper had
 # measured results. This catalog is heavily weighted to Command and Control (13 of
@@ -290,7 +299,7 @@ techniques:
       spray: "many unique duser, few attempts each"
       brute: "one duser, many attempts, optional success at end"
       source_type: "event:vpn ssl-login-fail or event:system login failed (selectable)"
-    benign_baseline: "normal auth failures are sparse and self-correct. A NAT or CGNAT egress fronting many users is emitted as a benign foil: per-source login counts spike benignly, so a per-source spray threshold fires on it. The honest discriminator is the fail RATIO and the presence of successes across distinct users, not the raw per-source login count"
+    benign_baseline: "normal auth failures are sparse and self-correct. A NAT or CGNAT egress fronting many users is emitted as a benign foil: per-source login counts spike benignly, so a per-source spray threshold fires on it. The honest discriminator is the fail RATIO and the presence of successes across distinct users, not the raw per-source login count. The NAT source is drawn from the same external pool as the attacking source, so pool membership is not a free reputation feature (a scenario pins the pool to its one adversary and the NAT source still comes from the rest of that network)"
     emits_foil: true
     references: ["UC-006 User normalisation prereq", "fortigate-cef-reference: T1110"]
     safety_notes: "usernames drawn from a synthetic directory pool"
@@ -317,9 +326,9 @@ techniques:
       medium: { baseline_days: 14, novel_dst: 3 }
       high:   { baseline_days: 30, novel_dst: 5 }
     distributions:
-      approach: "engine first emits a baseline of known dst per host, then introduces first-seen external dst"
+      approach: "engine first emits a baseline of known dst per host, then introduces first-seen external dst. The five known destinations are drawn from both external networks (three from one /24, two from the other), and the first-seen destinations from the union of both networks minus the known set, so history and novel destinations share the same external networks and absence from this host's own history is the only mark of novelty. In a scenario (SCEN-002) the pinned adversary is held out of the history and is the stage's first first-seen destination; the history and the other first-seen destinations are drawn as in a standalone run, from both networks, so a subnet match does not find the stage's novel contacts"
       baseline_time: "compressed. baseline_days sets the history's volume (one contact per known destination per simulated day), not its span: the whole baseline sits in the hour before first contact, so plan pacing and --duration stay bounded. A novelty rule with a multi-day lookback sees one hour of history"
-    benign_baseline: "host talks to a stable set of external destinations"
+    benign_baseline: "host talks to a stable set of external destinations spread across the same external networks the first-seen destinations come from, so no network or /24 is reserved for novel contacts"
     references: ["UC-007 Whitelist Profile", "fortigate-cef-reference: T1583", "T1583 is the adversary-side anchor (infrastructure acquired before contact) and is not observable in victim telemetry; the observable is the first-contact behaviour"]
     safety_notes: "requires a baseline phase; the run summary states the warm-up and that its history is compressed into one hour of event time"
 
@@ -450,7 +459,7 @@ techniques:
       interval: "jitter mode holds one src and widens jitter until per-host periodicity is weak (each gap is the interval +/- jitter_pct, so the phase random-walks). fleet mode gives each src a rare callback anchored to its own offset phase on a shared interval grid, displaced by at most jitter_pct/100 * 0.375 of the interval, so the period is only strongly visible in the aggregate across src"
       out_bytes: "log-normal, low variance, same profile as REP-001"
       dpt_choices: [443, 8443]
-    benign_baseline: "a benign periodic destination (a software update check from a host outside the attacking fleet) is emitted alongside, at the beacon's own interval, port, byte envelope and session-duration draw and with the same jitter process and jitter_pct, because both source papers name legitimate periodic software as the dominant false positive. A zero-jitter update check would be more periodic than the attack and reward the wrong detector; one at its own cadence or byte size would hand the detector a feature the papers say it does not have"
+    benign_baseline: "a benign periodic destination (a software update check from a host outside the attacking fleet) is emitted alongside, at the beacon's own interval, port, byte envelope and session-duration draw and with the same jitter process and jitter_pct, because both source papers name legitimate periodic software as the dominant false positive. A zero-jitter update check would be more periodic than the attack and reward the wrong detector; one at its own cadence or byte size would hand the detector a feature the papers say it does not have. The foil destination is drawn from the benign external pool (198.51.100.0/24) and the attack's from the adversary pool (203.0.113.0/24). That split is a lab convention, not a feature: a rule keyed on the destination network separates the streams for free and has tested nothing"
     emits_foil: true
     references: ["BAYWATCH DSN 2016", "Zhang et al. ACSAC 2023 aggregation-based beaconing detection"]
     safety_notes: "one synthetic external destination from 203.0.113.0/24"
@@ -510,7 +519,7 @@ techniques:
       duration: "single sessions lasting hours, far above the per-host session duration norm"
       byte_ratio: "in:out close to 1:1, both small and steady. No large transfer at any point, which is what separates it from exfiltration"
       dpt_choices: [3333, 4444, 5555, 7777, 14444, 443]
-    benign_baseline: "a long-lived business session is emitted alongside, bursty in bytes rather than metronomic. MineShark had to auto-filter over 99.3% of false alarms, which is why this baseline is required"
+    benign_baseline: "long-lived business sessions are emitted alongside on the miner's destination port, with the miner's session count, span, records per session and share-interval cadence. Only the byte profile differs: wide and bursty rather than small, steady and near 1:1. MineShark had to auto-filter over 99.3% of false alarms, which is why this baseline is required. The foil destination is drawn from the benign external pool (198.51.100.0/24) and the attack's from the adversary pool (203.0.113.0/24). That split is a lab convention, not a feature: a rule keyed on the destination network separates the streams for free and has tested nothing"
     emits_foil: true
     references: ["MineShark NDSS 2025", "MineHunter ACSAC 2021", "CJ-Sniffer RAID 2022"]
     safety_notes: "pool destinations are synthetic documentation-range IPs. Never substitute a real mining pool hostname or address, even as a label"
@@ -552,7 +561,7 @@ techniques:
     ndr_rule: "NDR-C2-015"
     ndr_uc: "UC-015"
     objective: >-
-      Prove a DGA rule keys on clustered NXDOMAIN responses and is not defeated by the steady benign NXDOMAIN trickle from typos and stale records.
+      Prove a DGA rule keys on clustered NXDOMAIN responses and is not defeated by a host that resolves ordinary names and fails a few stale ones repeatedly.
     attack:
       tactics: ["TA0011 Command and Control"]
       techniques: ["T1568.002", "T1071.004"]
@@ -571,7 +580,8 @@ techniques:
       qname: "many DISTINCT second-level labels with an algorithmic character distribution. This is the inverse of REP-004, which puts many subdomains under one parent"
       rcode: "NXDOMAIN for nx_ratio of responses; NOERROR for the small remainder, representing the one registered rendezvous domain the operator actually stood up"
       epochs: "the domain set regenerates each epoch, mirroring a time-seeded generator"
-    benign_baseline: "normal hosts produce a low steady NXDOMAIN rate from typos and stale records. A benign NXDOMAIN trickle is emitted so the detection cannot simply threshold on any NXDOMAIN at all"
+    benign_baseline: >-
+      the same host also emits its ordinary resolver traffic over the whole plan window: about as many dns-response records as the cluster, mostly NOERROR for a set of ten repeating service names (www, mail, api and similar) under one synthetic documentation parent, each answered from the benign external pool. A small NXDOMAIN trickle is inside it, drawn per run at 2 to 8 percent of responses over a fixed set of five repeating stale names (wpad, isatap and three others). The foil's NXDOMAIN ratio therefore stays at or below 0.10 against the cluster's 0.95 to 0.99, and its failed names are at most 5 distinct against hundreds to thousands, so NXDOMAIN ratio and distinct failed-name clustering separate the two streams, and raw query volume and the presence of NXDOMAIN do not
     emits_foil: true
     transferability: "parser-only"
     transferability_note: >-
@@ -770,9 +780,9 @@ techniques:
     distributions:
       stage_order: "recon, then exploit attempt, then post-exploitation or C2. Strictly ordered in time and never interleaved out of order, which is what a correlation rule keys on"
       severity: "ascending across stages on every vendor, so a severity-weighted rule sees escalation. ips_severity low, medium, high, critical, critical; CEF header 3,4,5,7,7 on FortiGate, 3,5,6,8,8 on PAN-OS, Low to Very-High on Check Point"
-      noise_alerts: "unrelated single alerts on other entity pairs, interleaved through the whole window"
+      noise_alerts: "alerts on other entity pairs, one or two per pair, interleaved through the whole window. Each takes the ips_severity, level, action and direction of one stage the chain uses (the exfil stage reversed and outgoing, as in the chain), and that stage's own signature name about half the time, otherwise a generic IPS signature. Every severity, level, action, direction and signature name the chain carries also appears in the noise of the same run"
       direction: "recon through c2 are alerts on the flow into the victim (direction incoming, src the adversary). The exfil stage is a large outbound transfer, raised on the flow leaving the victim: the same pair reversed, direction outgoing, src the victim. The held pair is the unordered pair"
-    benign_baseline: "noise_alerts IS the baseline. A rule that fires on any N alerts in a window fires on the noise too. AACT reported 61% of real SOC alerts were closable, so a clean chain would badly overstate a rule's quality"
+    benign_baseline: "Two negative controls. The noise_alerts carry the chain's own severities, actions and signature names on other entity pairs, so a rule keyed on severity above low or on the chain's signature names fires on the noise too. The second control replays the chain's exact alerts (same names, ids, severities, levels and actions) on one other external source and internal target, with the stage blocks in reverse order across the same time span, so a rule that counts alerts or severities per pair fires on it too. Kill-chain order on one pair is the only separating feature. AACT reported 61% of real SOC alerts were closable, so a clean chain would badly overstate a rule's quality"
     emits_foil: true
     references: ["Wilkens et al., Multi-Stage Attack Detection via Kill Chain State Machines", "ALERTPRO Computers & Security 2023", "AACT Turcotte et al. 2025"]
     safety_notes: "attack names and signature ids are labels only, identical to REP-009. No exploit text and no payloads are ever emitted"
@@ -803,7 +813,7 @@ techniques:
       byte_profile: "the distinguishing feature is LOW variance, not high volume. Browsing to 443 has wildly variable transfer sizes; this does not"
       duration: "short and consistent per session, unlike a browsing session that holds open"
       handshake: "no handshake-derived field is emitted at all. A detection that needs JA3 or a cipher suite gets nothing, which is the point of the technique"
-    benign_baseline: "concurrent browsing to 443 from the same host, with the same session count over the same window, high byte variance, varied durations and irregular timing. Port, source and session count are held equal; a beacon talks to one destination on a fixed interval, so destination count, per-pair session count and timing regularity are legitimate discriminators alongside byte variance, and the foil does not pretend otherwise"
+    benign_baseline: "concurrent browsing to 443 from the same host, with the same session count over the same window, high byte variance, varied durations and irregular timing. Port, source and session count are held equal; a beacon talks to one destination on a fixed interval, so destination count, per-pair session count and timing regularity are legitimate discriminators alongside byte variance, and the foil does not pretend otherwise. The foil destination is drawn from the benign external pool (198.51.100.0/24) and the attack's from the adversary pool (203.0.113.0/24). That split is a lab convention, not a feature: a rule keyed on the destination network separates the streams for free and has tested nothing"
     emits_foil: true
     references: ["Extending C2 Traffic Detection Methodologies: From TLS 1.2 to TLS 1.3-enabled Malware, RAID 2024"]
     safety_notes: "one synthetic external destination. Replicant negotiates no TLS for this technique; the --transport tls option is a separate concern (it encrypts the syslog channel to the collector)"
@@ -865,7 +875,7 @@ techniques:
       failures: "one failed VPN login per synthetic user, distributed evenly across many documentation-range sources; five failures per source in shipped presets"
       timing: "evenly sparse across a multi-hour window so per-source burst thresholds remain quiet"
       aggregation: "the detection surface is the portal-wide source-user failure graph and failure ratio"
-    benign_baseline: "the same number of failed source-user edges from a second source and user population, with every failure followed by a successful self-correction"
+    benign_baseline: "the same number of failed source-user edges from a second source and user population, with every failure followed by a successful self-correction. Each stream draws about half its sources from each of the two external pools, and the two source sets are disjoint, so pool membership is not a free reputation feature (a scenario pins the adversary pool to one address; that address is one of the attack's sources and both streams still draw from both networks)"
     emits_foil: true
     transferability_note: "The Araña source study uses web authentication logs. Replicant transfers the distributed source-user failure shape to verified event:vpn fields; it does not reproduce the study's service-specific features or claimed detector results."
     references:
@@ -945,7 +955,7 @@ techniques:
       sequence: "one successful admin login (event:system login success) from a host outside the management pool, then changes configuration edits spread over window_min at uniform random offsets, all by the same account from the same source"
       change_paths: "weighted: firewall.policy 0.35, system.admin 0.15, log.syslogd.setting 0.15, system.interface 0.15, firewall.address 0.10, vpn.ssl.settings 0.10; actions Edit 0.7, Add 0.2, Delete 0.1"
       duration: "--duration sets the window and the change count is preserved, because the count inside the window is the signal, not the spacing"
-    benign_baseline: "the on-duty administrator makes the same number and kind of changes, with the same action mix and the same irregular timing, in the same window, logged in from a management jump host (the mgmt_hosts pool, 10.20.1.0/28). Only the source's asset role differs, and that is the intended discriminator: a rule that fires on the burst alone fires on every change window"
+    benign_baseline: "the on-duty administrator makes the same kind of changes, their count drawn from the same preset range (each stream draws its own count, so the two are rarely equal), with the same action mix and the same irregular timing, in the same window, logged in from a management jump host (the mgmt_hosts pool, 10.20.1.0/28). Only the source's asset role differs, and that is the intended discriminator: a rule that fires on the burst alone fires on every change window"
     emits_foil: true
     transferability_note: >-
       Disclosed limit: the management pool is a synthetic subnet and a production rule's notion of an expected source comes from the operator's asset inventory. The emitted records exercise the login-then-burst logic and the source join; they do not exercise a production allow-list of management addresses. Every configuration path, object and attribute is a label.
@@ -981,7 +991,7 @@ techniques:
       bytes: "each session reads a share's files and writes them back, so both directions are large (in log-normal over 300 KB to 5 MB, sigma 0.5) and out is at least in (out = in times uniform 1.02 to 1.25). [Inference] the write-to-read ratio is a design choice standing in for an encrypted rewrite plus renames; no capture was measured"
       duration_s: "per session uniform 20 to 300 s, clamped to the window"
       duration: "--duration sets the window and the share count is preserved, because the number of distinct destinations written to inside the window is the signal, not the spacing"
-    benign_baseline: "a software-distribution server (the server_hosts pool, 10.20.2.0/28) pushes to the same number of file servers in the same window, with the same sessions per share, the same byte and duration draws and the same write-to-read ratio. Only the source's asset role differs, and that is the intended discriminator: a rule that fires on SMB write fan-out alone fires on every patch window"
+    benign_baseline: "a software-distribution server (the server_hosts pool, 10.20.2.0/28) pushes to a number of file servers drawn from the same preset range (each stream draws its own count, so the two are rarely equal) in the same window, with the same sessions per share, the same byte and duration draws and the same write-to-read ratio. Only the source's asset role differs, and that is the intended discriminator: a rule that fires on SMB write fan-out alone fires on every patch window"
     emits_foil: true
     transferability_note: >-
       Disclosed limit: a firewall traffic record carries sessions and bytes, not file operations. Published SMB-traffic ransomware detectors key on file-level reads followed by overwrites and deletes, which this family cannot express, so the emitted records exercise the session-level aggregation only (distinct destinations per source on tcp/445 and write volume inside the window). The server pool is a synthetic subnet; a production rule's notion of a distribution server comes from the operator's asset inventory, which these records do not exercise.
@@ -1019,7 +1029,7 @@ techniques:
       bytes: "request (out) uniform 60 to 240 bytes; reply (in) is the request times a factor drawn uniformly from amplification. The preset ranges sit under the published per-protocol maxima (SNMP GetBulk about 6x, NTP monlist about 556x). [Unverified: the maxima are quoted from memory]"
       rate: "bounded by the events-per-second safety cap by design. A flood is never expressed as event rate here and a run will not produce a rate spike; the signal is carried in bytes per session only"
       duration: "--duration sets the window and the session count is preserved, because the count and the ratio inside the window are the signal, not the spacing"
-    benign_baseline: "one chatty external client (a monitoring poller) makes the same number of udp sessions to the same server in the same window, with the same request sizes, the same durations and the same irregular timing, and gets replies between 0.8x and 1.25x its requests. Only the per-session reply-to-request ratio differs, and that is the intended discriminator: a rule that fires on inbound session count to the service alone fires on every poller. Both sources are drawn from the same external pool, so pool membership is not a free reputation feature either"
+    benign_baseline: "one chatty external client (a monitoring poller) makes a number of udp sessions drawn from the same preset range (each stream draws its own count, so the two are rarely equal) to the same server in the same window, with the same request sizes, the same durations and the same irregular timing, and gets replies between 0.8x and 1.25x its requests. Only the per-session reply-to-request ratio differs, and that is the intended discriminator: a rule that fires on inbound session count to the service alone fires on every poller. Both sources are drawn from the same external pool, so pool membership is not a free reputation feature either"
     emits_foil: true
     transferability_note: >-
       Disclosed limits. First, safety rule 4 caps events per second, so this entry cannot express the rate of a reflection flood; a production rule keyed on packets or sessions per second will not fire on this run, and the entry says so rather than teaching the operator to expect a spike. Second, the firewall cannot see address spoofing: the spoofed source is an ordinary synthetic external address and the only evidence of abuse in the record is the byte asymmetry. Third, whether the internal server should answer the internet at all is an asset-inventory question these records do not exercise.
@@ -1058,7 +1068,7 @@ techniques:
       duration_s: "per session uniform 30 to 600 s, clamped to the window"
       duration: "--duration sets the window and the source count is preserved, because the number of distinct sources converging inside the window is the signal, not the spacing"
       scenario: "under scenario pinning the staging host is the pinned victim, so SCEN-004 can join this stage to an egress stage whose source is the same host; the phase transition is the chain's analytic"
-    benign_baseline: "a nightly backup fan-in: the same number of internal sources, from the same pool, push the same sessions per source with the same byte and duration draws and the same irregular timing onto a backup server (the server_hosts pool, 10.20.2.0/28). Only the destination's asset role differs, and that is the intended discriminator: a rule that fires on fan-in alone fires on every backup window. Standalone, nothing distinguishes staging from backup except where the data lands; the egress that follows is what SCEN-004 adds"
+    benign_baseline: "a nightly backup fan-in: a number of internal sources drawn from the same preset range (each stream draws its own count, so the two are rarely equal), from the same pool, push the same sessions per source with the same byte and duration draws and the same irregular timing onto a backup server (the server_hosts pool, 10.20.2.0/28). Only the destination's asset role differs, and that is the intended discriminator: a rule that fires on fan-in alone fires on every backup window. Standalone, nothing distinguishes staging from backup except where the data lands; the egress that follows is what SCEN-004 adds"
     emits_foil: true
     transferability_note: >-
       Disclosed limits. No peer-reviewed network-flow detector for staging fan-in is cited; the entry's anchor is the ATT&CK technique and incident reporting, and the design is a topology argument rather than a measured distribution. The workstation and server pools are synthetic subnets; a production rule's notion of a backup server comes from the operator's asset inventory, which these records do not exercise. The records carry sessions and bytes, not file names or share paths.

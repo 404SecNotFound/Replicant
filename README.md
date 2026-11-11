@@ -214,6 +214,10 @@ replicant scenario run SCEN-003 --controls both --to-file ./out/s3.log --no-send
 
 # staging fan-in onto one workstation, then bulk exfil from that same host overnight
 replicant scenario run SCEN-004 --seed 1337 --to-file ./out/s4.log --no-send
+
+# unfamiliar VPN source, a login chain across workstations, then an SMB write fan-out
+# from the host the chain ended on
+replicant scenario run SCEN-005 --seed 1337 --to-file ./out/s5.log --no-send
 ```
 
 On normal completion or a handled stop, every scenario run writes an advisory
@@ -313,9 +317,10 @@ REP-019 stays below the threshold on purpose.
 
 Where a detection depends on separating the signal from a look-alike, the plan
 emits the look-alike too. A run that contained only the malicious pattern would let
-any rule score perfectly and teach you nothing, so REP-014 ships a bursty benign
-long session, REP-018 an admin star pattern against its chain, REP-022 unrelated
-alert noise around its ordered chain, REP-024 a sanctioned proxy with an
+any rule score perfectly and teach you nothing, so REP-014 ships benign long
+sessions on the miner's port and cadence with bursty bytes, REP-018 an admin star
+pattern against its chain, REP-022 alert noise at the chain's own severities plus
+the chain's alerts replayed out of order on another pair, REP-024 a sanctioned proxy with an
 identical traffic shape, REP-030 self-correcting distributed failures, and
 REP-043 broken-join and reversed-order dialogs.
 

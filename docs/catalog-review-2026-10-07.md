@@ -288,3 +288,10 @@ sinkhole hits are half reputation (rejected class) and half REP-025 fast-flux
 inverted; ICMP tunnelling needs a port-less traffic template (round 3 REP-027);
 Tor, certificate anomalies, web-filter categories and destination-country
 anomalies stay rejected for the reasons already recorded.
+
+Implementation note (2026-11-10): two rows of the verdict table above were left open by
+this review and are closed by `tasks/catalog-review-2026-11.md`. REP-014's row records the
+foil as separable on "12 records against 120 to 25920" and the defect table has no REP-014
+row; the foil now scales with the miner and uses its port. REP-022's row records "none";
+that row checked the entity pair and not severity, and every noise alert was severity low.
+The noise now carries the chain's severities and a reversed-order control exists.

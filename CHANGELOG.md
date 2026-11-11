@@ -6,6 +6,116 @@ Claims that have not been validated against a live vendor build or a real host a
 
 ## [Unreleased]
 
+### Fixed (catalog review, 2026-11-10): five foils a rule could separate for free
+
+Review record with seeds, presets and measured values: `tasks/catalog-review-2026-11.md`.
+Every guard below was run against the unfixed engine first and failed on seeds 1 to 20 at
+all three presets (18 of 18 new cases), then passed after the fix. All measurements are
+offline, on the plan. No rule fire has been observed and the launch gate is unchanged.
+
+- **REP-022.** Every noise alert was severity low with action reset, so "any alert above
+  low" isolated the chain with no notion of order, and no control tested order at all.
+  Noise now carries the severities, levels, actions, directions and signature names of the
+  stages the chain uses. A second negative control replays the chain's alerts on one other
+  pair with the stage blocks reversed over the same span. Kill-chain order on one pair is
+  the only separating feature. The positive stream is byte-identical for a given seed.
+- **REP-014.** The business-session foil was 12 records at every preset on a hard-coded
+  port 443, one session, against 120, 2880 and 25920 miner records on the miner's own port.
+  The 2026-10-07 review listed this in its verdict table and never fixed it. The foil now
+  uses the miner's port, session count, record count, cadence and span, and only the byte
+  profile differs. Each stream takes half of `max_events`, so a plan above 100,000 miner
+  records now truncates where it did not before; the largest shipped preset is 25,920.
+  The high preset's plan doubles to 51,840 events.
+- **REP-008.** Every known destination sat in 198.51.100.0/24 and every first-seen one in
+  203.0.113.0/24, so a subnet match found the novel contacts with no history. Standalone,
+  the history now spans both external networks and novel destinations come from their
+  union minus the history. Under scenario pinning the previous draw is kept, so SCEN-002's
+  stage is still separable by subnet; the entry states that limit.
+- **REP-016.** The benign trickle was exactly 12 responses, all NXDOMAIN, a failure ratio
+  of 1.00 against the cluster's 0.95 to 0.99, on the ratio feature the Tier 0 contract
+  names. The foil is now the same host's ordinary resolver traffic at the cluster's
+  volume, mostly NOERROR, with a 2 to 8 percent NXDOMAIN trickle over five repeating
+  names. The entry's objective sentence is reworded to match.
+  `docs/detection-specs/REP-016.md` is updated with it: the draft spec's own finding on the
+  trickle is marked resolved, its figures are measured again, and `min_nx_ratio` moves from
+  0.8 to 0.25, because the foil shares the attack's host and a default run puts that host's
+  NXDOMAIN share at 0.48 to 0.54. The threshold is a draft judgment for the owner to confirm.
+- **REP-007, REP-030.** Attack sources came from one external pool and foil sources from
+  the other. REP-007's NAT foil now comes from the attack's pool. REP-030's two streams
+  each draw half their sources from each pool, with disjoint sets, so REP-030's attack
+  sources change for a given seed. Under scenario pinning both keep the previous draw.
+- **REP-012, REP-014, REP-023 (disclosure, no behaviour change).** The foil destination
+  comes from the benign external pool and the attack's from the adversary pool. Each entry
+  now says so and names it as a lab convention a rule must not key on.
+- **REP-028, REP-052, REP-053, REP-054 (text only).** `benign_baseline` said "the same
+  number". Each stream draws its count independently from the same preset range, and the
+  text now says that.
+
+Guards: `tests/test_foil_parity.py` gains rows for REP-014, REP-016, REP-022 and REP-030,
+a pool check on REP-007, and a REP-008 network check. One existing test changed:
+`test_rep022_chain_is_buried_in_unrelated_alert_noise` pinned the single-control count.
+Two more changed after the merge with main. `tests/test_detection_specs.py` pinned the old
+REP-016 trickle (12 records, all NXDOMAIN) and went red as designed; it now measures the
+new benign stream and the spec's 0.25 threshold. The REP-016 entropy test in
+`tests/test_statistical_fidelity.py` covered the medium preset only, with the low preset
+0.07 bits under its 3.5 limit; it now covers every preset with the boundary at 4.0 (foil
+3.05 to 3.43, cluster 4.98 to 5.00, 24 seeds).
+
+### Added (scenarios, 2026-11-10): SCEN-005, unfamiliar VPN source to lateral movement to SMB write fan-out
+
+- **SCEN-005.** REP-046 (unfamiliar VPN source), then REP-018 (login chain), then REP-052
+  (SMB write fan-out). It adds Lateral Movement and Impact to the curated chains. No
+  technique was added and no vendor profile changed.
+- **REP-018 now plans under scenario pinning.** It raised `entity pool is exhausted`
+  before, because pinning left one workstation and a path needs several. The composer
+  keeps the whole workstation pool in `EntityModel.internal_network`, and under pinning
+  the path starts at the victim. Standalone REP-018 output is unchanged.
+- **Stage option `source_host: previous-path-end`.** The stage's workstation is the last
+  host of the most recent earlier stage that emitted a lateral path. SCEN-005's fan-out
+  uses it, so the fan-out leaves from where the lateral movement arrived. Composing fails
+  if no earlier stage emitted a path. The default, `victim`, is the previous behaviour.
+- **The advisory measures the lateral path and both joins around it**:
+  `lateral_path_stage_indices`, `lateral_entry_stage_indices` (the path starts at an
+  address an earlier stage's VPN logins were assigned) and `lateral_handoff_stage_indices`
+  (a later stage's dominant source is the path's last host). The path is read from the
+  emitted traffic legs. The four existing chains report none.
+- Limits, also stated in the advisory text. The entry join is an address every VPN login
+  in the first stage shares under pinning, so it does not single out the unfamiliar
+  login. No username is carried between the first two stages by construction.
+- Guards: `tests/test_scen005_lateral_chain.py`, seeds 1 to 20. Positive controls: the
+  guards went red with the handoff removed, with the victim-first rule removed, and with
+  the workstation pool not kept.
+- Web scenario support stays deferred (CHAIN-16). The Rich menu `[a]` and
+  `replicant scenario list|show|run` pick the new chain up from the catalog.
+
+### Fixed (scenario pinning, 2026-11-10): the pool rule now holds inside a chain
+
+- The entries above disclosed that a scenario-pinned run kept the old pool split. It no
+  longer does. `composer._pin_entities` still narrows `adversary_external` to the chain's
+  one adversary, and now keeps the whole pool in `EntityModel.adversary_network`. REP-008,
+  REP-007 and REP-030 read it through `adversary_wide`.
+- **REP-008 in SCEN-002.** The pinned adversary is held out of the history and is the
+  first first-seen destination. The history spans both external networks and the stage
+  emits the preset's full `novel_dst` (3 at medium, where a pinned run emitted 1).
+- **REP-007 in SCEN-003.** The NAT foil's source comes from the adversary's network.
+- **REP-030.** In no shipped chain. Under pinning both streams draw from both networks
+  and the pinned adversary is one of the attack's sources.
+- Standalone runs are unchanged. **Seeded output changes for SCEN-002 and SCEN-003.**
+- Guards: nine pinned cases in `tests/test_foil_parity.py`, run on the composer's own
+  pinned model over seeds 1 to 20 at three presets. Nine of nine failed on the unfixed
+  code.
+
+### Added (scenario advisory, 2026-11-10): the failed-login to login credential join
+
+- The advisory reports `credential_pivot_stage_indices`: stages with a successful VPN
+  login for a user that an earlier stage failed logins for, measured from the composed
+  positive events. SCEN-003 reports its REP-011 stage; the other three chains report none.
+  When a chain has VPN failures and a VPN login and no shared user, the advisory says no
+  credential join was measured. This closes the user-continuity item the 2026-09-08 review
+  left open. Limits: the join is username overlap, not evidence of how a credential was
+  obtained, and it keys on the VPN action names, so REP-007's `event:system` mode would
+  not count. No engine change.
+
 ### Changed (README, 2026-10-22): the web UI section matches the operations console
 
 - The README's web UI section gains a tour of the six tabs and the status cells and

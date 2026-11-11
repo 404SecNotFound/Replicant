@@ -301,6 +301,7 @@ _IPS_STAGES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
         (("HTTP.Large.Outbound.Transfer", "18443"),),
     ),
 )
+_IPS_STAGE_INDEX: dict[str, int] = {name: index for index, (name, _, _) in enumerate(_IPS_STAGES)}
 
 
 # Fleet-mode callbacks are displaced from their slot by at most this fraction of
@@ -671,6 +672,35 @@ _BUILDER_METHOD_NAMES: dict[str, str] = {
 def implemented_technique_ids() -> frozenset[str]:
     """Technique ids the engine can plan. Everything else raises NotImplementedError."""
     return frozenset(_BUILDER_METHOD_NAMES)
+
+
+# REP-016 benign foil names: low-entropy service labels the host resolves, and a
+# small fixed set of stale or mistyped labels it keeps failing on.
+_FOIL_RESOLVED_LABELS = (
+    "www",
+    "mail",
+    "api",
+    "cdn",
+    "updates",
+    "portal",
+    "login",
+    "files",
+    "static",
+    "docs",
+)
+_FOIL_STALE_LABELS = ("wpad", "isatap", "printsrv", "oldfiles", "intranet2")
+
+
+def _interleave(first: list[str], second: list[str]) -> list[str]:
+    """Alternate two lists, first element first, keeping any longer tail."""
+
+    merged: list[str] = []
+    for index in range(max(len(first), len(second))):
+        if index < len(first):
+            merged.append(first[index])
+        if index < len(second):
+            merged.append(second[index])
+    return merged
 
 
 class ScenarioEngine:
@@ -1553,7 +1583,13 @@ class ScenarioEngine:
         # Co-located in the same window, so time of day is not a free discriminator.
         if not truncated and entities.benign_external:
             foil_start = len(events)
-            nat = str(rng.choice(entities.benign_external))
+            # Drawn from the attack's own network so pool membership is not a
+            # free reputation feature. A scenario pins the pool to the attack
+            # source and keeps the rest of the network in adversary_network, so
+            # the NAT still comes from the same /24. Only a hand-built model with
+            # a one-address pool falls back to the benign pool.
+            nat_pool = [c for c in entities.adversary_wide if c != src]
+            nat = str(rng.choice(nat_pool or entities.benign_external))
             # Sized from the attack's login VOLUME, not its user count: in brute
             # mode `users` is 1, so a NAT sized from it fronted four users and
             # emitted 4 to 8 events against 400, and per-source count separated
@@ -1812,14 +1848,48 @@ class ScenarioEngine:
         # One host talking to a small stable set of external peers, then to new ones.
         src = str(rng.choice(entities.internal_hosts))
         benign = entities.benign_external
-        known = [
-            benign[i] for i in unique_ints(rng, 0, len(benign) - 1, min(known_count, len(benign)))
-        ]
-        adversary = entities.adversary_external
-        novel = [
-            adversary[i]
-            for i in unique_ints(rng, 0, len(adversary) - 1, min(novel_dst, len(adversary)))
-        ]
+        # Under scenario pinning the stage's first-seen contact must be the
+        # scenario's adversary, so it is held out of the history draw and placed
+        # first among the novel destinations; everything else is drawn as in a
+        # standalone run, from the adversary's whole network.
+        through_line = entities.pinned_adversary
+        adversary = [ip for ip in entities.adversary_wide if ip != through_line]
+        if len(benign) >= known_count and len(adversary) >= known_count:
+            # The history and the first-seen destinations share both external
+            # networks, so absence from this host's own history is the only mark
+            # of novelty. The known set used to come wholly from the benign pool
+            # and every novel destination from the adversary pool, so a /24 match
+            # found the novel contacts without any history (2026-11 review, F3;
+            # REP-020 had the same defect on DNS parents). The history draws 3
+            # from one pool and 2 from the other, and the novel destinations come
+            # from the union of both pools minus the history, so either /24 can
+            # hold a novel destination and neither predicts one.
+            majority = 3
+            first, second = (benign, adversary) if rng.integers(0, 2) == 0 else (adversary, benign)
+            known = [first[i] for i in unique_ints(rng, 0, len(first) - 1, majority)]
+            known += [
+                second[i] for i in unique_ints(rng, 0, len(second) - 1, known_count - majority)
+            ]
+            known = [known[int(i)] for i in rng.permutation(len(known))]
+            history = set(known)
+            candidates = [ip for ip in dict.fromkeys([*benign, *adversary]) if ip not in history]
+            held = [through_line] if through_line else []
+            wanted = max(min(novel_dst, len(candidates) + len(held)) - len(held), 0)
+            novel = held + [candidates[i] for i in unique_ints(rng, 0, len(candidates) - 1, wanted)]
+        else:
+            # An entity model built by hand with a pool too small for the mixed
+            # draw: the history stays in the benign pool and the first-seen
+            # contacts go to the adversary pool. A scenario no longer lands here,
+            # because pinning keeps the whole pool in adversary_network.
+            adversary = entities.adversary_external
+            known = [
+                benign[i]
+                for i in unique_ints(rng, 0, len(benign) - 1, min(known_count, len(benign)))
+            ]
+            novel = [
+                adversary[i]
+                for i in unique_ints(rng, 0, len(adversary) - 1, min(novel_dst, len(adversary)))
+            ]
 
         # Compressed history: one hit per known destination per baseline day.
         baseline_events = len(known) * baseline_days
@@ -2450,6 +2520,9 @@ class ScenarioEngine:
         events: list[EventRecord] = []
         session = int(rng.integers(10_000, 60_000))
         truncated = False
+        # The foil mirrors the miner record for record, so each stream gets half
+        # the ceiling. A miner that took the whole ceiling would leave no foil.
+        stream_cap = max(1, self.max_events // 2)
         for pool_session in range(sessions):
             start = anchor + pool_session * session_s
             for share in range(shares):
@@ -2471,7 +2544,7 @@ class ScenarioEngine:
                         (share + 1) * share_interval_s,  # duration grows within the session
                     )
                 )
-                if len(events) >= self.max_events:
+                if len(events) >= stream_cap:
                     truncated = True
                     break
             session += 1
@@ -2479,37 +2552,43 @@ class ScenarioEngine:
                 break
 
         foil_start = len(events)
-        # Benign long-lived session: comparable duration profile, bursty bytes.
-        # MineShark had to auto-filter over 99.3% of its alarms, which is the
-        # argument for including this. The foil must reach the same order of
-        # magnitude as the miner session: a foil that dies after a few minutes
-        # while the miner holds for hours is separable on duration alone, which
-        # is exactly the shortcut the foil exists to deny.
+        # Benign long-lived sessions with the miner's structure: same source and
+        # destination port, same number of back-to-back sessions (own ids), same
+        # records per session on the same share-interval grid over the same span,
+        # same growing per-record duration. Only the byte profile differs: wide
+        # and bursty here, small and steady for the miner. Every other feature a
+        # rule could read is shared, so bytes are the one discriminator, which is
+        # what the catalog names. MineShark had to auto-filter over 99.3% of its
+        # alarms, which is the argument for including this. Foil randomness is
+        # drawn after the miner is complete so the miner stream does not move.
         benign_dst = str(rng.choice(entities.benign_external))
-        benign_steps = max(1, min(12, shares))
-        step_span_s = max(session_s // benign_steps, share_interval_s)
-        for step in range(benign_steps):
-            if len(events) >= self.max_events:
-                break
-            events.append(
-                self._steady_accept(
-                    rng,
-                    src,
-                    benign_dst,
-                    443,
-                    anchor + step * step_span_s,
-                    session,
-                    int(rng.integers(200, 90_000)),  # bursty, unlike the miner
-                    int(rng.integers(200, 400_000)),
-                    (step + 1) * step_span_s,
+        foil_session = session
+        for pool_session in range(sessions):
+            start = anchor + pool_session * session_s
+            for share in range(shares):
+                if len(events) - foil_start >= foil_start:
+                    break
+                events.append(
+                    self._steady_accept(
+                        rng,
+                        src,
+                        benign_dst,
+                        dpt,
+                        start + share * share_interval_s,
+                        foil_session,
+                        int(rng.integers(200, 90_000)),  # bursty, unlike the miner
+                        int(rng.integers(200, 400_000)),
+                        (share + 1) * share_interval_s,
+                    )
                 )
-            )
+            foil_session += 1
         self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{sessions} pool session(s) of {session_s // 60} min, one exchange every "
-            f"{share_interval_s}s on port {dpt}. A bursty long-lived benign session is "
-            "included as a false-positive control."
+            f"{share_interval_s}s on port {dpt}. A benign long-lived control with the "
+            "same port, session count, span and cadence but bursty bytes is included "
+            "as a false-positive control."
         )
         return events, note, truncated
 
@@ -2701,33 +2780,57 @@ class ScenarioEngine:
                 break
 
         foil_start = len(events)
-        # Benign NXDOMAIN trickle: typos and stale records. Without it, a rule
-        # that alerts on any NXDOMAIN at all would look perfect. Capped at the
-        # plan window so the trickle cannot outlive the epochs (or a duration
-        # override) it is meant to blend into.
+        # Benign foil: the same host's ordinary resolver traffic over the whole
+        # plan window. A real host resolves most names and fails occasionally,
+        # so the foil is mostly NOERROR for a small set of repeating service
+        # names with a low NXDOMAIN ratio over a few repeating stale names. A
+        # foil that failed every lookup would out-score the attack on a ratio
+        # rule. All foil randomness is drawn after the cluster is built, so the
+        # positive stream does not depend on it.
         benign_parent = str(rng.choice(entities.parents))
-        window_s = epochs * epoch_s
-        for index in range(min(12, max(self.max_events - len(events), 0))):
-            events.append(
-                self._dns_response_record(
-                    rng,
-                    src,
-                    entities.resolver,
-                    f"{'wpad' if index % 2 else 'isatap'}.{benign_parent}",
-                    "NXDOMAIN",
-                    anchor + min(index * max(epoch_s // 2, 1), window_s),
-                    session,
+        window_s = max(epochs * epoch_s, 1)
+        foil_n = min(len(events), max(self.max_events - len(events), 0))
+        if foil_n:
+            foil_nx_ratio = float(rng.uniform(0.02, 0.08))
+            foil_fail_n = min(max(1, round(foil_n * foil_nx_ratio)), foil_n)
+            fail_slots = {int(i) for i in rng.permutation(foil_n)[:foil_fail_n]}
+            ok_names = [f"{label}.{benign_parent}" for label in _FOIL_RESOLVED_LABELS]
+            # Lookups are dominated by a few names, as a host's are.
+            ok_weights = [1.0 / (rank + 1) ** 1.5 for rank in range(len(ok_names))]
+            ok_p = [w / sum(ok_weights) for w in ok_weights]
+            stale_names = [f"{label}.{benign_parent}" for label in _FOIL_STALE_LABELS]
+            ok_ips = list(entities.benign_external)
+            # Integer seconds inside [0, window_s): never past the plan window.
+            times = sorted(int(t) for t in rng.integers(0, window_s, foil_n))
+            for index, when in enumerate(times):
+                failed = index in fail_slots
+                events.append(
+                    self._dns_response_record(
+                        rng,
+                        src,
+                        entities.resolver,
+                        (
+                            str(rng.choice(stale_names))
+                            if failed
+                            else str(rng.choice(ok_names, p=ok_p))
+                        ),
+                        "NXDOMAIN" if failed else "NOERROR",
+                        anchor + when,
+                        session,
+                        None if failed else str(rng.choice(ok_ips)),
+                    )
                 )
-            )
-            session += 1
+                session += 1
 
         self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
             f"{epochs} epoch(s) of {domains_per_epoch} distinct generated domains, "
             f"{nx_ratio:.0%} answered NXDOMAIN and {resolved_total} resolved (the "
-            "registered rendezvous domain). A benign NXDOMAIN trickle is included so "
-            "thresholding on NXDOMAIN alone does not look sufficient."
+            "registered rendezvous domain). The same host's ordinary resolver traffic "
+            "is included over the same window: mostly NOERROR for a few repeating "
+            "names, with a low NXDOMAIN ratio over a few repeating stale names, so "
+            "neither NXDOMAIN presence nor query volume separates it."
         )
         return events, note, truncated
 
@@ -2827,8 +2930,21 @@ class ScenarioEngine:
             else int(preset["window_min"]) * 60
         )
 
-        pool = entities.internal_hosts
-        hops = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(path_len, len(pool)))]
+        # A scenario pins the workstation pool to its one victim and keeps the
+        # rest in internal_network. A path needs more than one workstation, so
+        # the hops come from the whole pool, and under pinning the victim is hop
+        # 1: the address the entry VPN login is assigned, which is what joins
+        # this stage to a VPN stage before it. Until 2026-11-10 a pinned run had
+        # a one-host pool and could not be planned at all.
+        pool = entities.internal_wide
+        first_hop = entities.pinned_victim
+        if first_hop is None:
+            hops = [pool[i] for i in unique_ints(rng, 0, len(pool) - 1, min(path_len, len(pool)))]
+        else:
+            rest = [host for host in pool if host != first_hop]
+            wanted = min(path_len - 1, len(rest))
+            later = unique_ints(rng, 0, len(rest) - 1, wanted) if wanted else []
+            hops = [first_hop] + [rest[i] for i in later]
         user_pool = entities.users
         # A path of N hosts can carry at most N distinct causal identities: one
         # on entry and one at each later hop. Cap overrides to that physical
@@ -3402,58 +3518,178 @@ class ScenarioEngine:
                 break
             elapsed += int(rng.integers(gap_lo, gap_hi + 1))
 
+        # Everything below draws from the rng AFTER the chain, so the positive
+        # stream for a given seed is what it was before the controls changed.
+        chain = list(events)
+        chain_pair = frozenset((chain_src, chain_dst))
+        used_stages = sorted({_IPS_STAGE_INDEX[str(e.extra["stage"])] for e in chain})
+        last_stage = stages - 1
+
+        # The second negative control's pair: a different external source and a
+        # different internal target. Under scenario pinning adversary_external
+        # may hold the chain's source alone, so fall back to the scanner and then
+        # the benign pools; the chain's pair is never reused.
+        control_src = ""
+        for pool in (
+            entities.adversary_external,
+            entities.scanner_external,
+            entities.benign_external,
+        ):
+            candidates = [a for a in pool if a != chain_src]
+            if candidates:
+                control_src = str(candidates[int(rng.integers(0, len(candidates)))])
+                break
+        target_candidates = [t for t in entities.internal_targets if t != chain_dst]
+        control_dst = (
+            str(target_candidates[int(rng.integers(0, len(target_candidates)))])
+            if target_candidates
+            else ""
+        )
+        control_pair = frozenset((control_src, control_dst))
+        reserved_pairs = (chain_pair, control_pair)
+
+        def _ips_alert(
+            stage_index: int,
+            attack: str,
+            attackid: str,
+            ext: str,
+            internal: str,
+            eventtime: int,
+            request: str,
+            session_id: int,
+        ) -> EventRecord:
+            """One alert carrying the chain's own fields for ``stage_index``.
+
+            The exfil stage is raised on the flow leaving the internal host, as
+            in the chain: the pair reversed, direction outgoing.
+            """
+
+            stage_name, ips_severity, _ = _IPS_STAGES[stage_index]
+            outbound = stage_name == "exfil"
+            flow_src, flow_dst = (internal, ext) if outbound else (ext, internal)
+            return EventRecord(
+                log_type="utm",
+                subtype="ips",
+                action="reset" if stage_index < last_stage else "block",
+                level=_IPS_LEVEL_BY_SEVERITY[ips_severity],
+                eventtime=eventtime,
+                src=flow_src,
+                spt=int(rng.integers(1024, 65535)),
+                dst=flow_dst,
+                dpt=443,
+                proto=6,
+                session_id=session_id,
+                extra={
+                    "eventtype": "signature",
+                    "ips_severity": ips_severity,
+                    "service": "HTTPS",
+                    "policyid": "7",
+                    "attack": attack,
+                    "attackid": attackid,
+                    "hostname": flow_dst,
+                    "request": request,
+                    "direction": "outgoing" if outbound else "incoming",
+                    "profile": "default",
+                    "cnt": "1",
+                    "msg": f"applications3A {attack}",
+                },
+            )
+
         foil_start = len(events)
-        # Unrelated alert noise on other entity pairs, spread across the whole
-        # window. A rule that fires on any N alerts in a window fires on this.
+        # Negative control 1: alert noise on other entity pairs, spread across
+        # the whole window. Each noise alert takes the severity, level, action
+        # and direction of one stage the chain uses, and that stage's own
+        # signature about half the time, so severity, signature name and action
+        # do not pick the chain out. Coverage is by construction: every used
+        # stage appears with each of its own signatures and once with a generic
+        # draw before the rest are drawn at random, and the order is shuffled.
+        assignments: list[tuple[int, int | None]] = []
+        for stage_index in used_stages:
+            for sig_index in range(len(_IPS_STAGES[stage_index][2])):
+                assignments.append((stage_index, sig_index))
+        for stage_index in used_stages:
+            assignments.append((stage_index, None))
+        assignments = assignments[:noise_alerts]
+        while len(assignments) < noise_alerts:
+            stage_index = used_stages[int(rng.integers(0, len(used_stages)))]
+            own = _IPS_STAGES[stage_index][2]
+            pick: int | None = int(rng.integers(0, len(own))) if rng.random() < 0.5 else None
+            assignments.append((stage_index, pick))
+        order = [int(slot) for slot in rng.permutation(len(assignments))] if assignments else []
         window = max(elapsed, 1)
-        for index in range(noise_alerts):
+        target_pool = entities.internal_targets
+        for index, slot in enumerate(order):
             if len(events) >= self.max_events:
                 truncated = True
                 break
-            attack, attackid = _IPS_SIGNATURES[int(rng.integers(0, len(_IPS_SIGNATURES)))]
-            target_pool = entities.internal_targets
+            stage_index, pick = assignments[slot]
+            if pick is None:
+                attack, attackid = _IPS_SIGNATURES[int(rng.integers(0, len(_IPS_SIGNATURES)))]
+            else:
+                attack, attackid = _IPS_STAGES[stage_index][2][pick]
+            noise_src = str(rng.choice(entities.adversary_external))
             noise_dst = str(rng.choice(target_pool))
-            if noise_dst == chain_dst:  # keep the noise off the chain's pair
-                noise_dst = target_pool[(target_pool.index(noise_dst) + 1) % len(target_pool)]
+            # Keep the noise off the chain's pair and the replay control's pair.
+            for _ in range(len(target_pool)):
+                if frozenset((noise_src, noise_dst)) not in reserved_pairs:
+                    break
+                noise_dst = str(target_pool[(target_pool.index(noise_dst) + 1) % len(target_pool)])
             events.append(
-                EventRecord(
-                    log_type="utm",
-                    subtype="ips",
-                    action="reset",
-                    # The same level a low-severity chain alert carries, so the
-                    # header severity cannot pick recon hits out of the noise.
-                    level=_IPS_LEVEL_BY_SEVERITY["low"],
-                    eventtime=anchor + int(index * window / max(noise_alerts, 1)),
-                    src=str(rng.choice(entities.adversary_external)),
-                    spt=int(rng.integers(1024, 65535)),
-                    dst=noise_dst,
-                    dpt=443,
-                    proto=6,
-                    session_id=session,
-                    extra={
-                        "eventtype": "signature",
-                        "ips_severity": "low",
-                        "service": "HTTPS",
-                        "policyid": "7",
-                        "attack": attack,
-                        "attackid": attackid,
-                        "hostname": noise_dst,
-                        "request": _IPS_REQUESTS[index % len(_IPS_REQUESTS)],
-                        "direction": "incoming",
-                        "profile": "default",
-                        "cnt": "1",
-                        "msg": f"applications3A {attack}",
-                    },
+                _ips_alert(
+                    stage_index,
+                    attack,
+                    attackid,
+                    noise_src,
+                    noise_dst,
+                    anchor + int(index * window / max(noise_alerts, 1)),
+                    _IPS_REQUESTS[index % len(_IPS_REQUESTS)],
+                    session,
                 )
             )
             session += 1
 
+        # Negative control 2: the chain's own alerts (same names, ids,
+        # severities, levels, actions and requests) replayed on one other pair
+        # with the stage blocks in reverse order. The times are the chain's
+        # mirrored across its own span, so each block keeps its internal spacing
+        # and the gaps between blocks, and the control covers the chain's span.
+        # Order on one pair is then the only thing that separates the chain.
+        if control_src and control_dst and chain:
+            blocks: dict[int, list[EventRecord]] = defaultdict(list)
+            for event in chain:
+                blocks[_IPS_STAGE_INDEX[str(event.extra["stage"])]].append(event)
+            replay = [
+                event for stage_index in reversed(used_stages) for event in blocks[stage_index]
+            ]
+            first, last = chain[0].eventtime, chain[-1].eventtime
+            mirrored = sorted(first + last - event.eventtime for event in chain)
+            shift = int(rng.integers(1, 6))
+            for event, when in zip(replay, mirrored, strict=True):
+                if len(events) >= self.max_events:
+                    truncated = True
+                    break
+                events.append(
+                    _ips_alert(
+                        _IPS_STAGE_INDEX[str(event.extra["stage"])],
+                        str(event.extra["attack"]),
+                        str(event.extra["attackid"]),
+                        control_src,
+                        control_dst,
+                        when + shift,
+                        str(event.extra["request"]),
+                        session,
+                    )
+                )
+                session += 1
+
         self._mark_negative(events, foil_start)
         events.sort(key=lambda e: e.eventtime)
         note = (
-            f"{stages}-stage ordered chain on one src/dst pair, interleaved with "
-            f"{noise_alerts} unrelated alerts. Stage order and the shared entity pair "
-            "are the correlation signal; the noise is what makes it non-trivial."
+            f"{stages}-stage ordered chain on one src/dst pair. Two negative controls: "
+            f"{noise_alerts} alerts on other pairs carrying the chain's own severities, "
+            "actions and signature names, and the chain's alerts replayed on one other "
+            "pair in reversed stage order. Kill-chain order on one pair is the only "
+            "separating feature."
         )
         return events, note, truncated
 
@@ -3706,7 +3942,7 @@ class ScenarioEngine:
         duration_override_s: int | None,
     ) -> _BuilderResult:
         failures = int(preset["failures"])
-        source_count = min(int(preset["sources"]), len(entities.adversary_external))
+        source_count = min(int(preset["sources"]), len(entities.adversary_wide))
         user_count = int(preset["users"])
         window_s = (
             duration_override_s
@@ -3723,10 +3959,38 @@ class ScenarioEngine:
         source_count = max(1, min(source_count, failures))
         user_count = max(1, min(user_count, failures))
 
-        attack_indices = unique_ints(rng, 0, len(entities.adversary_external) - 1, source_count)
-        attack_sources = [entities.adversary_external[index] for index in attack_indices]
-        benign_indices = unique_ints(rng, 0, len(entities.benign_external) - 1, source_count)
-        benign_sources = [entities.benign_external[index] for index in benign_indices]
+        adversary_pool = entities.adversary_wide
+        benign_pool = entities.benign_external
+        if len(adversary_pool) > 1 and benign_pool:
+            # Both streams span both external /24s by construction, so pool
+            # membership is not a free reputation feature: each stream takes
+            # about half its sources from each pool, and the two source sets
+            # are disjoint. Per-source failure counts are unchanged, because
+            # the loop below cycles a stream's sources evenly.
+            source_count = min(source_count, len(benign_pool))
+            from_adv = unique_ints(rng, 0, len(adversary_pool) - 1, source_count)
+            from_ben = unique_ints(rng, 0, len(benign_pool) - 1, source_count)
+            attack_adv = [adversary_pool[i] for i in from_adv[: (source_count + 1) // 2]]
+            foil_adv = [adversary_pool[i] for i in from_adv[(source_count + 1) // 2 :]]
+            foil_ben = [benign_pool[i] for i in from_ben[: (source_count + 1) // 2]]
+            attack_ben = [benign_pool[i] for i in from_ben[(source_count + 1) // 2 :]]
+            through_line = entities.pinned_adversary
+            if through_line and through_line not in attack_adv:
+                # A scenario's adversary must be one of the attack's sources. It
+                # takes the first adversary-pool slot, and if the foil had drawn
+                # it the displaced address goes there, so the sets stay disjoint.
+                displaced, attack_adv[0] = attack_adv[0], through_line
+                foil_adv = [displaced if ip == through_line else ip for ip in foil_adv]
+            attack_sources = _interleave(attack_adv, attack_ben)
+            benign_sources = _interleave(foil_ben, foil_adv)
+        else:
+            # A hand-built model with a one-address adversary pool: the foil
+            # cannot share it, so the benign pool is its only source.
+            adversary_pool = entities.adversary_external
+            attack_indices = unique_ints(rng, 0, len(adversary_pool) - 1, source_count)
+            attack_sources = [adversary_pool[index] for index in attack_indices]
+            benign_indices = unique_ints(rng, 0, len(benign_pool) - 1, source_count)
+            benign_sources = [benign_pool[index] for index in benign_indices]
         users = synthetic_usernames(user_count * 2, entities.users)
         attack_users = users[:user_count]
         benign_users = users[user_count:]

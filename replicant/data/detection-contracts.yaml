@@ -102,7 +102,7 @@ contracts:
     observation_window: {parameters: [session_min], description: "Long-lived traffic is measured across the selected session duration."}
     measurable_axes:
       - {id: sessions, description: "The positive stream contains the selected session count.", metric: event_count, parameter: sessions}
-    negative: {mode: standalone, reason: "Bursty benign long sessions overlap ports, duration, and volume.", separable_by: [steady_share_cadence_and_context]}
+    negative: {mode: standalone, reason: "Benign long sessions share the miner's port, session count, span, record count, and cadence; only the byte profile (bursty against small, steady, near 1:1) separates them.", separable_by: [steady_share_cadence_and_context]}
 
   - technique_id: REP-015
     observation_window: {parameters: [duration_h], description: "Low-throughput DNS cardinality is accumulated across the selected hours."}
@@ -114,7 +114,7 @@ contracts:
     observation_window: {parameters: [epochs], description: "Response outcomes and generated-name clusters are measured across all epochs."}
     measurable_axes:
       - {id: response_code, description: "DNS response records expose the resolution outcome.", metric: field_presence, field: FTNTFGTrcode}
-    negative: {mode: standalone, reason: "A benign NXDOMAIN trickle overlaps the response family without the DGA cluster shape.", separable_by: [nxdomain_ratio, label_cluster_shape]}
+    negative: {mode: standalone, reason: "The same host's ordinary resolver traffic overlaps the response family at similar volume, mostly NOERROR with a low NXDOMAIN ratio over a few repeating names, without the DGA cluster shape.", separable_by: [nxdomain_ratio, label_cluster_shape]}
 
   - technique_id: REP-017
     observation_window: {parameters: [baseline_min, switch_at_min], description: "Resolver traffic history precedes the switch to HTTPS flows."}
@@ -150,7 +150,7 @@ contracts:
     observation_window: {parameters: [stage_gap_s], description: "Labeled alert stages are correlated in event-time order."}
     measurable_axes:
       - {id: alert_timeline, description: "The alert chain spans multiple event times.", metric: temporal_span}
-    negative: {mode: standalone, reason: "Unrelated alert noise overlaps the same family without the ordered joined chain.", separable_by: [stage_order_and_join]}
+    negative: {mode: standalone, reason: "Alert noise on other pairs carries the chain's severities, actions and signature names, and the chain's own alerts replay on another pair in reversed stage order; only kill-chain order on one pair separates them.", separable_by: [stage_order_and_join]}
 
   - technique_id: REP-023
     observation_window: {parameters: [interval_s], description: "Flow-only sessions are measured over the generated callback span."}

@@ -46,3 +46,20 @@ scenarios:
       - { technique_id: REP-054, label: "staging fan-in",  intensity: medium, start_offset: "0s" }
       - { technique_id: REP-005, label: "bulk exfil",      intensity: high,   start_offset: "2h", align: "next-off-hours" }
     references: ["ATT&CK chain: TA0009 Collection -> TA0010 Exfiltration"]
+
+  - id: SCEN-005
+    name: "Unfamiliar VPN source to lateral movement to SMB write fan-out"
+    description: "A VPN login from a network the user has never used, a login chain across workstations, then a write fan-out to file shares from the host the chain ended on."
+    # Two joins, both measured by the advisory rather than assumed here.
+    # 1. REP-046's VPN logins are assigned the pinned victim (every tunnel-up draws its
+    #    tunnelip from the workstation pool, which pinning narrows to the victim), and
+    #    REP-018's path starts at the pinned victim. The join is the address. It does not
+    #    single out the unfamiliar login, and no username is carried from stage 0 to 1.
+    # 2. REP-052 takes its source from the last host of REP-018's path
+    #    (source_host: previous-path-end), so the fan-out leaves from where the lateral
+    #    movement arrived, not from where it began.
+    stages:
+      - { technique_id: REP-046, label: "unfamiliar vpn source", intensity: medium, start_offset: "0s" }
+      - { technique_id: REP-018, label: "login chain",           intensity: medium, start_offset: "14h" }
+      - { technique_id: REP-052, label: "smb write fan-out",     intensity: medium, start_offset: "15h", source_host: previous-path-end }
+    references: ["ATT&CK chain: TA0001 Initial Access -> TA0008 Lateral Movement -> TA0040 Impact"]

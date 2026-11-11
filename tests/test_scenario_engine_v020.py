@@ -685,9 +685,16 @@ def test_rep022_chain_is_buried_in_unrelated_alert_noise() -> None:
     """AACT found 61% of real SOC alerts closable. A clean chain overstates any rule."""
     preset = CATALOG.by_id("REP-022").params["medium"]
     plan = _plan("REP-022", "medium", 1337)
-    noise = [e for e in plan.events if "stage" not in e.extra]
+    chain = [e for e in plan.events if "stage" in e.extra]
+    negative = [e for e in plan.events if "stage" not in e.extra]
+    # Since 2026-11 the negative stream also holds the chain's alerts replayed on
+    # one other pair in reversed stage order; the noise is everything else.
+    per_pair = Counter(frozenset((str(e.src), str(e.dst))) for e in negative)
+    replay_pair, replay_count = per_pair.most_common(1)[0]
+    assert replay_count == len(chain)
+    noise = [e for e in negative if frozenset((str(e.src), str(e.dst))) != replay_pair]
     assert len(noise) == int(preset["noise_alerts"])
-    chain_pair = {(str(e.src), str(e.dst)) for e in plan.events if "stage" in e.extra}
+    chain_pair = {(str(e.src), str(e.dst)) for e in chain}
     assert all((str(e.src), str(e.dst)) not in chain_pair for e in noise)
 
 

@@ -68,6 +68,33 @@ class StageResult:
     # stage to the host-keyed stages that follow it.
     top_tunnelip: str | None = None
     top_tunnelip_count: int = 0
+    # Users that appear in this stage's positive VPN authentication events: the
+    # targets of a failed login (`ssl-login-fail`) and the users that logged in
+    # (`tunnel-up`). The advisory joins them across stages to measure whether a
+    # sprayed user is the one that later logs in. Sorted for determinism.
+    failed_users: tuple[str, ...] = ()
+    success_users: tuple[str, ...] = ()
+    # The lateral path this stage's positive traffic legs trace, host by host:
+    # each leg's source is the previous leg's destination. Empty unless at least
+    # two legs chain, so a scan or a fan-out (one source, many destinations) has
+    # none. Read from the emitted events, never from the technique's parameters.
+    path: tuple[str, ...] = ()
+
+
+def _lateral_path(events: list[EventRecord]) -> tuple[str, ...]:
+    """The chain of hosts the traffic legs trace in time order, or () if fewer
+    than two legs chain. A leg is an event with both a source and a destination;
+    it extends the path when its source is the path's current end and its
+    destination is a host the path has not visited."""
+
+    legs = sorted((e for e in events if e.src and e.dst), key=lambda e: e.eventtime)
+    if not legs:
+        return ()
+    path = [str(legs[0].src), str(legs[0].dst)]
+    for leg in legs[1:]:
+        if leg.src == path[-1] and leg.dst not in path:
+            path.append(str(leg.dst))
+    return tuple(path) if len(path) >= 3 else ()
 
 
 def _dominant(values: list[str]) -> tuple[str | None, int]:
@@ -105,7 +132,16 @@ def _pin_entities(base: EntityModel, seed: int) -> tuple[EntityModel, str, str]:
     rng = np.random.default_rng(seed)
     victim = str(rng.choice(base.internal_hosts))
     adversary = str(rng.choice(base.adversary_external))
-    pinned = replace(base, internal_hosts=[victim], adversary_external=[adversary])
+    # adversary_network keeps the whole pool so a stage's foil or history can still
+    # draw a second address from the adversary's network; only the through-line is
+    # narrowed (2026-11 review, the pinned-run pool split).
+    pinned = replace(
+        base,
+        internal_hosts=[victim],
+        adversary_external=[adversary],
+        adversary_network=list(base.adversary_external),
+        internal_network=list(base.internal_hosts),
+    )
     return pinned, victim, adversary
 
 
@@ -130,16 +166,28 @@ def _compose_pass(
     stages: list[StageResult] = []
     warmups: list[str] = []
     negative_count = 0
+    # Every stage's lateral path, from its whole positive stream whichever
+    # streams are emitted: a foils-only run still has to hand the same host on.
+    paths: list[tuple[str, ...]] = []
     for i, stage in enumerate(scenario.stages):
         technique = technique_by_id(stage.technique_id)
         stage_seed = int(children[i].generate_state(1)[0])
         stage_anchor = anchor_epoch + int(parse_duration(stage.start_offset) * offset_scale)
         intensity = intensity_override or stage.intensity
         stage_duration = stage_durations[i] if stage_durations else None
+        stage_entities = pinned
+        if stage.source_host == "previous-path-end":
+            handed = next((path for path in reversed(paths) if path), None)
+            if handed is None:
+                raise ValueError(
+                    f"{scenario.id} stage {i} ({stage.technique_id}) takes its host from the "
+                    "previous lateral path, and no earlier stage emitted one"
+                )
+            stage_entities = replace(pinned, internal_hosts=[handed[-1]])
         plan = engine.plan(
             technique,
             intensity,
-            pinned,
+            stage_entities,
             stage_seed,
             duration_override_s=stage_duration,
             anchor_epoch=stage_anchor,
@@ -162,7 +210,7 @@ def _compose_pass(
                 plan = engine.plan(
                     technique,
                     intensity,
-                    pinned,
+                    stage_entities,
                     stage_seed,
                     duration_override_s=stage_duration,
                     anchor_epoch=stage_anchor + aligned_days * _DAY_SECONDS,
@@ -180,6 +228,7 @@ def _compose_pass(
         wanted = {"both": ("positive", "negative"), "negative": ("negative",)}.get(
             controls, ("positive",)
         )
+        paths.append(_lateral_path([e for e in plan.events if e.control == "positive"]))
         emitted = [event for event in plan.events if event.control in wanted]
         stage_events = [event for event in emitted if event.control == "positive"]
         negative_count += len(emitted) - len(stage_events)
@@ -193,6 +242,12 @@ def _compose_pass(
         top_user, top_user_count = _dominant([e.duser for e in stage_events if e.duser])
         top_tunnelip, top_tunnelip_count = _dominant(
             [e.extra["tunnelip"] for e in stage_events if "tunnelip" in e.extra]
+        )
+        failed_users = tuple(
+            sorted({e.duser for e in stage_events if e.action == "ssl-login-fail" and e.duser})
+        )
+        success_users = tuple(
+            sorted({e.duser for e in stage_events if e.action == "tunnel-up" and e.duser})
         )
         stages.append(
             StageResult(
@@ -218,6 +273,9 @@ def _compose_pass(
                 top_user_count=top_user_count,
                 top_tunnelip=top_tunnelip,
                 top_tunnelip_count=top_tunnelip_count,
+                failed_users=failed_users,
+                success_users=success_users,
+                path=_lateral_path(stage_events),
             )
         )
     tagged.sort(key=lambda item: (item[0], item[1]))
